@@ -37,11 +37,16 @@ $clangCl = Resolve-LlvmTool "clang-cl"
 $clang = Resolve-LlvmTool "clang"
 $lldLink = Resolve-LlvmTool "lld-link"
 
-$clangVersion = (& $clangCl --version 2>&1 | Select-Object -First 1)
-if ($LASTEXITCODE -ne 0 -or $clangVersion -notmatch 'clang version\s+(\d+)') {
-    throw "Unable to determine the clang-cl version from '$clangCl'. Output: $clangVersion"
+$clangVersionOutput = (& $clangCl --version 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to execute clang-cl at '$clangCl'. Output: $clangVersionOutput"
 }
-$clangMajor = [int]$Matches[1]
+$versionMatch = [regex]::Match($clangVersionOutput, 'clang version\s+(\d+)')
+if (-not $versionMatch.Success) {
+    throw "Unable to determine the clang-cl version from '$clangCl'. Output: $clangVersionOutput"
+}
+$clangMajor = [int]$versionMatch.Groups[1].Value
+$clangVersion = ($clangVersionOutput -split '\r?\n')[0]
 $minimumClangMajor = 17
 if ($env:VCToolsVersion -match '^14\.(\d+)\.') {
     if ([int]$Matches[1] -ge 52) { $minimumClangMajor = 22 }
