@@ -312,6 +312,16 @@ TEST_CASE("Tessera's bounded x86/x64 decoder reports instruction and relocation 
     REQUIRE(stack_adjust.first);
     REQUIRE(stack_adjust.second.length == 7);
 
+    const auto rex_w_adjust = decode(
+        Mode::x64, {0x66, 0x48, 0x81, 0xEC, 0x08, 0x00, 0x00, 0x00});
+    REQUIRE(rex_w_adjust.first);
+    REQUIRE(rex_w_adjust.second.length == 8);
+
+    const auto movabs = decode(
+        Mode::x64, {0x48, 0xB8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08});
+    REQUIRE(movabs.first);
+    REQUIRE(movabs.second.length == 10);
+
     const auto xbegin = decode(Mode::x64, {0xC7, 0xF8, 0x01, 0x00, 0x00, 0x00});
     REQUIRE(xbegin.first);
     REQUIRE(xbegin.second.length == 6);
