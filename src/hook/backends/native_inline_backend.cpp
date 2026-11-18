@@ -16,6 +16,7 @@
 
 #include "platform/windows/thread_backend.hpp"
 #include "patch_write_transaction.hpp"
+#include "address_range.hpp"
 
 #if defined(_M_X64) || defined(__x86_64__)
     #define TESSERA_HOOK_X64 1
@@ -137,15 +138,8 @@ struct NativeHookState {
                              std::size_t lhs_size,
                              std::uintptr_t rhs_begin,
                              std::size_t rhs_size) noexcept {
-    // Compare distances instead of computing end addresses: even though hook
-    // ranges are small, end-address addition must not wrap at uintptr_t limits.
-    if (lhs_size == 0 || rhs_size == 0) {
-        return false;
-    }
-    if (lhs_begin <= rhs_begin) {
-        return rhs_begin - lhs_begin < lhs_size;
-    }
-    return lhs_begin - rhs_begin < rhs_size;
+    return detail::address_ranges_overlap(
+        lhs_begin, lhs_size, rhs_begin, rhs_size);
 }
 
 [[nodiscard]] bool is_executable_protection(DWORD protect) noexcept {
@@ -686,14 +680,6 @@ public:
         if (policy_ == ThreadPolicy::None) {
             return ok();
         }
-        const auto contains = [](std::uintptr_t range_begin,
-                                 std::size_t range_size,
-                                 std::uintptr_t address) noexcept {
-            // Subtraction avoids overflow when a range ends at the top of the
-            // process address space.
-            return range_size != 0 && address >= range_begin &&
-                   address - range_begin < range_size;
-        };
         for (HANDLE thread : suspended_) {
             CONTEXT context{};
             context.ContextFlags = CONTEXT_CONTROL;
@@ -714,8 +700,8 @@ public:
             const std::uintptr_t instruction_pointer =
                 static_cast<std::uintptr_t>(context.Eip);
 #endif
-            if (contains(begin, size, instruction_pointer) ||
-                contains(second_begin, second_size, instruction_pointer)) {
+            if (detail::address_range_contains(begin, size, instruction_pointer) ||
+                detail::address_range_contains(second_begin, second_size, instruction_pointer)) {
                 return fail(ErrorCode::Conflict,
                             "NativeInlineHook::thread_ip",
                             0,
