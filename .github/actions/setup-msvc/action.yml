@@ -1,0 +1,33 @@
+name: Setup MSVC Developer Environment
+description: Configure MSVC without a deprecated Node.js action
+inputs:
+  arch:
+    description: Target architecture (x86 or x64)
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Locate Visual Studio and export MSVC environment
+      shell: pwsh
+      env:
+        MSVC_ARCH: ${{ inputs.arch }}
+      run: |
+        $ErrorActionPreference = "Stop"
+        if ($env:MSVC_ARCH -notin @("x86", "x64")) {
+          throw "Unsupported MSVC architecture: $env:MSVC_ARCH"
+        }
+        $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+        if (-not (Test-Path $vswhere)) { throw "vswhere.exe was not found: $vswhere" }
+        $vsPath = & $vswhere -latest -products "*" -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+        if ($LASTEXITCODE -ne 0 -or -not $vsPath) { throw "Visual Studio with MSVC C++ tools was not found." }
+        $vcvarsall = Join-Path $vsPath "VC\Auxiliary\Build\vcvarsall.bat"
+        if (-not (Test-Path $vcvarsall)) { throw "vcvarsall.bat was not found: $vcvarsall" }
+        $cmdLine = 'call "' + $vcvarsall + '" ' + $env:MSVC_ARCH + ' >nul && set'
+        $environment = & $env:ComSpec /d /s /c $cmdLine
+        if ($LASTEXITCODE -ne 0) { throw "vcvarsall.bat failed for $env:MSVC_ARCH." }
+        foreach ($line in $environment) {
+          if ($line -match '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
+            "$($Matches[1])=$($Matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+        }
+        Write-Host "Configured MSVC developer environment ($env:MSVC_ARCH) using $vsPath"

@@ -1,0 +1,153 @@
+#include <catch2/catch_test_macros.hpp>
+
+#include <array>
+#include <random>
+#include <vector>
+
+#include "FakeMemoryBackend.hpp"
+#include "tessera/module/module.hpp"
+#include "tessera/module/pe_image.hpp"
+#include "tessera/pattern/pattern.hpp"
+#include "tessera/resolver/resolver.hpp"
+
+#if !defined(TESSERA_PORTABLE_VALIDATION)
+TEST_CASE("ModuleCatalog and PeImage parsing on current process", "[module][pe]") {
+    using namespace tessera;
+
+    Process self = Process::current();
+    auto main_mod = ModuleCatalog::main_module(self);
+    REQUIRE(main_mod.has_value());
+    REQUIRE_FALSE(main_mod->name().empty());
+    REQUIRE_FALSE(main_mod->range().empty());
+
+    auto main_pe = main_mod->image();
+    REQUIRE(main_pe.has_value());
+    REQUIRE_FALSE(main_pe->imports().empty());
+    if (self.pointer_size() == 8) {
+        REQUIRE_FALSE(main_pe->exception_functions().empty());
+    }
+
+    // Empty name to ModuleCatalog::find is rejected (no silent main module fallback)
+    REQUIRE_FALSE(ModuleCatalog::find(self, u"").has_value());
+
+    // Find kernel32.dll case-insensitively
+    auto k32 = ModuleCatalog::find(self, u"KeRnEl32.dLl");
+    REQUIRE(k32.has_value());
+
+    auto k32_pe = k32->image();
+    REQUIRE(k32_pe.has_value());
+    REQUIRE_FALSE(k32_pe->sections().empty());
+    REQUIRE(k32_pe->find_section(".text").has_value());
+
+    // Resolve exported function via PeImage without GetProcAddress
+    auto exp = k32_pe->find_export("GetCurrentProcessId");
+    REQUIRE(exp.has_value());
+    REQUIRE_FALSE(exp->rva.is_zero());
+    REQUIRE_FALSE(exp->address.is_null());
+
+    // Corrupt PE bytes and random fuzz mutations are safely rejected without crashing
+    const std::array<std::byte, 64> bad_pe{std::byte{0x4D}, std::byte{0x5A}};
+    REQUIRE_FALSE(PeImage::from_raw_bytes(bad_pe).has_value());
+
+    std::mt19937 rng{0x7E55E4Au};
+    for (std::size_t len = 0; len <= 512; len += 16) {
+        std::vector<std::byte> fuzz_buf(len);
+        for (auto& b : fuzz_buf) {
+            b = static_cast<std::byte>(rng() & 0xFFu);
+        }
+        if (len >= 2) {
+            fuzz_buf[0] = std::byte{'M'};
+            fuzz_buf[1] = std::byte{'Z'};
+        }
+        auto parsed = PeImage::from_raw_bytes(fuzz_buf);
+        if (parsed.has_value()) {
+            (void)parsed->sections();
+            (void)parsed->exports();
+            (void)parsed->imports();
+            (void)parsed->exception_functions();
+            (void)parsed->code_view();
+        }
+    }
+}
+
+#endif // !TESSERA_PORTABLE_VALIDATION
+
+TEST_CASE("Resolver fluent AddressCursor and pipe/monadic adapters", "[resolver]") {
+    using namespace tessera;
+    using namespace tessera::literals;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    backend->map_region(Address{0x400000}, 0x4000, MemoryProtection::ExecuteReadWrite);
+
+    // Place instruction at 0x400100: 48 8B 05 [disp32 to 0x401000] 48 85 C0
+    // Next IP = 0x400107, target = 0x401000 => disp32 = 0x401000 - 0x400107 = 0xEF9
+    const std::array<std::byte, 10> code{
+        std::byte{0x48}, std::byte{0x8B}, std::byte{0x05},
+        std::byte{0xF9}, std::byte{0x0E}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x48}, std::byte{0x85}, std::byte{0xC0}};
+    backend->poke_bytes(Address{0x400100}, code);
+
+    // At 0x401000: pointer to object at 0x402000
+    backend->poke_value<std::uint64_t>(Address{0x401000}, 0x402000ULL);
+    // At 0x402000 + 0x120: int hp = 9001
+    backend->poke_value<std::int32_t>(Address{0x402120}, 9001);
+
+    Process proc = FakeMemoryBackend::make_process(backend, Architecture::X64);
+    Scanner scanner{proc};
+    const AddressRange mod_range{Address{0x400000}, 0x4000};
+    constexpr Pattern sig = "48 8B 05 ?? ?? ?? ?? 48 85 C0"_sig;
+
+    // 1. Fluent dot-chaining via AddressCursor
+    Result<int> hp1 = scanner.find_unique_cursor(mod_range, sig)
+                          .rel32(3, 7)
+                          .deref()
+                          .offset(0x120)
+                          .read<int>();
+    REQUIRE(hp1.has_value());
+    REQUIRE(*hp1 == 9001);
+
+    // 2. Pipe (|) operator chaining
+    Result<int> hp2 = scanner.find_unique(mod_range, sig) | bind_process(proc) |
+                      resolve::rel32(3, 7) | resolve::deref | resolve::offset(0x120) | tessera::read<int>;
+    REQUIRE(hp2.has_value());
+    REQUIRE(*hp2 == 9001);
+
+    // 3. std::expected monadic chaining (transform / and_then)
+    Result<int> hp3 = scanner.find_unique(mod_range, sig)
+                          .transform(bind_process(proc))
+                          .and_then(resolve::rel32(3, 7))
+                          .and_then(resolve::deref)
+                          .and_then(resolve::offset(0x120))
+                          .and_then(tessera::read<int>);
+    REQUIRE(hp3.has_value());
+    REQUIRE(*hp3 == 9001);
+
+    // follow_rip on 48 8B 05 disp32 resolves to 0x401000
+    auto rip_target = ProcessAddress{proc, Address{0x400100}}.cursor().follow_rip().address();
+    REQUIRE(rip_target.has_value());
+    REQUIRE(*rip_target == Address{0x401000});
+
+    // Cheat-Engine style pointer_chain: [[base + 0x10] + 0x20] + 0x30 (last offset only added)
+    backend->poke_value<std::uint64_t>(Address{0x403010}, 0x403100ULL);
+    backend->poke_value<std::uint64_t>(Address{0x403120}, 0x403200ULL);
+    auto chain_end = ProcessAddress{proc, Address{0x403000}}
+                         .cursor()
+                         .pointer_chain(0x10, 0x20, 0x30)
+                         .address();
+    REQUIRE(chain_end.has_value());
+    REQUIRE(*chain_end == Address{0x403230});
+
+    // x86 abs32 resolution
+    Process proc_x86 = FakeMemoryBackend::make_process(backend, Architecture::X86);
+    backend->poke_value<std::uint8_t>(Address{0x400200}, 0xA1u); // mov eax, [abs32]
+    backend->poke_value<std::uint32_t>(Address{0x400201}, 0x00401500u);
+    auto abs_res = ProcessAddress{proc_x86, Address{0x400200}}.cursor().abs32(1).address();
+    REQUIRE(abs_res.has_value());
+    REQUIRE(*abs_res == Address{0x00401500});
+
+    auto rva_res = resolve::abs32_to_rva(
+        ProcessAddress{proc_x86, Address{0x400200}}, 1, 0x00400000ULL);
+    REQUIRE(rva_res.has_value());
+    REQUIRE(rva_res->value() == 0x1500u);
+}

@@ -1,0 +1,77 @@
+name: Import Tessera source archive
+
+'on':
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/import-source.yml'
+      - 'Tessera_Release_Source_0.1.0_R22.zip'
+
+permissions:
+  contents: write
+
+jobs:
+  import-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate and extract source archive
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import shutil
+          import stat
+          import tempfile
+          import zipfile
+
+          archive = Path("Tessera_Release_Source_0.1.0_R22.zip")
+          if not archive.is_file():
+              raise SystemExit(f"Missing source archive: {archive}")
+
+          with zipfile.ZipFile(archive) as zf:
+              infos = zf.infolist()
+              if not infos:
+                  raise SystemExit("The source archive is empty.")
+
+              for info in infos:
+                  rel = PurePosixPath(info.filename)
+                  if rel.is_absolute() or ".." in rel.parts or not rel.parts or rel.parts[0] != "Tessera":
+                      raise SystemExit(f"Rejected unsafe or unexpected archive path: {info.filename}")
+                  mode = (info.external_attr >> 16) & 0o170000
+                  if mode == stat.S_IFLNK:
+                      raise SystemExit(f"Rejected symbolic link in archive: {info.filename}")
+
+              if "Tessera/CMakeLists.txt" not in {i.filename for i in infos}:
+                  raise SystemExit("Expected Tessera/CMakeLists.txt was not found.")
+              if "Tessera/README.md" not in {i.filename for i in infos}:
+                  raise SystemExit("Expected Tessera/README.md was not found.")
+
+              with tempfile.TemporaryDirectory(prefix="tessera-import-") as tmp:
+                  zf.extractall(tmp)
+                  source = Path(tmp) / "Tessera"
+                  if not (source / "CMakeLists.txt").is_file():
+                      raise SystemExit("Extracted source tree is incomplete.")
+                  shutil.copytree(source, Path("."), dirs_exist_ok=True)
+
+          print(f"Validated and imported {len(infos)} archive entries.")
+          PY
+
+      - name: Commit imported source tree
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cp .github/workflows/ci.yml ci-workflow-source.txt
+          git add -A
+          # The GitHub App token lacks the special workflows permission.
+          # Keep the project's CI workflow out of this push; import the rest.
+          git reset -q -- .github/workflows/ci.yml || true
+          if git diff --cached --quiet; then
+            echo "No source changes to commit."
+          else
+            git commit -m "Import Tessera 0.1.0 source tree from release archive"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi

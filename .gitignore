@@ -1,0 +1,52 @@
+# Build & Install Artifacts
+artifacts/
+build/
+out/
+dist/
+vcpkg_installed/
+.cache/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+_deps/
+
+# MSVC / Visual Studio / IDE files
+.vs/
+.vscode/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+*.aps
+*.ncb
+*.opendb
+*.sdf
+*.cachefile
+*.ipch
+*.pdb
+*.ilk
+*.iobj
+*.ipdb
+*.obj
+*.lib
+*.exp
+*.exe
+*.dll
+
+# Temporary test outputs
+*.tmp
+*.bak
+*.lock
+
+# Portable validation build outputs (sources, corpora, and logs remain checked in)
+verify/portable/rebuild_*/
+verify/portable/libfuzzer/
+verify/windows_mock/build/
+
+# Host-side Windows mock test outputs
+verify/windows_mock/bin/
+verify/windows_mock/*.log

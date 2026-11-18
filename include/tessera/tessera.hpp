@@ -1,0 +1,32 @@
+#pragma once
+
+// Tessera Umbrella Public Header
+// Note: tessera/platform/windows/native.hpp is intentionally excluded from the umbrella header
+// to preserve strict platform isolation by default.
+
+#include "tessera/core/core.hpp"
+#include "tessera/diagnostics/diagnostics.hpp"
+#include "tessera/filesystem/filesystem.hpp"
+#include "tessera/hook/hook.hpp"
+#include "tessera/json/json.hpp"
+#include "tessera/logging/logging.hpp"
+#include "tessera/memory/memory.hpp"
+#include "tessera/module/module.hpp"
+#include "tessera/module/pe_image.hpp"
+#include "tessera/patch/patch.hpp"
+#include "tessera/pattern/pattern.hpp"
+#include "tessera/process/process.hpp"
+#include "tessera/profile/profile.hpp"
+#include "tessera/profile/profile_json.hpp"
+#include "tessera/profiling/profiling.hpp"
+#include "tessera/reflection/reflection.hpp"
+#include "tessera/resolver/resolver.hpp"
+#include "tessera/rtti/discovery.hpp"
+#include "tessera/rtti/object_view.hpp"
+#include "tessera/rtti/python_bridge.hpp"
+#include "tessera/rtti/rtti.hpp"
+#include "tessera/scanner/scanner.hpp"
+#include "tessera/scanner/xref.hpp"
+#include "tessera/targets/targets.hpp"
+#include "tessera/utility/utility.hpp"
+#include "tessera/version.hpp"

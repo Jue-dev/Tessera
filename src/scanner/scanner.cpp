@@ -1,0 +1,409 @@
+#include "tessera/scanner/scanner.hpp"
+#include "tessera/scanner/xref.hpp"
+
+#include <algorithm>
+#include <cstring>
+#include <limits>
+#include <new>
+
+#include "tessera/core/checked_math.hpp"
+#include "tessera/memory/memory_backend.hpp"
+
+namespace tessera {
+
+namespace {
+
+constexpr std::uint64_t kPageSize = 0x1000ULL;
+
+template <class ChunkCallback>
+Result<ScanStats> for_each_readable_chunk(const Process& process,
+                                          AddressRange range,
+                                          std::size_t overlap,
+                                          const ScanOptions& options,
+                                          bool& out_cancelled,
+                                          ChunkCallback&& on_chunk) {
+    out_cancelled = false;
+    if (range.empty()) {
+        return fail(ErrorCode::InvalidArgument, "Scanner::scan", 0, "Scan range is empty");
+    }
+
+    auto range_end_res = range.end();
+    if (!range_end_res) {
+        return std::unexpected(range_end_res.error());
+    }
+
+    const std::uint64_t max_app = process.info().max_application_address;
+    const std::uint64_t scan_begin = range.begin().value();
+    const std::uint64_t scan_end = (std::min)(range_end_res->value(), max_app);
+    if (scan_begin >= scan_end) {
+        return ScanStats{};
+    }
+
+    const std::size_t chunk_sz = (std::max)(options.chunk_size, std::size_t{4096});
+    const IMemoryBackend& backend = memory_backend(process);
+
+    ScanStats stats{};
+    struct ContiguousRun {
+        std::uint64_t begin;
+        std::uint64_t end;
+    };
+
+    std::vector<ContiguousRun> runs;
+    std::uint64_t total_run_bytes = 0;
+
+    try {
+        std::uint64_t cur = scan_begin;
+        while (cur < scan_end) {
+            if (options.stop.stop_requested()) {
+                out_cancelled = true;
+                return stats;
+            }
+            auto q = backend.query(Address{cur});
+            if (!q) {
+                break;
+            }
+            auto r_end_res = checked_add<std::uint64_t>(q->base.value(), q->size);
+            if (!r_end_res || *r_end_res <= cur) {
+                break;
+            }
+            const std::uint64_t r_end = *r_end_res;
+            const std::uint64_t clipped_begin = (std::max)(cur, q->base.value());
+            const std::uint64_t clipped_end = (std::min)(r_end, scan_end);
+
+            if (clipped_begin < clipped_end && matches_region_filter(*q, options.filter)) {
+                ++stats.regions_scanned;
+                if (!runs.empty() && runs.back().end == clipped_begin) {
+                    runs.back().end = clipped_end;
+                } else {
+                    runs.push_back(ContiguousRun{clipped_begin, clipped_end});
+                }
+                total_run_bytes += (clipped_end - clipped_begin);
+            } else {
+                ++stats.regions_skipped;
+            }
+            cur = r_end;
+        }
+
+        std::vector<std::byte> buffer(chunk_sz + overlap);
+        bool keep_going = true;
+
+        for (const auto& run : runs) {
+            if (!keep_going) {
+                break;
+            }
+            std::uint64_t pos = run.begin;
+            while (pos < run.end && keep_going) {
+                if (options.stop.stop_requested()) {
+                    out_cancelled = true;
+                    return stats;
+                }
+
+                const std::uint64_t rem = run.end - pos;
+                const auto want = static_cast<std::size_t>(
+                    (std::min)(static_cast<std::uint64_t>(chunk_sz + overlap), rem));
+                const bool is_last_in_run = (want == rem);
+
+                auto got_res = backend.read(Address{pos}, std::span<std::byte>(buffer.data(), want));
+                const std::size_t got = got_res ? *got_res : 0;
+                const bool full_ok = got_res.has_value() && (got == want);
+
+                if (!full_ok) {
+                    ++stats.read_errors;
+                }
+
+                if (got > 0) {
+                    const std::size_t valid_Advance =
+                        (is_last_in_run || !full_ok) ? got : (std::min)(chunk_sz, got);
+                    stats.bytes_scanned += valid_Advance;
+                    const std::size_t start_limit = (is_last_in_run || !full_ok) ? got : chunk_sz;
+                    if (!on_chunk(std::span<const std::byte>(buffer.data(), got),
+                                  start_limit,
+                                  Address{pos},
+                                  stats.bytes_scanned,
+                                  total_run_bytes)) {
+                        keep_going = false;
+                        break;
+                    }
+                }
+
+                if (full_ok) {
+                    if (is_last_in_run) {
+                        break;
+                    }
+                    pos += chunk_sz;
+                } else {
+                    const std::uint64_t fail_at = pos + got;
+                    const std::uint64_t next_page = (fail_at & ~(kPageSize - 1ULL)) + kPageSize;
+                    if (next_page <= pos) {
+                        break;
+                    }
+                    pos = next_page;
+                }
+            }
+        }
+    } catch (const std::bad_alloc&) {
+        return fail(ErrorCode::OutOfMemory, "Scanner::scan");
+    }
+
+    return stats;
+}
+
+} // namespace
+
+Result<ScanResult> Scanner::scan(AddressRange range,
+                                 const Pattern& pattern,
+                                 const ScanOptions& options) const {
+    if (pattern.empty()) {
+        return fail(ErrorCode::InvalidPattern, "Scanner::scan", 0, "Pattern is empty");
+    }
+    if (range.empty()) {
+        return fail(ErrorCode::InvalidArgument, "Scanner::scan", 0, "AddressRange is empty");
+    }
+
+    DiagnosticObserver* obs = options.observer ? options.observer : process_.observer();
+    diagnostics::notify(obs, DiagnosticSeverity::Info, "Scanner", "Scan started");
+
+    ScanResult result{};
+    const std::size_t align = options.alignment > 0 ? options.alignment : 1;
+
+    try {
+        bool cancelled = false;
+        auto stats_res = for_each_readable_chunk(
+            process_,
+            range,
+            pattern.size() - 1,
+            options,
+            cancelled,
+            [&](std::span<const std::byte> data,
+                std::size_t start_limit,
+                Address chunk_base,
+                std::uint64_t scanned_so_far,
+                std::uint64_t total_bytes) -> bool {
+                bool continue_scan = true;
+                pattern.search(data, start_limit, [&](std::size_t match_off) -> bool {
+                    const std::uint64_t hit_addr = chunk_base.value() + match_off;
+                    if (align > 1 && (hit_addr % align) != 0) {
+                        return true;
+                    }
+                    result.hits.emplace_back(hit_addr);
+                    if (options.max_results > 0 && result.hits.size() >= options.max_results) {
+                        result.truncated = true;
+                        continue_scan = false;
+                        return false;
+                    }
+                    return true;
+                });
+
+                if (options.on_progress) {
+                    const ScanProgress prog{
+                        .bytes_scanned = scanned_so_far,
+                        .total_bytes = total_bytes,
+                        .hits_found = result.hits.size(),
+                    };
+                    const_cast<std::move_only_function<void(const ScanProgress&)>&>(
+                        options.on_progress)(prog);
+                }
+                return continue_scan;
+            });
+
+        if (!stats_res) {
+            return std::unexpected(stats_res.error());
+        }
+        result.stats = *stats_res;
+        result.cancelled = cancelled;
+        return result;
+    } catch (const std::bad_alloc&) {
+        return fail(ErrorCode::OutOfMemory, "Scanner::scan");
+    }
+}
+
+Result<Address> Scanner::find_first(AddressRange range,
+                                    const Pattern& pattern,
+                                    const ScanOptions& options) const {
+    ScanOptions first_opt{};
+    first_opt.max_results = 1;
+    first_opt.alignment = options.alignment;
+    first_opt.filter = options.filter;
+    first_opt.chunk_size = options.chunk_size;
+    first_opt.stop = options.stop;
+    first_opt.observer = options.observer;
+
+    auto res = scan(range, pattern, first_opt);
+    if (!res) {
+        return std::unexpected(res.error());
+    }
+    if (res->cancelled) {
+        return fail(ErrorCode::Cancelled, "Scanner::find_first");
+    }
+    if (res->hits.empty()) {
+        return fail(ErrorCode::NotFound, "Scanner::find_first");
+    }
+    return res->hits.front();
+}
+
+Result<Address> Scanner::find_unique(AddressRange range,
+                                     const Pattern& pattern,
+                                     const ScanOptions& options) const {
+    ScanOptions unique_opt{};
+    unique_opt.max_results = 2;
+    unique_opt.alignment = options.alignment;
+    unique_opt.filter = options.filter;
+    unique_opt.chunk_size = options.chunk_size;
+    unique_opt.stop = options.stop;
+    unique_opt.observer = options.observer;
+
+    auto res = scan(range, pattern, unique_opt);
+    if (!res) {
+        return std::unexpected(res.error());
+    }
+    if (res->cancelled) {
+        return fail(ErrorCode::Cancelled, "Scanner::find_unique");
+    }
+    if (res->hits.empty()) {
+        return fail(ErrorCode::NotFound, "Scanner::find_unique");
+    }
+    if (res->hits.size() > 1) {
+        return fail(ErrorCode::Ambiguous,
+                    "Scanner::find_unique",
+                    0,
+                    "Pattern matched more than one address");
+    }
+    return res->hits.front();
+}
+
+namespace xref {
+
+Result<std::vector<Address>> find_pointer_refs(const Process& process,
+                                               AddressRange range,
+                                               Address target,
+                                               const ScanOptions& options) {
+    if (target.is_null()) {
+        return fail(ErrorCode::NullAddress, "xref::find_pointer_refs");
+    }
+    const std::uint8_t ptr_size = process.pointer_size();
+    if (ptr_size == 4 && target.value() > 0xFFFFFFFFULL) {
+        return fail(ErrorCode::OutOfRange,
+                    "xref::find_pointer_refs",
+                    0,
+                    "Target address exceeds 32-bit pointer range for x86 process");
+    }
+
+    auto pat = (ptr_size == 8)
+                   ? Pattern::from_value<std::uint64_t>(target.value())
+                   : Pattern::from_value<std::uint32_t>(static_cast<std::uint32_t>(target.value()));
+    if (!pat) {
+        return std::unexpected(pat.error());
+    }
+
+    ScanOptions ptr_opt{};
+    ptr_opt.max_results = options.max_results;
+    ptr_opt.alignment = (options.alignment > 1) ? options.alignment : ptr_size;
+    ptr_opt.filter = options.filter;
+    ptr_opt.chunk_size = options.chunk_size;
+    ptr_opt.stop = options.stop;
+    ptr_opt.observer = options.observer;
+
+    Scanner scanner{process};
+    auto res = scanner.scan(range, *pat, ptr_opt);
+    if (!res) {
+        return std::unexpected(res.error());
+    }
+    if (res->cancelled) {
+        return fail(ErrorCode::Cancelled, "xref::find_pointer_refs");
+    }
+    return std::move(res->hits);
+}
+
+Result<std::vector<Address>> find_rel32_refs(const Process& process,
+                                             AddressRange range,
+                                             Address target,
+                                             const Pattern& prefix,
+                                             std::size_t trailing_bytes,
+                                             const ScanOptions& options) {
+    if (target.is_null()) {
+        return fail(ErrorCode::NullAddress, "xref::find_rel32_refs");
+    }
+    if (prefix.empty()) {
+        return fail(ErrorCode::InvalidPattern, "xref::find_rel32_refs");
+    }
+
+    auto full_pat = prefix.extended(4);
+    if (!full_pat) {
+        return std::unexpected(full_pat.error());
+    }
+
+    const std::size_t pre_len = prefix.size();
+    const std::uint64_t tgt_val = target.value();
+    std::vector<Address> out;
+
+    try {
+        bool cancelled = false;
+        auto stats_res = for_each_readable_chunk(
+            process,
+            range,
+            full_pat->size() - 1,
+            options,
+            cancelled,
+            [&](std::span<const std::byte> data,
+                std::size_t start_limit,
+                Address chunk_base,
+                std::uint64_t,
+                std::uint64_t) -> bool {
+                bool more = true;
+                full_pat->search(data, start_limit, [&](std::size_t off) -> bool {
+                    std::int32_t disp = 0;
+                    std::memcpy(&disp, data.data() + off + pre_len, sizeof(disp));
+                    const std::uint64_t ins_addr = chunk_base.value() + off;
+                    const std::uint64_t next_ip = ins_addr + pre_len + 4ULL + trailing_bytes;
+                    auto resolved = checked_offset<std::uint64_t>(next_ip, disp);
+                    if (resolved && *resolved == tgt_val) {
+                        out.emplace_back(ins_addr);
+                        if (options.max_results > 0 && out.size() >= options.max_results) {
+                            more = false;
+                            return false;
+                        }
+                    }
+                    return true;
+                });
+                return more;
+            });
+
+        if (!stats_res) {
+            return std::unexpected(stats_res.error());
+        }
+        if (cancelled) {
+            return fail(ErrorCode::Cancelled, "xref::find_rel32_refs");
+        }
+        return out;
+    } catch (const std::bad_alloc&) {
+        return fail(ErrorCode::OutOfMemory, "xref::find_rel32_refs");
+    }
+}
+
+Result<std::vector<Address>> find_calls(const Process& process,
+                                        AddressRange range,
+                                        Address target,
+                                        const ScanOptions& options) {
+    static constexpr std::array<std::byte, 1> kCallOpcode{std::byte{0xE8}};
+    auto pat = Pattern::from_bytes(kCallOpcode);
+    if (!pat) {
+        return std::unexpected(pat.error());
+    }
+    return find_rel32_refs(process, range, target, *pat, 0, options);
+}
+
+Result<std::vector<Address>> find_jumps(const Process& process,
+                                        AddressRange range,
+                                        Address target,
+                                        const ScanOptions& options) {
+    static constexpr std::array<std::byte, 1> kJmpOpcode{std::byte{0xE9}};
+    auto pat = Pattern::from_bytes(kJmpOpcode);
+    if (!pat) {
+        return std::unexpected(pat.error());
+    }
+    return find_rel32_refs(process, range, target, *pat, 0, options);
+}
+
+} // namespace xref
+
+} // namespace tessera

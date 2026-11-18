@@ -1,0 +1,12 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+if(@TESSERA_WITH_DETOURS@)
+    find_path(DETOURS_INCLUDE_DIRS "detours/detours.h")
+    find_library(DETOURS_LIBRARY NAMES detours)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/TesseraTargets.cmake")
+
+check_required_components(Tessera)

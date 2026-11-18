@@ -1,0 +1,157 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 28,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "TESSERA_BUILD_TESTS": "ON",
+        "TESSERA_BUILD_EXAMPLES": "ON",
+        "TESSERA_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "x64-debug",
+      "displayName": "x64 Debug",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/artifacts/x64/Debug/build",
+      "installDir": "${sourceDir}/artifacts/x64/Debug/install",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "x64-release",
+      "displayName": "x64 Release",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/artifacts/x64/Release/build",
+      "installDir": "${sourceDir}/artifacts/x64/Release/install",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "x86-debug",
+      "displayName": "x86 Debug",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/artifacts/x86/Debug/build",
+      "installDir": "${sourceDir}/artifacts/x86/Debug/install",
+      "architecture": {
+        "value": "x86",
+        "strategy": "external"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "x86-release",
+      "displayName": "x86 Release",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/artifacts/x86/Release/build",
+      "installDir": "${sourceDir}/artifacts/x86/Release/install",
+      "architecture": {
+        "value": "x86",
+        "strategy": "external"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "x64-asan",
+      "displayName": "x64 AddressSanitizer",
+      "inherits": "x64-debug",
+      "binaryDir": "${sourceDir}/artifacts/x64/ASan/build",
+      "cacheVariables": {
+        "TESSERA_ENABLE_ASAN": "ON"
+      }
+    },
+    {
+      "name": "x64-analyze",
+      "displayName": "x64 Static Analysis (/analyze)",
+      "inherits": "x64-debug",
+      "binaryDir": "${sourceDir}/artifacts/x64/Analyze/build",
+      "cacheVariables": {
+        "TESSERA_ENABLE_ANALYZE": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "x64-debug",
+      "configurePreset": "x64-debug"
+    },
+    {
+      "name": "x64-release",
+      "configurePreset": "x64-release"
+    },
+    {
+      "name": "x86-debug",
+      "configurePreset": "x86-debug"
+    },
+    {
+      "name": "x86-release",
+      "configurePreset": "x86-release"
+    },
+    {
+      "name": "x64-asan",
+      "configurePreset": "x64-asan"
+    },
+    {
+      "name": "x64-analyze",
+      "configurePreset": "x64-analyze"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "x64-debug",
+      "configurePreset": "x64-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "x64-release",
+      "configurePreset": "x64-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "x86-debug",
+      "configurePreset": "x86-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "x86-release",
+      "configurePreset": "x86-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "x64-analyze",
+      "configurePreset": "x64-analyze",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

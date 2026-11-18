@@ -1,0 +1,218 @@
+#include "tessera/patch/patch.hpp"
+
+#include <new>
+
+#include "tessera/core/assert.hpp"
+#include "tessera/diagnostics/diagnostic_observer.hpp"
+#include "tessera/memory/memory_reader.hpp"
+#include "tessera/memory/memory_writer.hpp"
+
+namespace tessera {
+
+Patch::Patch(ProcessAddress target, std::vector<std::byte> bytes, PatchOptions options) noexcept
+    : target_(std::move(target)),
+      new_bytes_(std::move(bytes)),
+      options_(std::move(options)),
+      state_(PatchState::Created) {}
+
+Patch::Patch(Patch&& other) noexcept
+    : target_(std::move(other.target_)),
+      new_bytes_(std::move(other.new_bytes_)),
+      original_bytes_(std::move(other.original_bytes_)),
+      options_(std::move(other.options_)),
+      state_(std::exchange(other.state_, PatchState::Created)) {
+    other.options_.auto_restore = false;
+}
+
+Patch& Patch::operator=(Patch&& other) noexcept {
+    if (this != &other) {
+        finish_in_destructor();
+        target_ = std::move(other.target_);
+        new_bytes_ = std::move(other.new_bytes_);
+        original_bytes_ = std::move(other.original_bytes_);
+        options_ = std::move(other.options_);
+        state_ = std::exchange(other.state_, PatchState::Created);
+        other.options_.auto_restore = false;
+    }
+    return *this;
+}
+
+Patch::~Patch() noexcept {
+    finish_in_destructor();
+}
+
+void Patch::finish_in_destructor() noexcept {
+    if (options_.auto_restore && state_ == PatchState::Applied) {
+        auto st = restore();
+        if (!st) {
+            diagnostics::notify(target_.process().observer(),
+                                DiagnosticSeverity::Warning,
+                                "Patch",
+                                "Auto-restore failed in Patch destructor",
+                                st.error());
+            TESSERA_ASSERT_MSG(false, "Patch::restore failed in destructor");
+        }
+    }
+}
+
+Result<Patch> Patch::create(ProcessAddress target,
+                            std::vector<std::byte> bytes,
+                            PatchOptions options) {
+    if (target.is_null()) {
+        return fail(ErrorCode::NullAddress, "Patch::create");
+    }
+    if (bytes.empty()) {
+        return fail(ErrorCode::InvalidArgument, "Patch::create", 0, "Patch byte vector is empty");
+    }
+    if (options.expected_original.has_value()) {
+        if (options.expected_original->pattern.empty() ||
+            options.expected_original->pattern.size() != bytes.size()) {
+            return fail(ErrorCode::InvalidArgument,
+                        "Patch::create",
+                        0,
+                        "expected_original size must match patch byte length");
+        }
+    }
+    return Patch{std::move(target), std::move(bytes), std::move(options)};
+}
+
+Result<Patch> Patch::nop(ProcessAddress target, std::size_t count, PatchOptions options) {
+    if (count == 0) {
+        return fail(ErrorCode::InvalidArgument, "Patch::nop", 0, "NOP count must be > 0");
+    }
+    try {
+        std::vector<std::byte> nops(count, std::byte{0x90});
+        return create(std::move(target), std::move(nops), std::move(options));
+    } catch (const std::bad_alloc&) {
+        return fail(ErrorCode::OutOfMemory, "Patch::nop");
+    }
+}
+
+Status Patch::apply() {
+    if (state_ == PatchState::Applied) {
+        return ok();
+    }
+    if (state_ == PatchState::Indeterminate) {
+        return fail(ErrorCode::Conflict,
+                    "Patch::apply",
+                    0,
+                    "Patch is in an indeterminate state after a previous failed rollback");
+    }
+
+    MemoryReader reader{target_.process()};
+    auto current_bytes = reader.read_bytes(target_.address(), new_bytes_.size());
+    if (!current_bytes) {
+        return std::unexpected(current_bytes.error());
+    }
+
+    if (options_.expected_original.has_value()) {
+        if (!options_.expected_original->pattern.matches(*current_bytes)) {
+            return fail(ErrorCode::ValidationFailed,
+                        "Patch::apply",
+                        0,
+                        "Target memory bytes do not match expected_original pattern");
+        }
+    }
+
+    MemoryWriter writer{target_.process()};
+    auto report = writer.write_with_report(target_.address(), new_bytes_);
+    if (!report) {
+        return std::unexpected(report.error());
+    }
+    if (report->write_error.has_value()) {
+        if (report->bytes_written > 0 && (!report->rolled_back || report->rollback_error.has_value())) {
+            state_ = PatchState::Indeterminate;
+        }
+        return std::unexpected(*report->write_error);
+    }
+
+    original_bytes_ = std::move(*current_bytes);
+    state_ = PatchState::Applied;
+    return ok();
+}
+
+Status Patch::restore() noexcept {
+    if (state_ != PatchState::Applied) {
+        return state_ == PatchState::Indeterminate
+                   ? fail(ErrorCode::Conflict, "Patch::restore", 0, "Patch state is Indeterminate")
+                   : ok();
+    }
+
+    MemoryWriter writer{target_.process()};
+    auto report = writer.write_with_report(target_.address(), original_bytes_);
+    if (!report) {
+        return std::unexpected(report.error());
+    }
+    if (report->write_error.has_value()) {
+        if (report->bytes_written > 0 && (!report->rolled_back || report->rollback_error.has_value())) {
+            state_ = PatchState::Indeterminate;
+        }
+        return std::unexpected(*report->write_error);
+    }
+
+    state_ = PatchState::Restored;
+    return ok();
+}
+
+void PatchTransaction::add(Patch patch) {
+    patches_.push_back(std::move(patch));
+}
+
+TransactionReport PatchTransaction::apply() {
+    TransactionReport report{};
+    report.steps.resize(patches_.size());
+    for (std::size_t i = 0; i < patches_.size(); ++i) {
+        report.steps[i].index = i;
+        report.steps[i].state = patches_[i].state();
+    }
+
+    std::size_t failed_index = patches_.size();
+    for (std::size_t i = 0; i < patches_.size(); ++i) {
+        auto st = patches_[i].apply();
+        report.steps[i].state = patches_[i].state();
+        if (!st) {
+            report.steps[i].error = st.error();
+            report.failure_error = st.error();
+            failed_index = i;
+            break;
+        }
+        ++report.applied_count;
+    }
+
+    if (failed_index == patches_.size()) {
+        report.succeeded = true;
+        return report;
+    }
+
+    // Roll back applied patches in reverse order
+    if (failed_index > 0) {
+        report.rolled_back = true;
+        for (std::size_t rev = failed_index; rev > 0; --rev) {
+            const std::size_t idx = rev - 1;
+            auto rst = patches_[idx].restore();
+            report.steps[idx].state = patches_[idx].state();
+            report.steps[idx].rolled_back = rst.has_value();
+            if (!rst) {
+                report.steps[idx].rollback_error = rst.error();
+            }
+        }
+    }
+
+    return report;
+}
+
+Status PatchTransaction::restore_all() noexcept {
+    Status first_err = ok();
+    for (std::size_t rev = patches_.size(); rev > 0; --rev) {
+        const std::size_t idx = rev - 1;
+        if (patches_[idx].state() == PatchState::Applied) {
+            auto st = patches_[idx].restore();
+            if (!st && first_err) {
+                first_err = st;
+            }
+        }
+    }
+    return first_err;
+}
+
+} // namespace tessera

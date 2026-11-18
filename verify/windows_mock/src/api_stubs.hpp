@@ -1,0 +1,30 @@
+#pragma once
+
+#include <Windows.h>
+#include <array>
+#include <cstddef>
+
+namespace winmock {
+
+enum class ModuleMode { Stable, Growing, Misaligned };
+extern ModuleMode module_mode;
+extern int module_calls;
+extern DWORD last_error;
+extern int thread_next_error;
+extern DWORD last_open_thread_access;
+extern LONG detour_update_error;
+extern LONG detour_attach_error;
+extern LONG detour_detach_error;
+extern int detour_attach_calls;
+extern int detour_detach_calls;
+extern int detour_abort_calls;
+extern std::array<std::byte, 64> process_memory;
+extern DWORD process_memory_protect;
+extern std::size_t max_read_chunk;
+extern int flush_instruction_cache_calls;
+extern USHORT process_machine;
+extern USHORT native_machine;
+
+void reset() noexcept;
+
+} // namespace winmock

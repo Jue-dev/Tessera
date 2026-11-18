@@ -1,0 +1,27 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "tessera",
+  "version-semver": "0.1.0",
+  "description": "Modular C++23 Windows process, memory, profile, and verified address catalog SDK",
+  "license": "MIT",
+  "supports": "windows & (x86 | x64) & !uwp",
+  "dependencies": [],
+  "features": {
+    "tests": {
+      "description": "Build unit and integration tests with Catch2 v3",
+      "dependencies": [
+        {
+          "name": "catch2",
+          "version>=": "3.4.0"
+        }
+      ]
+    },
+    "detours": {
+      "description": "Enable Microsoft Detours inline hooking backend",
+      "dependencies": [
+        "detours"
+      ]
+    }
+  },
+  "default-features": []
+}
