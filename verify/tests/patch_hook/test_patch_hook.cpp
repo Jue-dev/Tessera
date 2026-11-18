@@ -308,6 +308,21 @@ TEST_CASE("Tessera's bounded x86/x64 decoder reports instruction and relocation 
     REQUIRE(near_jcc.second.relative_offset == 2);
     REQUIRE(near_jcc.second.relative_size == 4);
 
+    const auto stack_adjust = decode(Mode::x64, {0x48, 0x81, 0xEC, 0x20, 0x00, 0x00, 0x00});
+    REQUIRE(stack_adjust.first);
+    REQUIRE(stack_adjust.second.length == 7);
+
+    const auto xbegin = decode(Mode::x64, {0xC7, 0xF8, 0x01, 0x00, 0x00, 0x00});
+    REQUIRE(xbegin.first);
+    REQUIRE(xbegin.second.length == 6);
+    REQUIRE(xbegin.second.has_relative_operand);
+    REQUIRE(xbegin.second.relative_offset == 2);
+    REQUIRE(xbegin.second.relative_size == 4);
+
+    const auto immediate_store = decode(Mode::x64, {0xC6, 0x44, 0x24, 0x08, 0x01});
+    REQUIRE(immediate_store.first);
+    REQUIRE(immediate_store.second.length == 5);
+
     // A 66 prefix does not turn a long-mode near CALL into rel16.
     const auto prefixed_call = decode(Mode::x64, {0x66, 0xE8, 0x00, 0x00, 0x00, 0x00});
     REQUIRE(prefixed_call.first);
