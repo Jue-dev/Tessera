@@ -125,8 +125,10 @@ struct Encoding {
 }
 
 [[nodiscard]] constexpr std::size_t operand_immediate_size(
-    Mode mode, bool operand16) noexcept {
-    (void)mode;
+    Mode mode, bool operand16, bool rex_w) noexcept {
+    if (mode == Mode::x64 && rex_w) {
+        return 4u; // Most REX.W forms use a sign-extended imm32.
+    }
     return operand16 ? 2u : 4u;
 }
 
@@ -353,7 +355,7 @@ struct Encoding {
         case Immediate::byte:
             return 1;
         case Immediate::operand:
-            return operand_immediate_size(mode, operand16);
+            return operand_immediate_size(mode, operand16, rex_w);
         case Immediate::address:
             return address_immediate_size(mode, address_override);
         case Immediate::mov_register:
@@ -361,7 +363,7 @@ struct Encoding {
                        ? 8u
                        : operand_immediate_size(mode, operand16);
         case Immediate::far_pointer:
-            return operand_immediate_size(mode, operand16) + 2u;
+            return operand_immediate_size(mode, operand16, false) + 2u;
         case Immediate::enter:
             return 3u;
     }
@@ -474,7 +476,7 @@ struct Encoding {
             if (opcode2 == 0x38 || opcode2 == 0x3A) {
                 const std::uint8_t map_selector = opcode2;
                 if (!cursor.read(opcode)) return false;
-                map = map_selector == 0x38 ? 2u : 3u;
+                map = static_cast<std::uint8_t>(map_selector == 0x38 ? 2u : 3u);
                 opcode2 = opcode;
                 opcode = 0x0F;
             } else {
@@ -600,6 +602,10 @@ struct Encoding {
 
     if (map == 0 && (opcode == 0xC2 || opcode == 0xCA)) {
         immediate_bytes = 2;
+    }
+    if (map == 0 && opcode == 0x68) {
+        // PUSH imm16/imm32 is not widened by REX.W.
+        immediate_bytes = operand16 ? 2u : 4u;
     }
     if (encoding.relative && mode == Mode::x64 &&
         encoding.immediate == Immediate::operand) {
