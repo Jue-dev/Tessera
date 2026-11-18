@@ -614,17 +614,17 @@ struct Encoding {
 
 
     if (encoding.relative) {
-        decoded_output.has_relative_operand = true;
-        decoded_output.relative_offset = static_cast<std::uint8_t>(cursor.position());
-        decoded_output.relative_size = static_cast<std::uint8_t>(
+        output.has_relative_operand = true;
+        output.relative_offset = static_cast<std::uint8_t>(cursor.position());
+        output.relative_size = static_cast<std::uint8_t>(
             mode == Mode::x64 && encoding.immediate == Immediate::operand
                 ? 4u
                 : immediate_bytes);
     }
 
     if (rip_relative) {
-        decoded_output.has_rip_relative_operand = true;
-        decoded_output.rip_displacement_offset = rip_offset;
+        output.has_rip_relative_operand = true;
+        output.rip_displacement_offset = rip_offset;
     }
 
     if (immediate_bytes != 0 && !cursor.skip(immediate_bytes)) {
