@@ -213,13 +213,13 @@ HookCore::HookCore(HookCore&& other) noexcept
       active_callable_(std::exchange(other.active_callable_, nullptr)),
       token_(other.token_),
       backend_(other.backend_),
-      installed_(std::exchange(other.installed_, false)) {
+      installed_(other.installed_.exchange(false, std::memory_order_acq_rel)) {
     other.token_ = HookToken{};
 }
 
 HookCore& HookCore::operator=(HookCore&& other) noexcept {
     if (this != &other) {
-        if (installed_) {
+        if (installed_.load(std::memory_order_acquire)) {
             auto detach_status = remove();
             if (!detach_status) {
                 diagnostics::notify(token_.observer,
@@ -236,7 +236,8 @@ HookCore& HookCore::operator=(HookCore&& other) noexcept {
         active_callable_ = std::exchange(other.active_callable_, nullptr);
         token_ = other.token_;
         backend_ = other.backend_;
-        installed_ = std::exchange(other.installed_, false);
+        installed_.store(other.installed_.exchange(false, std::memory_order_acq_rel),
+                        std::memory_order_release);
         other.token_ = HookToken{};
     }
     return *this;
@@ -360,13 +361,13 @@ Status HookCore::install(const HookOptions& options) noexcept {
 
     token_ = *attach_result;
     active_callable_ = token_.trampoline != nullptr ? token_.trampoline : target_ptr_;
-    installed_ = true;
+    installed_.store(true, std::memory_order_release);
     return ok();
 }
 
 Status HookCore::remove() noexcept {
     std::unique_lock lock(lifecycle_mutex_);
-    if (!installed_) {
+    if (!installed_.load(std::memory_order_acquire)) {
         return ok();
     }
     if (backend_ == nullptr) {
@@ -388,7 +389,7 @@ Status HookCore::remove() noexcept {
     }
 
     active_callable_ = target_ptr_;
-    installed_ = false;
+    installed_.store(false, std::memory_order_release);
     token_ = HookToken{};
     return ok();
 }
