@@ -221,6 +221,8 @@ cover exception containment and retryable detach failures. Patch-transaction tes
 failures, rollback ordering, page-protection restoration, and preservation of
 the first native error.
 
+The Windows native-hook fuzz smoke target also runs nine focused decoder/relocator seeds plus 512 deterministic random prologues (`0xC0FFEE42`) on every full quality-gate run. Each accepted sample must detach and restore its original bytes; each rejected sample must leave the target bytes unchanged. This is a reproducible smoke corpus, not a replacement for long-running coverage-guided fuzzing with LLVM libFuzzer.
+
 The Windows validation workflows run at multiple stages:
 `.github/workflows/pr-smoke.yml` validates qualifying pull requests with x86
 and x64 Debug and Release build/test jobs. `.github/workflows/ci.yml` performs
