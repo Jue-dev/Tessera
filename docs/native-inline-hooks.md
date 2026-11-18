@@ -213,14 +213,19 @@ page-protection restoration, page-boundary rejection, overlapping patch
 rejection, detach conflict preservation and retry, and a fixed-seed 256-sample
 malformed-prologue stress corpus that verifies rejected bytes remain unchanged
 and accepted hooks can be removed cleanly. A real worker-thread integration test
-exercises strict suspend/context/resume coordination. Mock-backend tests cover exception containment and retryable
-detach failures. Patch-transaction tests exercise deterministic Win32-operation
+exercises strict suspend/context/resume coordination. A separate four-worker
+integration test performs repeated attach/detach cycles under an application-owned
+shared/exclusive admission gate, ensuring callbacks and trampoline calls drain
+before executable bytes or trampoline storage are changed. Mock-backend tests
+cover exception containment and retryable detach failures. Patch-transaction tests exercise deterministic Win32-operation
 failures, rollback ordering, page-protection restoration, and preservation of
 the first native error.
 
-The Windows validation workflows are intentionally not push-triggered:
-`.github/workflows/ci.yml` runs on version tags, manual dispatch, and its weekly
-schedule; it contains the x86/x64 Debug and Release matrix, the `/GR-` quality
-gate, Detours integration, and MSVC static analysis. `.github/workflows/pr-smoke.yml`
-runs the x64 Debug build and tests for qualifying pull requests. A commit on
-`main` alone therefore does not imply that either Windows workflow has run.
+The Windows validation workflows run at multiple stages:
+`.github/workflows/pr-smoke.yml` validates qualifying pull requests with x86
+and x64 Debug and Release build/test jobs. `.github/workflows/ci.yml` performs
+the full x86/x64 Debug and Release matrix, the `/GR-` quality gate (including
+fuzz/benchmark smoke targets), Detours integration, and MSVC static analysis.
+The full workflow runs for qualifying source/build pushes to `main`, version
+tags, manual dispatch, and its weekly schedule. A successful Debug smoke job
+does not replace the Release, Detours, or static-analysis checks.
