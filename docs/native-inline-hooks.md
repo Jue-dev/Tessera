@@ -129,11 +129,16 @@ original_function = nullptr;
   the overwritten entry range (and, during detach, outside the trampoline) and
   cannot return into bytes being patched. Application-level admission and drain
   must cover the calling thread as well as every other thread.
-- The process-wide transaction mutex is shared by static Tessera copies. If
-  Windows reports that its previous owner terminated while holding the mutex
-  (`WAIT_ABANDONED`), the backend calls `std::terminate()`: the prior owner may
-  have died during an executable-code write, so registry and target-byte
-  consistency cannot be proven safely.
+- The named process-wide transaction mutex serializes patch transactions
+  across static Tessera copies, but the active-range registry is currently
+  local to each loaded backend image. Therefore, loading multiple independent
+  static copies into one process is not a supported configuration: the mutex
+  alone cannot make their overlap registries coherent. Use one Tessera hook
+  backend image per process until a shared cross-image registry is implemented.
+- If Windows reports that the previous mutex owner terminated while holding
+  the mutex (`WAIT_ABANDONED`), the backend calls `std::terminate()`: the
+  previous owner may have died during an executable-code write, so registry
+  and target-byte consistency cannot be proven safely.
 - `SuspendOthersStrict` (the default) takes a Toolhelp thread snapshot,
   suspends the enumerated process threads during the short patch transaction,
   checks their instruction pointers, and fails if an enumerated thread cannot
@@ -165,7 +170,8 @@ original_function = nullptr;
   lease. The application must stop new calls, wait for every in-flight detour
   callback and original/trampoline call to finish, and only then call
   `remove()`, destroy the hook, or unload the module containing the detour.
-  Do not remove a hook from inside its own detour callback.
+  Do not remove a hook from inside its own detour callback. Tessera does not
+  currently provide an owning call lease for raw trampoline pointers.
 - Concurrent calls to `install()`, `remove()`, move operations, or destruction
   on the same `Hook` object require external synchronization. The backend's
   process-wide lock serializes patch transactions across hook objects; it does
@@ -212,7 +218,9 @@ trampoline return jumps, multiple simultaneous hooks,
 page-protection restoration, page-boundary rejection, overlapping patch
 rejection, detach conflict preservation and retry, and a fixed-seed 256-sample
 malformed-prologue stress corpus that verifies rejected bytes remain unchanged
-and accepted hooks can be removed cleanly. A real worker-thread integration test
+and accepted hooks can be removed cleanly. The overflow-safe address-range
+helper is unit-tested at `UINTPTR_MAX`, including wrapped-end, zero-length,
+and half-open boundary cases. A real worker-thread integration test
 exercises strict suspend/context/resume coordination. A separate four-worker
 integration test performs repeated attach/detach cycles under an application-owned
 shared/exclusive admission gate, ensuring callbacks and trampoline calls drain
