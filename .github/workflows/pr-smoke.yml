@@ -57,7 +57,7 @@ jobs:
 
       - name: Generate PE test fixtures
         shell: pwsh
-        run: .\\verify\\windows\\generate_test_fixtures.ps1 -OutputDirectory .\\verify\\tests\\fixtures
+        run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
 
       - name: Configure (${{ matrix.preset }})
         run: cmake --preset ${{ matrix.preset }}
