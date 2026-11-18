@@ -47,6 +47,19 @@ public:
         return true;
     }
 
+    [[nodiscard]] bool peek_ahead(std::size_t offset, std::uint8_t& value) const noexcept {
+        if (offset > kMaximumInstructionLength ||
+            position_ > kMaximumInstructionLength - offset) {
+            return false;
+        }
+        const std::size_t index = position_ + offset;
+        if (index >= available_ || index >= kMaximumInstructionLength) {
+            return false;
+        }
+        value = data_[index];
+        return true;
+    }
+
     [[nodiscard]] bool read(std::uint8_t& value) noexcept {
         if (!peek(value)) {
             return false;
@@ -56,11 +69,9 @@ public:
     }
 
     [[nodiscard]] bool skip(std::size_t count) noexcept {
-        if (count > available_ - (position_ <= available_ ? position_ : available_) ||
-            count > kMaximumInstructionLength -
-                        (position_ <= kMaximumInstructionLength
-                             ? position_
-                             : kMaximumInstructionLength)) {
+        if (position_ > available_ || count > available_ - position_ ||
+            position_ > kMaximumInstructionLength ||
+            count > kMaximumInstructionLength - position_) {
             return false;
         }
         position_ += count;
@@ -208,6 +219,8 @@ struct Encoding {
             encoding.modrm = true;
             break;
 
+        case 0x6C: case 0x6D: case 0x6E: case 0x6F:
+            break;
         case 0x68:
         case 0xA9:
             encoding.immediate = Immediate::operand;
@@ -396,8 +409,7 @@ struct Encoding {
         map = 1;
     } else if (prefix == 0xC4 &&
                (mode == Mode::x64 ||
-                (cursor.position() + 1 < available &&
-                 (bytes[cursor.position() + 1] & 0xC0u) == 0xC0u))) {
+                ([&] { std::uint8_t next = 0; return cursor.peek_ahead(1, next) && (next & 0xC0u) == 0xC0u; })())) {
         std::uint8_t lead = 0;
         std::uint8_t vex_map = 0;
         std::uint8_t vex_payload = 0;
@@ -408,8 +420,7 @@ struct Encoding {
         vector_encoding = true;
     } else if (prefix == 0x62 &&
                (mode == Mode::x64 ||
-                (cursor.position() + 1 < available &&
-                 (bytes[cursor.position() + 1] & 0xC0u) == 0xC0u))) {
+                ([&] { std::uint8_t next = 0; return cursor.peek_ahead(1, next) && (next & 0xC0u) == 0xC0u; })())) {
         std::uint8_t lead = 0;
         std::uint8_t evex_p0 = 0;
         std::uint8_t evex_p1 = 0;
@@ -433,8 +444,9 @@ struct Encoding {
         }
         if (!cursor.read(opcode)) return false;
     } else {
-        if (prefix == 0x8F && cursor.position() + 1 < available &&
-            (bytes[cursor.position() + 1] & 0x1Fu) >= 8u) {
+        std::uint8_t lookahead = 0;
+        if (prefix == 0x8F && cursor.peek_ahead(1, lookahead) &&
+            (lookahead & 0x1Fu) >= 8u) {
             return false; // AMD XOP is intentionally outside this decoder's scope.
         }
         if (!cursor.read(opcode)) return false;
@@ -464,6 +476,8 @@ struct Encoding {
         } else if (!vector_encoding && opcode2 >= 0x80 && opcode2 <= 0x8F) {
             encoding.relative = true;
             encoding.immediate = Immediate::operand;
+        } else if (!vector_encoding && opcode2 == 0x0A) {
+            return false; // Reserved two-byte opcode.
         } else if (!vector_encoding && opcode2 == 0x78 && operand16) {
             encoding.modrm = true;
             encoding.immediate = Immediate::byte;
@@ -562,6 +576,13 @@ struct Encoding {
 
     if (map == 0 && (opcode == 0xC2 || opcode == 0xCA)) {
         immediate_bytes = 2;
+    }
+    if (encoding.relative && mode == Mode::x64 &&
+        encoding.immediate == Immediate::operand) {
+        immediate_bytes = 4; // Near branches in long mode always carry rel32.
+    }
+    if (!vector_encoding && map == 1 && opcode2 == 0x78 && operand16) {
+        immediate_bytes = 2; // EXTRQ has two imm8 operands.
     }
     if (!vector_encoding && map == 1 && opcode2 == 0x79 && operand16) {
         immediate_bytes = 2; // INSERTQ has two imm8 operands.
