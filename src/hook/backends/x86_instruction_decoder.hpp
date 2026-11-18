@@ -361,7 +361,7 @@ struct Encoding {
         case Immediate::mov_register:
             return mode == Mode::x64 && rex_w
                        ? 8u
-                       : operand_immediate_size(mode, operand16);
+                       : operand_immediate_size(mode, operand16, false);
         case Immediate::far_pointer:
             return operand_immediate_size(mode, operand16, false) + 2u;
         case Immediate::enter:
