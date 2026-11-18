@@ -413,7 +413,6 @@ struct Encoding {
     }
 
     bool vector_encoding = false;
-    bool evex_encoding = false;
     std::uint8_t map = 0;
     std::uint8_t opcode = 0;
     std::uint8_t opcode2 = 0;
@@ -454,7 +453,6 @@ struct Encoding {
         }
         map = static_cast<std::uint8_t>(evex_p0 & 0x07u);
         vector_encoding = true;
-        evex_encoding = true;
     }
 
     if (vector_encoding) {
@@ -640,7 +638,8 @@ struct Encoding {
 
     output.length = static_cast<std::uint8_t>(cursor.position());
     if (vector_encoding) {
-        output.opcode = opcode;
+        // Keep vector opcodes out of the legacy terminal/padding classifier.
+        output.opcode = 0xFE;
         output.opcode2 = 0;
     } else if (map == 0) {
         output.opcode = opcode;
@@ -649,8 +648,7 @@ struct Encoding {
         output.opcode2 = opcode2;
     }
     output.modrm_reg = modrm_reg;
-
-    (void)evex_encoding;
+ 
     return true;
 }
 
