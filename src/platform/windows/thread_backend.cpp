@@ -68,7 +68,7 @@ Result<ScopedThreadList> ScopedThreadList::collect_other_threads(
     }
 
     try {
-        do {
+        for (;;) {
             if (te.dwSize >= FIELD_OFFSET(THREADENTRY32, th32OwnerProcessID) + sizeof(DWORD) &&
                 te.th32OwnerProcessID == pid && te.th32ThreadID != current_tid) {
                 // The native inline backend needs suspend, context-read, and
