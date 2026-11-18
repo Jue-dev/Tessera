@@ -19,10 +19,8 @@
 
 #if defined(_M_X64) || defined(__x86_64__)
     #define TESSERA_HOOK_X64 1
-    constexpr detail::x86::Mode kNativeDecoderMode = detail::x86::Mode::x64;
 #elif defined(_M_IX86) || defined(__i386__)
     #define TESSERA_HOOK_X86 1
-    constexpr detail::x86::Mode kNativeDecoderMode = detail::x86::Mode::x86;
 #else
     #error "Tessera native inline hooks support only x86 and x64."
 #endif
@@ -30,6 +28,12 @@
 
 namespace tessera {
 namespace {
+
+#if defined(TESSERA_HOOK_X64)
+constexpr detail::x86::Mode kNativeDecoderMode = detail::x86::Mode::x64;
+#else
+constexpr detail::x86::Mode kNativeDecoderMode = detail::x86::Mode::x86;
+#endif
 
 constexpr std::size_t kMaximumPatchBytes = 32;
 constexpr std::size_t kMaximumReadBytes = 96;
@@ -198,7 +202,7 @@ struct NativeHookState {
         DecodedInstruction instruction{};
         instruction.offset = out.length;
 
-detail::x86::DecodedInstruction decoded{};
+        detail::x86::DecodedInstruction decoded{};
         if (!detail::x86::decode_instruction(
                 code + out.length, available - out.length, kNativeDecoderMode, decoded) ||
             decoded.length == 0 || decoded.length > 15) {
