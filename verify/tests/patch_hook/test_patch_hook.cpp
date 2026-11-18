@@ -366,8 +366,15 @@ TEST_CASE("Tessera's bounded x86/x64 decoder reports instruction and relocation 
     REQUIRE(maximum_length.first);
     REQUIRE(maximum_length.second.length == 15);
 
-    const auto truncated = decode(Mode::x64, {0x48, 0x8B, 0x05});
-    REQUIRE_FALSE(truncated.first);
+    std::array<std::byte, 15> truncated_bytes{
+        std::byte{0x48}, std::byte{0x8B}, std::byte{0x05}};
+    DecodedInstruction rejected_metadata{};
+    rejected_metadata.length = 99;
+    REQUIRE_FALSE(decode_instruction(
+        truncated_bytes.data(), 3, Mode::x64, rejected_metadata));
+    REQUIRE(rejected_metadata.length == 0);
+    REQUIRE_FALSE(rejected_metadata.has_relative_operand);
+    REQUIRE_FALSE(rejected_metadata.has_rip_relative_operand);
 
     const auto overlong = decode(
         Mode::x64,
