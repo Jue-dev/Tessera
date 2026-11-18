@@ -242,6 +242,11 @@ HookCore& HookCore::operator=(HookCore&& other) noexcept {
     return *this;
 }
 
+HookCore::CallableLease HookCore::acquire_callable() const {
+    std::shared_lock lock(lifecycle_mutex_);
+    return CallableLease{std::move(lock), active_callable_};
+}
+
 HookCore::~HookCore() noexcept {
     if (installed_) {
         auto st = remove();
@@ -314,6 +319,7 @@ Result<HookCore> HookCore::create(Address target, void* detour, HookBackend* bac
 }
 
 Status HookCore::install(const HookOptions& options) noexcept {
+    std::unique_lock lock(lifecycle_mutex_);
     if (installed_) {
         return ok();
     }
@@ -359,6 +365,7 @@ Status HookCore::install(const HookOptions& options) noexcept {
 }
 
 Status HookCore::remove() noexcept {
+    std::unique_lock lock(lifecycle_mutex_);
     if (!installed_) {
         return ok();
     }
@@ -387,6 +394,7 @@ Status HookCore::remove() noexcept {
 }
 
 void* HookCore::release() noexcept {
+    std::unique_lock lock(lifecycle_mutex_);
     void* const current_fn = active_callable_;
     installed_ = false;
     token_ = HookToken{};
