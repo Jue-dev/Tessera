@@ -4,9 +4,11 @@ The harnesses expose `LLVMFuzzerTestOneInput` for JSON parsing/writing, byte-pat
 
 ## Standalone smoke mode (default)
 
-With `TESSERA_BUILD_FUZZ=ON` and `TESSERA_ENABLE_LIBFUZZER=OFF`, each target keeps a small `main()` that feeds one representative input. This checks that the harness links and runs, but it is **not fuzzing**.
+With `TESSERA_BUILD_FUZZ=ON` and `TESSERA_ENABLE_LIBFUZZER=OFF`, the targets keep a small `main()` so they can run without the LLVM libFuzzer runtime. The native-hook executable does more than a single link/run check: it submits focused branch/terminal/VEX/EVEX seeds and 512 fixed-seed random byte sequences through the real attach/detach path.
 
-The Windows-only `tessera_fuzz_native_hook` target feeds up to 96 arbitrary bytes into an isolated executable page and exercises the real native backend's attach/detach path. It never executes the supplied instruction bytes or the generated trampoline. Rejected inputs are checked for failure-atomicity; accepted inputs must detach and restore all original bytes.
+The Windows-only `tessera_fuzz_native_hook` target feeds up to 96 arbitrary bytes into an isolated executable page. It never executes the supplied instruction bytes or the generated trampoline. Rejected inputs are checked for failure-atomicity; accepted inputs must detach and restore all original bytes. The standalone corpus is deterministic (seed `0xC0FFEE42`) so a CI failure can be reproduced exactly. The known-good seed must complete at least one attach/detach lifecycle or the executable fails.
+
+Standalone smoke mode is still not a substitute for a sustained coverage-guided fuzzing campaign.
 
 ## LLVM libFuzzer mode
 
