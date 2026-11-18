@@ -137,7 +137,15 @@ struct NativeHookState {
                              std::size_t lhs_size,
                              std::uintptr_t rhs_begin,
                              std::size_t rhs_size) noexcept {
-    return lhs_begin < rhs_begin + rhs_size && rhs_begin < lhs_begin + lhs_size;
+    // Compare distances instead of computing end addresses: even though hook
+    // ranges are small, end-address addition must not wrap at uintptr_t limits.
+    if (lhs_size == 0 || rhs_size == 0) {
+        return false;
+    }
+    if (lhs_begin <= rhs_begin) {
+        return rhs_begin - lhs_begin < lhs_size;
+    }
+    return lhs_begin - rhs_begin < rhs_size;
 }
 
 [[nodiscard]] bool is_executable_protection(DWORD protect) noexcept {
@@ -678,8 +686,14 @@ public:
         if (policy_ == ThreadPolicy::None) {
             return ok();
         }
-        const std::uintptr_t end = begin + size;
-        const std::uintptr_t second_end = second_begin + second_size;
+        const auto contains = [](std::uintptr_t range_begin,
+                                 std::size_t range_size,
+                                 std::uintptr_t address) noexcept {
+            // Subtraction avoids overflow when a range ends at the top of the
+            // process address space.
+            return range_size != 0 && address >= range_begin &&
+                   address - range_begin < range_size;
+        };
         for (HANDLE thread : suspended_) {
             CONTEXT context{};
             context.ContextFlags = CONTEXT_CONTROL;
@@ -700,9 +714,8 @@ public:
             const std::uintptr_t instruction_pointer =
                 static_cast<std::uintptr_t>(context.Eip);
 #endif
-            if ((instruction_pointer >= begin && instruction_pointer < end) ||
-                (second_size != 0 && instruction_pointer >= second_begin &&
-                 instruction_pointer < second_end)) {
+            if (contains(begin, size, instruction_pointer) ||
+                contains(second_begin, second_size, instruction_pointer)) {
                 return fail(ErrorCode::Conflict,
                             "NativeInlineHook::thread_ip",
                             0,
