@@ -16,6 +16,10 @@ constexpr std::size_t kCodeRegionSize = 4096;
 constexpr std::size_t kTargetOffset = 64;
 constexpr std::size_t kFuzzRegionSize = 96;
 
+// The standalone CI smoke mode uses this counter to ensure that at least the
+// known-good seed reached and completed a real attach/detach lifecycle.
+std::uint64_t g_successful_lifecycles = 0;
+
 extern "C" __declspec(noinline) void tessera_fuzz_detour() noexcept {
     // The fuzz harness validates decoding and patch lifecycle; it never calls
     // either the generated trampoline or the fuzz-provided instruction bytes.
@@ -75,6 +79,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         if (std::memcmp(code + kTargetOffset, original.data(), original.size()) != 0) {
             std::abort();
         }
+        ++g_successful_lifecycles;
     }
 
     (void)::VirtualFree(allocation, 0, MEM_RELEASE);
@@ -83,10 +88,80 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
 
 #if !defined(TESSERA_LIBFUZZER)
 int main() {
-    // A valid, simple prologue exercises the successful attach/detach path.
-    constexpr std::array<std::uint8_t, 6> sample{
+    // Keep a known-good seed first so standalone CI smoke mode proves that the
+    // native backend can still complete at least one real lifecycle.
+    constexpr std::array<std::uint8_t, 6> simple_prologue{
         0xB8, 0x2A, 0x00, 0x00, 0x00, 0xC3
     };
-    return LLVMFuzzerTestOneInput(sample.data(), sample.size());
+    (void)LLVMFuzzerTestOneInput(simple_prologue.data(), simple_prologue.size());
+
+    // Small, deterministic seeds focus the native relocator's less common
+    // paths. The bytes are decoded and copied but are never executed.
+    constexpr std::array<std::uint8_t, 6> short_jump{
+        0xEB, 0x02, 0x90, 0x90, 0x90, 0xC3
+    };
+    constexpr std::array<std::uint8_t, 6> short_conditional{
+        0x74, 0x02, 0x90, 0x90, 0x90, 0xC3
+    };
+    constexpr std::array<std::uint8_t, 6> loop_branch{
+        0xE2, 0x02, 0x90, 0x90, 0x90, 0xC3
+    };
+    constexpr std::array<std::uint8_t, 6> near_jump{
+        0xE9, 0x00, 0x00, 0x00, 0x00, 0xC3
+    };
+    constexpr std::array<std::uint8_t, 7> near_conditional{
+        0x0F, 0x85, 0x00, 0x00, 0x00, 0x00, 0xC3
+    };
+    constexpr std::array<std::uint8_t, 6> call_next{
+        0xE8, 0x00, 0x00, 0x00, 0x00, 0xC3
+    };
+    constexpr std::array<std::uint8_t, 5> terminal_padding{
+        0xC3, 0xCC, 0xCC, 0xCC, 0xCC
+    };
+    constexpr std::array<std::uint8_t, 5> vex_instruction{
+        0xC5, 0xF8, 0x77, 0x90, 0x90
+    };
+    constexpr std::array<std::uint8_t, 7> evex_instruction{
+        0x62, 0xF1, 0x7C, 0x48, 0x58, 0xC0, 0x90
+    };
+
+    (void)LLVMFuzzerTestOneInput(short_jump.data(), short_jump.size());
+    (void)LLVMFuzzerTestOneInput(short_conditional.data(), short_conditional.size());
+    (void)LLVMFuzzerTestOneInput(loop_branch.data(), loop_branch.size());
+    (void)LLVMFuzzerTestOneInput(near_jump.data(), near_jump.size());
+    (void)LLVMFuzzerTestOneInput(near_conditional.data(), near_conditional.size());
+    (void)LLVMFuzzerTestOneInput(call_next.data(), call_next.size());
+    (void)LLVMFuzzerTestOneInput(terminal_padding.data(), terminal_padding.size());
+    (void)LLVMFuzzerTestOneInput(vex_instruction.data(), vex_instruction.size());
+    (void)LLVMFuzzerTestOneInput(evex_instruction.data(), evex_instruction.size());
+
+    // Add a reproducible malformed/novel-input corpus to every normal CI run.
+    // A fixed xorshift seed makes failures deterministic and easy to reproduce.
+    std::uint32_t random_state = 0xC0FFEE42u;
+    const auto next_random = [&random_state]() noexcept {
+        random_state ^= random_state << 13;
+        random_state ^= random_state >> 17;
+        random_state ^= random_state << 5;
+        return random_state;
+    };
+
+    constexpr std::size_t kRandomSampleCount = 512;
+    std::array<std::uint8_t, kFuzzRegionSize> random_input{};
+    for (std::size_t sample = 0; sample < kRandomSampleCount; ++sample) {
+        const std::size_t length =
+            1u + (static_cast<std::size_t>(next_random()) % random_input.size());
+        for (std::size_t index = 0; index < length; ++index) {
+            random_input[index] = static_cast<std::uint8_t>(next_random() & 0xFFu);
+        }
+        (void)LLVMFuzzerTestOneInput(random_input.data(), length);
+    }
+
+    // If even the known-good prologue did not install and remove, the harness
+    // failed to exercise the success path (for example due to an allocation or
+    // environment issue) and CI must not report this smoke run as a pass.
+    if (g_successful_lifecycles == 0) {
+        std::abort();
+    }
+    return 0;
 }
 #endif // !defined(TESSERA_LIBFUZZER)
