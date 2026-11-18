@@ -213,8 +213,11 @@ page-protection restoration, page-boundary rejection, overlapping patch
 rejection, detach conflict preservation and retry, and a fixed-seed 256-sample
 malformed-prologue stress corpus that verifies rejected bytes remain unchanged
 and accepted hooks can be removed cleanly. A real worker-thread integration test
-exercises strict suspend/context/resume coordination. Mock-backend tests cover exception containment and retryable
-detach failures. Patch-transaction tests exercise deterministic Win32-operation
+exercises strict suspend/context/resume coordination. A separate four-worker
+integration test performs repeated attach/detach cycles under an application-owned
+shared/exclusive admission gate, ensuring callbacks and trampoline calls drain
+before executable bytes or trampoline storage are changed. Mock-backend tests
+cover exception containment and retryable detach failures. Patch-transaction tests exercise deterministic Win32-operation
 failures, rollback ordering, page-protection restoration, and preservation of
 the first native error.
 
