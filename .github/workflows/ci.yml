@@ -21,6 +21,7 @@ on:
       - "vcpkg.json"
       - "vcpkg-configuration.json"
       - ".github/workflows/**"
+      - ".github/actions/**"
   # Select the develop branch in the Actions UI for manual development validation.
   workflow_dispatch:
   schedule:

@@ -21,6 +21,7 @@ on:
       - "vcpkg.json"
       - "vcpkg-configuration.json"
       - ".github/workflows/**"
+      - ".github/actions/**"
   # Select the develop branch in the Actions UI for manual development validation.
   workflow_dispatch:
   schedule:
@@ -56,12 +57,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
 
       - name: Setup MSVC Developer Command Prompt (${{ matrix.arch }})
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ./.github/actions/setup-msvc
         with:
           arch: ${{ matrix.arch }}
 
@@ -82,7 +83,7 @@ jobs:
         run: cmake --install artifacts/${{ matrix.arch }}/${{ matrix.config }}/build --prefix dist/TesseraSDK/${{ matrix.arch }}/${{ matrix.config }}
 
       - name: Upload SDK Artifact (Tessera-SDK-${{ matrix.preset }})
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Tessera-SDK-${{ matrix.preset }}
           path: dist/TesseraSDK/${{ matrix.arch }}/${{ matrix.config }}
@@ -100,12 +101,12 @@ jobs:
 
     steps:
       - name: Checkout Tessera
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
 
       - name: Checkout Microsoft Detours v4.0.1
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: microsoft/Detours
           ref: v4.0.1
@@ -113,7 +114,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup MSVC Developer Command Prompt (${{ matrix.arch }})
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ./.github/actions/setup-msvc
         with:
           arch: ${{ matrix.arch }}
 
@@ -153,12 +154,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
 
       - name: Setup MSVC Developer Command Prompt (x64)
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ./.github/actions/setup-msvc
         with:
           arch: x64
  
@@ -183,6 +184,7 @@ jobs:
             "build-nortti/verify/fuzz/Release/tessera_fuzz_pattern.exe",
             "build-nortti/verify/fuzz/Release/tessera_fuzz_pe.exe",
             "build-nortti/verify/fuzz/Release/tessera_fuzz_json.exe",
+            "build-nortti/verify/fuzz/Release/tessera_fuzz_native_hook.exe",
             "build-nortti/verify/bench/Release/tessera_bench.exe"
           )
           foreach ($target in $targets) {
@@ -200,12 +202,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
 
       - name: Setup MSVC Developer Command Prompt (x64)
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ./.github/actions/setup-msvc
         with:
           arch: x64
  
@@ -230,12 +232,12 @@ jobs:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
 
       - name: Download All Built SDK Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: sdk-Input
 
@@ -256,7 +258,7 @@ jobs:
           Compress-Archive -Path "TesseraSDK\*" -DestinationPath "Tessera-SDK-Windows.zip" -Force
 
       - name: Upload Combined SDK Bundle Artifact (Tessera-SDK-Full)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Tessera-SDK-Full
           path: Tessera-SDK-Windows.zip

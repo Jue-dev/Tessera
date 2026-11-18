@@ -18,6 +18,7 @@ on:
       - "vcpkg.json"
       - "vcpkg-configuration.json"
       - ".github/workflows/**"
+      - ".github/actions/**"
 
 permissions:
   contents: read
@@ -36,12 +37,12 @@ jobs:
     timeout-minutes: 35
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
 
       - name: Setup MSVC x64
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ./.github/actions/setup-msvc
         with:
           arch: x64
 

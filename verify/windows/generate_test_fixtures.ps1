@@ -7,14 +7,16 @@ param(
 $ErrorActionPreference = "Stop"
 
 function Resolve-LlvmTool([string]$Name) {
-    $command = Get-Command "${Name}.exe" -ErrorAction SilentlyContinue
-    if ($command) { return $command.Source }
-
+    # Prefer the LLVM toolchain shipped with the selected Visual Studio
+    # installation. PATH may contain a different (and incompatible) LLVM.
     $candidates = @()
     if ($env:VCINSTALLDIR) {
         $candidates += (Join-Path $env:VCINSTALLDIR "Tools/Llvm/bin/$Name.exe")
         $candidates += (Join-Path $env:VCINSTALLDIR "Tools/Llvm/x64/bin/$Name.exe")
     }
+
+    $command = Get-Command "${Name}.exe" -ErrorAction SilentlyContinue
+    if ($command) { $candidates += $command.Source }
     $candidates += "C:/Program Files/LLVM/bin/$Name.exe"
 
     foreach ($candidate in $candidates) {
@@ -34,6 +36,25 @@ function Invoke-Checked([string]$Executable, [string[]]$Arguments) {
 $clangCl = Resolve-LlvmTool "clang-cl"
 $clang = Resolve-LlvmTool "clang"
 $lldLink = Resolve-LlvmTool "lld-link"
+
+$clangVersionOutput = (& $clangCl --version 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to execute clang-cl at '$clangCl'. Output: $clangVersionOutput"
+}
+$versionMatch = [regex]::Match($clangVersionOutput, 'clang version\s+(\d+)')
+if (-not $versionMatch.Success) {
+    throw "Unable to determine the clang-cl version from '$clangCl'. Output: $clangVersionOutput"
+}
+$clangMajor = [int]$versionMatch.Groups[1].Value
+$clangVersion = ($clangVersionOutput -split '\r?\n')[0]
+$minimumClangMajor = 17
+if ($env:VCToolsVersion -match '^14\.(\d+)\.') {
+    if ([int]$Matches[1] -ge 52) { $minimumClangMajor = 22 }
+}
+if ($clangMajor -lt $minimumClangMajor) {
+    throw "Incompatible clang-cl version $clangMajor at '$clangCl'. MSVC toolset $env:VCToolsVersion requires Clang $minimumClangMajor or newer. The Visual Studio LLVM toolchain is preferred over a global PATH installation."
+}
+Write-Host "Using $clangVersion ($clangCl) with MSVC toolset $env:VCToolsVersion."
 
 $fixtureSource = Join-Path $PSScriptRoot "../tests/fixtures"
 $fixtureSource = [System.IO.Path]::GetFullPath($fixtureSource)
