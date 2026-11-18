@@ -101,7 +101,14 @@ Result<ScopedThreadList> ScopedThreadList::collect_other_threads(
                 }
             }
             te.dwSize = sizeof(te);
-        } while (::Thread32Next(snap, &te));
+            // GetLastError is undefined after a successful Win32 call. Reset
+            // it before Thread32Next so a stale error from an earlier API
+            // cannot be mistaken for an enumeration failure at end-of-list.
+            ::SetLastError(ERROR_SUCCESS);
+            if (!::Thread32Next(snap, &te)) {
+                break;
+            }
+        }
     } catch (const std::bad_alloc&) {
         ::CloseHandle(snap);
         return fail(ErrorCode::OutOfMemory, "ScopedThreadList::collect_other_threads");
