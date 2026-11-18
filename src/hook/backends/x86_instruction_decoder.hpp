@@ -400,7 +400,7 @@ struct Encoding {
 
     if (prefix == 0xC5 &&
         (mode == Mode::x64 ||
-         (cursor.position() + 1 < available && (bytes[cursor.position() + 1] & 0xC0u) == 0xC0u))) {
+         ([&] { std::uint8_t next = 0; return cursor.peek_ahead(1, next) && (next & 0xC0u) == 0xC0u; })())) {
         std::uint8_t lead = 0;
         std::uint8_t vex_payload = 0;
         if (!cursor.read(lead) || !cursor.read(vex_payload)) return false;
