@@ -418,19 +418,19 @@ struct Encoding {
     std::uint8_t map = 0;
     std::uint8_t opcode = 0;
     std::uint8_t opcode2 = 0;
+    std::uint8_t prefix_lookahead = 0;
+    const bool selects_vector_prefix =
+        cursor.peek_ahead(1, prefix_lookahead) &&
+        (prefix_lookahead & 0xC0u) == 0xC0u;
 
-    if (prefix == 0xC5 &&
-        (mode == Mode::x64 ||
-         ([&] { std::uint8_t next = 0; return cursor.peek_ahead(1, next) && (next & 0xC0u) == 0xC0u; })())) {
+    if (prefix == 0xC5 && (mode == Mode::x64 || selects_vector_prefix)) {
         std::uint8_t lead = 0;
         std::uint8_t vex_payload = 0;
         if (!cursor.read(lead) || !cursor.read(vex_payload)) return false;
         (void)lead;
         vector_encoding = true;
         map = 1;
-    } else if (prefix == 0xC4 &&
-               (mode == Mode::x64 ||
-                ([&] { std::uint8_t next = 0; return cursor.peek_ahead(1, next) && (next & 0xC0u) == 0xC0u; })())) {
+    } else if (prefix == 0xC4 && (mode == Mode::x64 || selects_vector_prefix)) {
         std::uint8_t lead = 0;
         std::uint8_t vex_map = 0;
         std::uint8_t vex_payload = 0;
@@ -439,9 +439,7 @@ struct Encoding {
         (void)vex_payload;
         map = static_cast<std::uint8_t>(vex_map & 0x1Fu);
         vector_encoding = true;
-    } else if (prefix == 0x62 &&
-               (mode == Mode::x64 ||
-                ([&] { std::uint8_t next = 0; return cursor.peek_ahead(1, next) && (next & 0xC0u) == 0xC0u; })())) {
+    } else if (prefix == 0x62 && (mode == Mode::x64 || selects_vector_prefix)) {
         std::uint8_t lead = 0;
         std::uint8_t evex_p0 = 0;
         std::uint8_t evex_p1 = 0;
@@ -498,10 +496,11 @@ struct Encoding {
             encoding.immediate = Immediate::operand;
         } else if (!vector_encoding && opcode2 == 0x0A) {
             return false; // Reserved two-byte opcode.
-        } else if (!vector_encoding && opcode2 == 0x78 && operand16) {
-            encoding.modrm = true;
-            encoding.immediate = Immediate::byte;
-            // EXTRQ has two imm8 operands.
+        } else if (!vector_encoding &&
+                   (opcode2 == 0x78 || opcode2 == 0x79) && operand16) {
+            // AMD SSE4a immediate forms share encodings with non-immediate
+            // forms; refuse the ambiguous pair instead of guessing a length.
+            return false;
         } else {
             const std::uint8_t map_opcode = vector_encoding ? opcode : opcode2;
             encoding.modrm = vector_encoding
@@ -611,12 +610,7 @@ struct Encoding {
         encoding.immediate == Immediate::operand) {
         immediate_bytes = 4; // Near branches in long mode always carry rel32.
     }
-    if (!vector_encoding && map == 1 && opcode2 == 0x78 && operand16) {
-        immediate_bytes = 2; // EXTRQ has two imm8 operands.
-    }
-    if (!vector_encoding && map == 1 && opcode2 == 0x79 && operand16) {
-        immediate_bytes = 2; // INSERTQ has two imm8 operands.
-    }
+
 
     if (encoding.relative) {
         output.has_relative_operand = true;
