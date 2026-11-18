@@ -305,6 +305,26 @@ struct Encoding {
             encoding.valid = false;
             break;
     }
+    if (encoding.valid) {
+        switch (opcode) {
+            case 0x69:
+            case 0x81:
+            case 0xC7:
+                encoding.immediate = Immediate::operand;
+                break;
+            case 0x6B:
+            case 0x80:
+            case 0x82:
+            case 0x83:
+            case 0xC0:
+            case 0xC1:
+            case 0xC6:
+                encoding.immediate = Immediate::byte;
+                break;
+            default:
+                break;
+        }
+    }
     return encoding.valid;
 }
 
@@ -530,6 +550,12 @@ struct Encoding {
 
         if (map == 0 && opcode == 0x8F && modrm_reg != 0) return false;
         if (map == 0 && opcode == 0xFE && modrm_reg > 1) return false;
+        if (map == 0 && opcode == 0xC7 && modrm == 0xF8) {
+            // XBEGIN uses a relative operand even though it shares C7's
+            // ModRM/immediate encoding family.
+            encoding.relative = true;
+            encoding.immediate = Immediate::operand;
+        }
 
         if (modrm_mod != 3) {
             const bool address16 = mode == Mode::x86 && address_override;
