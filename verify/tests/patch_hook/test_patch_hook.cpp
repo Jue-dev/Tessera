@@ -2000,10 +2000,18 @@ TEST_CASE("Native inline backend supports admission-gated concurrent callers acr
     REQUIRE(region.address != nullptr);
     auto* code = static_cast<std::byte*>(region.address);
     std::memset(code, 0x90, 4096);
-    code[64] = std::byte{0xB8}; // mov eax, 42
+    code[64] = std::byte{0xF3};
+    code[65] = std::byte{0x0F};
+    code[66] = std::byte{0x1E};
+#if defined(_M_X64) || defined(__x86_64__)
+    code[67] = std::byte{0xFA}; // ENDBR64
+#else
+    code[67] = std::byte{0xFB}; // ENDBR32
+#endif
+    code[68] = std::byte{0xB8}; // mov eax, 42
     const std::uint32_t return_value = 42;
-    std::memcpy(code + 65, &return_value, sizeof(return_value));
-    code[69] = std::byte{0xC3}; // ret
+    std::memcpy(code + 69, &return_value, sizeof(return_value));
+    code[73] = std::byte{0xC3}; // ret
 
     DWORD previous_protection = 0;
     REQUIRE(::VirtualProtect(region.address, 4096, PAGE_EXECUTE_READ, &previous_protection));
@@ -2038,6 +2046,7 @@ TEST_CASE("Native inline backend supports admission-gated concurrent callers acr
                 } else {
                     unexpected_results.fetch_add(1, std::memory_order_relaxed);
                 }
+                std::this_thread::yield();
             }
         });
     }
@@ -2086,8 +2095,16 @@ TEST_CASE("Native inline backend supports admission-gated concurrent callers acr
     REQUIRE(hooked_calls.load(std::memory_order_acquire) >=
             static_cast<std::uint64_t>(kInstallRemoveCycles * 32));
     REQUIRE(target(5) == 42);
-    REQUIRE(code[64] == std::byte{0xB8});
-    REQUIRE(code[69] == std::byte{0xC3});
+    REQUIRE(code[64] == std::byte{0xF3});
+    REQUIRE(code[65] == std::byte{0x0F});
+    REQUIRE(code[66] == std::byte{0x1E});
+#if defined(_M_X64) || defined(__x86_64__)
+    REQUIRE(code[67] == std::byte{0xFA});
+#else
+    REQUIRE(code[67] == std::byte{0xFB});
+#endif
+    REQUIRE(code[68] == std::byte{0xB8});
+    REQUIRE(code[73] == std::byte{0xC3});
 }
 
 #if defined(TESSERA_TEST_WITH_DETOURS)
