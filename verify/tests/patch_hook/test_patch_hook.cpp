@@ -44,6 +44,17 @@ int __cdecl sample_alternate_trampoline_function(int x) {
     return x + 20;
 }
 
+std::atomic<bool> g_callable_lease_entered{false};
+std::atomic<bool> g_callable_lease_release{false};
+
+int __cdecl blocking_trampoline_function(int value) {
+    g_callable_lease_entered.store(true, std::memory_order_release);
+    while (!g_callable_lease_release.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+    }
+    return value + 42;
+}
+
 #if defined(_MSC_VER)
 #define TESSERA_TEST_NOINLINE __declspec(noinline)
 #elif defined(__clang__) || defined(__GNUC__)
@@ -409,6 +420,71 @@ TEST_CASE("Tessera's bounded x86/x64 decoder reports instruction and relocation 
         {0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
          0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66});
     REQUIRE_FALSE(overlong.first);
+}
+
+TEST_CASE("Hook callable leases drain in-flight operator calls before remove",
+          "[hook][lifecycle][threads]") {
+    using namespace tessera;
+
+    g_callable_lease_entered.store(false, std::memory_order_release);
+    g_callable_lease_release.store(false, std::memory_order_release);
+
+    MockHookBackend backend{};
+    backend.trampoline = reinterpret_cast<void*>(&blocking_trampoline_function);
+    auto hook = Hook<NativeHookFn>::create(
+        &sample_target_function, &sample_detour_function, &backend);
+    REQUIRE(hook.has_value());
+    REQUIRE(hook->install().has_value());
+
+    std::atomic<int> call_result{-1};
+    std::atomic<bool> remove_started{false};
+    std::atomic<bool> remove_finished{false};
+    std::atomic<bool> remove_succeeded{false};
+
+    std::thread caller([&] {
+        call_result.store((*hook)(5), std::memory_order_release);
+    });
+
+    const auto entered_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!g_callable_lease_entered.load(std::memory_order_acquire) &&
+           std::chrono::steady_clock::now() < entered_deadline) {
+        std::this_thread::yield();
+    }
+    const bool call_entered =
+        g_callable_lease_entered.load(std::memory_order_acquire);
+    if (!call_entered) {
+        g_callable_lease_release.store(true, std::memory_order_release);
+        caller.join();
+        FAIL("The leased trampoline invocation did not start");
+    }
+
+    std::thread remover([&] {
+        remove_started.store(true, std::memory_order_release);
+        const auto result = hook->remove();
+        remove_succeeded.store(result.has_value(), std::memory_order_release);
+        remove_finished.store(true, std::memory_order_release);
+    });
+
+    const auto remove_start_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!remove_started.load(std::memory_order_acquire) &&
+           std::chrono::steady_clock::now() < remove_start_deadline) {
+        std::this_thread::yield();
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    const bool remove_finished_before_release =
+        remove_finished.load(std::memory_order_acquire);
+
+    g_callable_lease_release.store(true, std::memory_order_release);
+    caller.join();
+    remover.join();
+
+    REQUIRE_FALSE(remove_finished_before_release);
+    REQUIRE(remove_succeeded.load(std::memory_order_acquire));
+    REQUIRE(remove_finished.load(std::memory_order_acquire));
+    REQUIRE(call_result.load(std::memory_order_acquire) == 47);
+    REQUIRE_FALSE(hook->installed());
 }
 
 TEST_CASE("Hook lifecycle and Detours-off contract", "[hook]") {
