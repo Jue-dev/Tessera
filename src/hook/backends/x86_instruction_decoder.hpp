@@ -386,6 +386,7 @@ struct Encoding {
 
     const auto* const bytes = reinterpret_cast<const std::uint8_t*>(code);
     Cursor cursor{bytes, available};
+    DecodedInstruction decoded_output{};
 
     bool operand16 = false;
     bool address_override = false;
@@ -613,17 +614,17 @@ struct Encoding {
 
 
     if (encoding.relative) {
-        output.has_relative_operand = true;
-        output.relative_offset = static_cast<std::uint8_t>(cursor.position());
-        output.relative_size = static_cast<std::uint8_t>(
+        decoded_output.has_relative_operand = true;
+        decoded_output.relative_offset = static_cast<std::uint8_t>(cursor.position());
+        decoded_output.relative_size = static_cast<std::uint8_t>(
             mode == Mode::x64 && encoding.immediate == Immediate::operand
                 ? 4u
                 : immediate_bytes);
     }
 
     if (rip_relative) {
-        output.has_rip_relative_operand = true;
-        output.rip_displacement_offset = rip_offset;
+        decoded_output.has_rip_relative_operand = true;
+        decoded_output.rip_displacement_offset = rip_offset;
     }
 
     if (immediate_bytes != 0 && !cursor.skip(immediate_bytes)) {
