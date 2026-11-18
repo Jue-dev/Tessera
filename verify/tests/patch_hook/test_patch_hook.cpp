@@ -2,11 +2,15 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cstring>
 #include <cstdint>
 #include <new>
 #include <limits>
 #include <initializer_list>
+#include <shared_mutex>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -1983,6 +1987,106 @@ TEST_CASE("Native inline backend suspends and resumes a real worker thread under
     // The worker was suspended/resumed by both transactions and must still be
     // able to wake, return, and signal its thread object as terminated.
     REQUIRE(worker.finish());
+}
+
+
+TEST_CASE("Native inline backend supports admission-gated concurrent callers across repeated attach and detach",
+          "[hook][native][threads][lifecycle][integration]") {
+    using namespace tessera;
+
+    ExecutableRegionGuard region{
+        ::VirtualAlloc(nullptr, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE)};
+    REQUIRE(region.address != nullptr);
+    auto* code = static_cast<std::byte*>(region.address);
+    std::memset(code, 0x90, 4096);
+    code[64] = std::byte{0xB8}; // mov eax, 42
+    const std::uint32_t return_value = 42;
+    std::memcpy(code + 65, &return_value, sizeof(return_value));
+    code[69] = std::byte{0xC3}; // ret
+
+    DWORD previous_protection = 0;
+    REQUIRE(::VirtualProtect(region.address, 4096, PAGE_EXECUTE_READ, &previous_protection));
+
+    const auto target = reinterpret_cast<NativeHookFn>(code + 64);
+    HookBackend& backend = native_inline_hook_backend();
+    auto hook = Hook<NativeHookFn>::create(target, &native_hook_detour, &backend);
+    REQUIRE(hook.has_value());
+
+    // This shared/exclusive gate models the application-level admission and
+    // drain contract: all target and trampoline calls hold a shared lease,
+    // while install/remove take the exclusive lease before patching.
+    std::shared_mutex admission_gate;
+    std::atomic<std::uint64_t> unhooked_calls{0};
+    std::atomic<std::uint64_t> hooked_calls{0};
+    std::atomic<std::uint64_t> unexpected_results{0};
+    std::vector<std::jthread> workers;
+    constexpr std::size_t kWorkerCount = 4;
+    for (std::size_t index = 0; index < kWorkerCount; ++index) {
+        workers.emplace_back([&](std::stop_token stop_token) {
+            while (!stop_token.stop_requested()) {
+                std::shared_lock admission_lock(admission_gate);
+                if (stop_token.stop_requested()) {
+                    break;
+                }
+
+                const int result = target(5);
+                if (result == 42) {
+                    unhooked_calls.fetch_add(1, std::memory_order_relaxed);
+                } else if (result == 142) {
+                    hooked_calls.fetch_add(1, std::memory_order_relaxed);
+                } else {
+                    unexpected_results.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+        });
+    }
+
+    const auto wait_for_count = [](const std::atomic<std::uint64_t>& counter,
+                                   std::uint64_t expected) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (counter.load(std::memory_order_acquire) < expected &&
+               std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::yield();
+        }
+        return counter.load(std::memory_order_acquire) >= expected;
+    };
+
+    REQUIRE(wait_for_count(unhooked_calls, 32));
+
+    HookOptions options{};
+    options.threads = ThreadPolicy::SuspendOthersStrict;
+    constexpr int kInstallRemoveCycles = 4;
+    for (int cycle = 0; cycle < kInstallRemoveCycles; ++cycle) {
+        std::uint64_t hooked_goal = 0;
+        {
+            std::unique_lock admission_lock(admission_gate);
+            REQUIRE(hook->install(options).has_value());
+            g_native_hook_original = hook->original();
+            hooked_goal = hooked_calls.load(std::memory_order_acquire) + 32;
+        }
+        REQUIRE(wait_for_count(hooked_calls, hooked_goal));
+
+        std::uint64_t unhooked_goal = 0;
+        {
+            std::unique_lock admission_lock(admission_gate);
+            REQUIRE(hook->remove().has_value());
+            g_native_hook_original = nullptr;
+            unhooked_goal = unhooked_calls.load(std::memory_order_acquire) + 32;
+        }
+        REQUIRE(wait_for_count(unhooked_calls, unhooked_goal));
+    }
+
+    for (auto& worker : workers) {
+        worker.request_stop();
+    }
+    workers.clear(); // jthread joins before the executable region is released.
+
+    REQUIRE(unexpected_results.load(std::memory_order_acquire) == 0);
+    REQUIRE(hooked_calls.load(std::memory_order_acquire) >=
+            static_cast<std::uint64_t>(kInstallRemoveCycles * 32));
+    REQUIRE(target(5) == 42);
+    REQUIRE(code[64] == std::byte{0xB8});
+    REQUIRE(code[69] == std::byte{0xC3});
 }
 
 #if defined(TESSERA_TEST_WITH_DETOURS)
