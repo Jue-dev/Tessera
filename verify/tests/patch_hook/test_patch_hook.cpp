@@ -20,6 +20,7 @@
 #include "FakeMemoryBackend.hpp"
 #include "hook/backends/patch_write_transaction.hpp"
 #include "hook/backends/address_range.hpp"
+#include "platform/windows/thread_backend.hpp"
 #include "hook/backends/x86_instruction_decoder.hpp"
 #include "tessera/hook/hook.hpp"
 #include "tessera/patch/patch.hpp"
@@ -1972,6 +1973,17 @@ TEST_CASE("Native inline x64 backend routes a far detour through its near relay"
     REQUIRE(code[68] == std::byte{0xB8});
 }
 #endif
+
+TEST_CASE("Strict thread enumeration ignores a stale Win32 last-error value",
+          "[hook][native][threads][integration]") {
+    using tessera::ThreadPolicy;
+    using tessera::platform::windows::ScopedThreadList;
+
+    ::SetLastError(ERROR_ACCESS_DENIED);
+    auto threads = ScopedThreadList::collect_other_threads(
+        ThreadPolicy::SuspendOthersStrict);
+    REQUIRE(threads.has_value());
+}
 
 TEST_CASE("Native inline backend suspends and resumes a real worker thread under strict policy",
           "[hook][native][threads][integration]") {
