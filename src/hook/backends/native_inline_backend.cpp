@@ -18,17 +18,22 @@
 #include "patch_write_transaction.hpp"
 
 #if defined(_M_X64) || defined(__x86_64__)
-    #include "hde64.h"
     #define TESSERA_HOOK_X64 1
 #elif defined(_M_IX86) || defined(__i386__)
-    #include "hde32.h"
     #define TESSERA_HOOK_X86 1
 #else
     #error "Tessera native inline hooks support only x86 and x64."
 #endif
+#include "x86_instruction_decoder.hpp"
 
 namespace tessera {
 namespace {
+
+#if defined(TESSERA_HOOK_X64)
+constexpr detail::x86::Mode kNativeDecoderMode = detail::x86::Mode::x64;
+#else
+constexpr detail::x86::Mode kNativeDecoderMode = detail::x86::Mode::x86;
+#endif
 
 constexpr std::size_t kMaximumPatchBytes = 32;
 constexpr std::size_t kMaximumReadBytes = 96;
@@ -150,16 +155,6 @@ struct NativeHookState {
     }
 }
 
-[[nodiscard]] std::size_t immediate_size(std::uint32_t flags) noexcept {
-#if defined(TESSERA_HOOK_X64)
-    if ((flags & F_IMM64) != 0) return 8;
-#endif
-    if ((flags & F_IMM32) != 0) return 4;
-    if ((flags & F_IMM16) != 0) return 2;
-    if ((flags & F_IMM8) != 0) return 1;
-    return 0;
-}
-
 [[nodiscard]] std::int64_t read_signed_displacement(const std::byte* bytes,
                                                      std::size_t size) noexcept {
     if (size == 1) {
@@ -207,21 +202,23 @@ struct NativeHookState {
         DecodedInstruction instruction{};
         instruction.offset = out.length;
 
-#if defined(TESSERA_HOOK_X64)
-        hde64s decoded{};
-        const unsigned int length = hde64_disasm(code + out.length, &decoded);
-        if (length == 0 || length > 15 || (decoded.flags & F_ERROR) != 0) {
+        detail::x86::DecodedInstruction decoded{};
+        if (!detail::x86::decode_instruction(
+                code + out.length, available - out.length, kNativeDecoderMode, decoded) ||
+            decoded.length == 0 || decoded.length > 15) {
             return fail(ErrorCode::UnsupportedInstruction,
-                        "hde64_disasm",
+                        "Tessera::x86::decode_instruction",
                         0,
-                        "The entry point contains an invalid or unsupported x64 instruction");
+                        "The entry point contains an invalid, truncated, or unsupported instruction");
         }
-        instruction.length = length;
+
+        instruction.length = decoded.length;
         instruction.opcode = decoded.opcode;
         instruction.opcode2 = decoded.opcode2;
         instruction.modrm_reg = decoded.modrm_reg;
-        if ((decoded.flags & F_RELATIVE) != 0) {
-            instruction.relative_size = immediate_size(decoded.flags);
+
+        if (decoded.has_relative_operand) {
+            instruction.relative_size = decoded.relative_size;
             if (instruction.relative_size != 1 && instruction.relative_size != 2 &&
                 instruction.relative_size != 4) {
                 return fail(ErrorCode::UnsupportedInstruction,
@@ -229,65 +226,38 @@ struct NativeHookState {
                             0,
                             "The relative branch operand has an unsupported size");
             }
-            instruction.relative_offset = length - instruction.relative_size;
+            instruction.relative_offset = decoded.relative_offset;
             const std::int64_t displacement =
                 read_signed_displacement(code + out.length + instruction.relative_offset,
                                          instruction.relative_size);
+#if defined(TESSERA_HOOK_X64)
             instruction.relative_target =
-                static_cast<std::int64_t>(source_address + out.length + length) + displacement;
+                static_cast<std::int64_t>(source_address + out.length + instruction.length) +
+                displacement;
+#else
+            const std::uint32_t next =
+                static_cast<std::uint32_t>(source_address + out.length + instruction.length);
+            instruction.relative_target = static_cast<std::uint32_t>(
+                next + static_cast<std::uint32_t>(displacement));
+#endif
             instruction.has_relative_operand = true;
         }
-        if ((decoded.flags & F_MODRM) != 0 && (decoded.flags & F_SIB) == 0 &&
-            decoded.modrm_mod == 0 && decoded.modrm_rm == 5 && decoded.p_67 == 0 &&
-            (decoded.flags & F_DISP32) != 0) {
-            const std::size_t disp_size = 4;
-            const std::size_t imm_size = immediate_size(decoded.flags);
-            if (length < disp_size + imm_size) {
-                return fail(ErrorCode::UnsupportedInstruction, "NativeInlineHook::decode_block");
-            }
-            instruction.rip_displacement_offset = length - disp_size - imm_size;
+
+#if defined(TESSERA_HOOK_X64)
+        if (decoded.has_rip_relative_operand) {
+            instruction.rip_displacement_offset = decoded.rip_displacement_offset;
             std::int32_t displacement = 0;
             std::memcpy(&displacement,
                         code + out.length + instruction.rip_displacement_offset,
                         sizeof(displacement));
             instruction.rip_target =
-                static_cast<std::int64_t>(source_address + out.length + length) + displacement;
+                static_cast<std::int64_t>(source_address + out.length + instruction.length) +
+                displacement;
             instruction.has_rip_relative_operand = true;
-        }
-#else
-        hde32s decoded{};
-        const unsigned int length = hde32_disasm(code + out.length, &decoded);
-        if (length == 0 || length > 15 || (decoded.flags & F_ERROR) != 0) {
-            return fail(ErrorCode::UnsupportedInstruction,
-                        "hde32_disasm",
-                        0,
-                        "The entry point contains an invalid or unsupported x86 instruction");
-        }
-        instruction.length = length;
-        instruction.opcode = decoded.opcode;
-        instruction.opcode2 = decoded.opcode2;
-        instruction.modrm_reg = decoded.modrm_reg;
-        if ((decoded.flags & F_RELATIVE) != 0) {
-            instruction.relative_size = immediate_size(decoded.flags);
-            if (instruction.relative_size != 1 && instruction.relative_size != 2 &&
-                instruction.relative_size != 4) {
-                return fail(ErrorCode::UnsupportedInstruction,
-                            "NativeInlineHook::decode_block",
-                            0,
-                            "The relative branch operand has an unsupported size");
-            }
-            instruction.relative_offset = length - instruction.relative_size;
-            const std::int64_t displacement =
-                read_signed_displacement(code + out.length + instruction.relative_offset,
-                                         instruction.relative_size);
-            const std::uint32_t next =
-                static_cast<std::uint32_t>(source_address + out.length + length);
-            instruction.relative_target = static_cast<std::uint32_t>(
-                next + static_cast<std::uint32_t>(displacement));
-            instruction.has_relative_operand = true;
         }
 #endif
 
+        
         if (out.length + instruction.length > available ||
             out.length + instruction.length > kMaximumPatchBytes) {
             return fail(ErrorCode::UnsupportedInstruction,

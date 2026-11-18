@@ -6,12 +6,15 @@
 #include <cstdint>
 #include <new>
 #include <limits>
+#include <initializer_list>
+#include <utility>
 #include <vector>
 
 #include <Windows.h>
 
 #include "FakeMemoryBackend.hpp"
 #include "hook/backends/patch_write_transaction.hpp"
+#include "hook/backends/x86_instruction_decoder.hpp"
 #include "tessera/hook/hook.hpp"
 #include "tessera/patch/patch.hpp"
 #include "tessera/pattern/pattern.hpp"
@@ -268,6 +271,116 @@ TEST_CASE("Patch apply, restore, expected_original, and PatchTransaction rollbac
     REQUIRE(p_custom->restore().has_value());
     REQUIRE(p_custom->restore().has_value()); // idempotent second restore
     REQUIRE(*backend->peek_byte(Address{0x500100}) == std::byte{0x48});
+}
+
+TEST_CASE("Tessera's bounded x86/x64 decoder reports instruction and relocation metadata",
+          "[hook][native][decoder]") {
+    using namespace tessera::detail::x86;
+
+    const auto decode = [](Mode mode,
+                           std::initializer_list<std::uint8_t> encoded) {
+        std::array<std::byte, 15> bytes{};
+        std::size_t length = 0;
+        for (const std::uint8_t value : encoded) {
+            if (length >= bytes.size()) break;
+            bytes[length++] = static_cast<std::byte>(value);
+        }
+
+        DecodedInstruction instruction{};
+        const bool succeeded = decode_instruction(bytes.data(), length, mode, instruction);
+        return std::pair<bool, DecodedInstruction>{succeeded, instruction};
+    };
+
+    const auto endbr64 = decode(Mode::x64, {0xF3, 0x0F, 0x1E, 0xFA});
+    REQUIRE(endbr64.first);
+    REQUIRE(endbr64.second.length == 4);
+
+    const auto rip_load = decode(Mode::x64, {0x48, 0x8B, 0x05, 0x34, 0x12, 0x00, 0x00});
+    REQUIRE(rip_load.first);
+    REQUIRE(rip_load.second.length == 7);
+    REQUIRE(rip_load.second.has_rip_relative_operand);
+    REQUIRE(rip_load.second.rip_displacement_offset == 3);
+
+    const auto near_jcc = decode(Mode::x64, {0x0F, 0x85, 0x01, 0x00, 0x00, 0x00});
+    REQUIRE(near_jcc.first);
+    REQUIRE(near_jcc.second.length == 6);
+    REQUIRE(near_jcc.second.has_relative_operand);
+    REQUIRE(near_jcc.second.relative_offset == 2);
+    REQUIRE(near_jcc.second.relative_size == 4);
+
+    const auto stack_adjust = decode(Mode::x64, {0x48, 0x81, 0xEC, 0x20, 0x00, 0x00, 0x00});
+    REQUIRE(stack_adjust.first);
+    REQUIRE(stack_adjust.second.length == 7);
+
+    const auto rex_w_adjust = decode(
+        Mode::x64, {0x66, 0x48, 0x81, 0xEC, 0x08, 0x00, 0x00, 0x00});
+    REQUIRE(rex_w_adjust.first);
+    REQUIRE(rex_w_adjust.second.length == 8);
+
+    const auto movabs = decode(
+        Mode::x64, {0x48, 0xB8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08});
+    REQUIRE(movabs.first);
+    REQUIRE(movabs.second.length == 10);
+
+    const auto xbegin = decode(Mode::x64, {0xC7, 0xF8, 0x01, 0x00, 0x00, 0x00});
+    REQUIRE(xbegin.first);
+    REQUIRE(xbegin.second.length == 6);
+    REQUIRE(xbegin.second.has_relative_operand);
+    REQUIRE(xbegin.second.relative_offset == 2);
+    REQUIRE(xbegin.second.relative_size == 4);
+
+    const auto immediate_store = decode(Mode::x64, {0xC6, 0x44, 0x24, 0x08, 0x01});
+    REQUIRE(immediate_store.first);
+    REQUIRE(immediate_store.second.length == 5);
+
+    // A 66 prefix does not turn a long-mode near CALL into rel16.
+    const auto prefixed_call = decode(Mode::x64, {0x66, 0xE8, 0x00, 0x00, 0x00, 0x00});
+    REQUIRE(prefixed_call.first);
+    REQUIRE(prefixed_call.second.length == 6);
+    REQUIRE(prefixed_call.second.relative_size == 4);
+
+    const auto address16 = decode(Mode::x86, {0x67, 0x8B, 0x06, 0x34, 0x12});
+    REQUIRE(address16.first);
+    REQUIRE(address16.second.length == 5);
+
+    const auto vex = decode(Mode::x64, {0xC5, 0xF8, 0x77});
+    REQUIRE(vex.first);
+    REQUIRE(vex.second.length == 3);
+
+    const auto vex_immediate = decode(Mode::x64, {0xC5, 0xF9, 0x70, 0xC0, 0x01});
+    REQUIRE(vex_immediate.first);
+    REQUIRE(vex_immediate.second.length == 5);
+
+    const auto evex = decode(Mode::x64, {0x62, 0xF1, 0x7C, 0x48, 0x58, 0xC0});
+    REQUIRE(evex.first);
+    REQUIRE(evex.second.length == 6);
+
+    const auto map3 = decode(Mode::x64, {0x66, 0x0F, 0x3A, 0x0F, 0xC0, 0x08});
+    REQUIRE(map3.first);
+    REQUIRE(map3.second.length == 6);
+
+    const auto maximum_length = decode(
+        Mode::x64,
+        {0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+         0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x90});
+    REQUIRE(maximum_length.first);
+    REQUIRE(maximum_length.second.length == 15);
+
+    std::array<std::byte, 15> truncated_bytes{
+        std::byte{0x48}, std::byte{0x8B}, std::byte{0x05}};
+    DecodedInstruction rejected_metadata{};
+    rejected_metadata.length = 99;
+    REQUIRE_FALSE(decode_instruction(
+        truncated_bytes.data(), 3, Mode::x64, rejected_metadata));
+    REQUIRE(rejected_metadata.length == 0);
+    REQUIRE_FALSE(rejected_metadata.has_relative_operand);
+    REQUIRE_FALSE(rejected_metadata.has_rip_relative_operand);
+
+    const auto overlong = decode(
+        Mode::x64,
+        {0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+         0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66});
+    REQUIRE_FALSE(overlong.first);
 }
 
 TEST_CASE("Hook lifecycle and Detours-off contract", "[hook]") {

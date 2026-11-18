@@ -74,10 +74,15 @@ original_function = nullptr;
   pointer is still inside the generated trampoline prologue is not guaranteed.
   Targets whose stolen prologues may fault or require reliable unwinding during
   that brief window should use a backend that provides suitable unwind support.
-- The x86/x64 decoder is the BSD-licensed Hacker Disassembler Engine (HDE)
-  component vendored from MinHook. Tessera owns the backend, trampoline
-  allocation, relocation, patch transaction, thread coordination, rollback,
-  and lifecycle management. See `src/hde/LICENSE.txt`.
+- The native backend uses Tessera's private, bounded x86/x64 instruction
+  decoder in `src/hook/backends/x86_instruction_decoder.hpp`. It is scoped to
+  instruction-boundary and relocation metadata needed by native hooks; it is
+  not a public general-purpose disassembler. The decoder handles the legacy,
+  VEX, and EVEX forms exercised by the native-hook validation suite, enforces
+  the architectural 15-byte instruction limit, and rejects truncated or
+  unsupported encodings before target bytes are changed. Tessera owns the
+  decoder, backend, trampoline allocation, relocation, patch transaction,
+  thread coordination, rollback, and lifecycle management.
 - Unsupported or out-of-range relocations are rejected before the target is
   modified. The backend deliberately does not guess instruction lengths or
   silently truncate branches. A prologue that reaches a terminal `RET`,

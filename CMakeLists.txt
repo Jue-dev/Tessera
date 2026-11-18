@@ -281,20 +281,12 @@ if(TESSERA_WITH_DETOURS)
     list(APPEND TESSERA_HOOK_SYSTEM_LIBS "${DETOURS_LIBRARY}")
 endif()
 
-if(MSVC)
-    # HDE is vendored BSD-licensed C code; keep its legacy warnings out of the
-    # project's /W4 /WX policy while compiling the Tessera backend strictly.
-    set_source_files_properties(src/hde/hde32.c src/hde/hde64.c PROPERTIES COMPILE_OPTIONS "/w")
-endif()
-
 tessera_add_module(
     NAME hook
     SOURCES
         src/platform/windows/thread_backend.cpp
         src/hook/backends/detours_backend.cpp
         src/hook/backends/native_inline_backend.cpp
-        src/hde/hde32.c
-        src/hde/hde64.c
     PUBLIC_HEADERS
         include/tessera/hook/hook.hpp
     PUBLIC_DEPS
@@ -312,7 +304,6 @@ tessera_add_module(
 if(TESSERA_WITH_DETOURS AND DETOURS_INCLUDE_DIRS)
     target_include_directories(tessera_hook PRIVATE "${DETOURS_INCLUDE_DIRS}")
 endif()
-target_include_directories(tessera_hook PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/hde")
 
 if(TESSERA_BUILD_PROFILE)
     tessera_add_module(
@@ -467,10 +458,6 @@ install(FILES
     DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/Tessera"
 )
 
-# Third-party decoder license required for redistributions that include the hook backend.
-install(FILES "${PROJECT_SOURCE_DIR}/src/hde/LICENSE.txt"
-    DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/Tessera"
-)
 
 # ------------------------------------------------------------------------------
 # Subdirectories: Verify (tests, bench, fuzz) and Examples
