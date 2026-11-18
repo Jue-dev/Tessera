@@ -27,9 +27,11 @@ must describe a tested support envelope rather than claim universal operation.
 - Strict thread policy snapshots, suspends and inspects enumerated threads.
   Best-effort and no-suspension modes are explicitly weaker and require host
   quiescence. Snapshot-based suspension is not a thread-creation barrier.
-- Hook tokens retain backend state until detach succeeds. The public
-  `original()` pointer is non-owning; callers must stop new calls and drain
-  all users before detach, destruction, or module unload.
+- Hook tokens retain backend state until detach succeeds. Calls through
+  `Hook::operator()` hold an internal shared lease, and lifecycle operations
+  wait for those leased calls to complete. The public `original()` pointer is
+  still non-owning and bypasses the lease; raw-pointer users must stop new
+  calls and drain all users before detach, destruction, or module unload.
 - PR smoke validates x86/x64 Debug and Release, including a deterministic
   native-hook corpus (nine focused seeds plus 512 fixed-seed inputs). The
   x64 Release fuzz smoke has a known-good lifecycle assertion.
@@ -71,10 +73,11 @@ without changing target bytes. A green compile alone is not sufficient.
    concurrent detach. Do not claim that a detour-only counter closes the race:
    a thread can branch to the detour before it increments that counter, and
    callers can retain `original()` independently.
-2. Design an opt-in call-lease API for calls made through Tessera. A lease must
-   pin trampoline storage until the call returns. Detach must close lease
-   admission, wait for active leases, restore the target, unregister unwind
-   metadata, then free the trampoline.
+2. Extend the current lock-backed lease model if new call APIs are added.
+   `Hook::operator()` now pins the current callable for the duration of the
+   invocation, and install/remove/release wait for those calls. Keep regression
+   tests for this behavior. Raw pointers returned by `original()` cannot be
+   tracked and continue to require host-side admission and drain.
 3. Keep host admission control as a required contract for direct target calls
    and detour callback lifetime. The host must stop new entries and drain
    callbacks before removing or unloading the detour module.
@@ -84,9 +87,9 @@ without changing target bytes. A green compile alone is not sufficient.
 5. Add deterministic tests for call leases racing with remove, detach failure
    and retry, move/destructor behavior, and module-lifetime boundaries.
 
-**Exit criterion:** calls made through the lease API cannot execute freed
-trampoline memory; raw-pointer callers remain clearly documented as requiring
-external quiescence.
+**Exit criterion:** calls made through `Hook::operator()` cannot execute
+freed trampoline memory; raw-pointer callers remain clearly documented as
+requiring external quiescence.
 
 ### P0 — Thread coordination and patch atomicity
 
