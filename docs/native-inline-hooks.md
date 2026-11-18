@@ -166,12 +166,15 @@ original_function = nullptr;
   before the application has stored the trampoline pointer. Thread suspension
   also cannot determine whether application code is inside a detour callback
   that may call the trampoline later.
-  `original()` returns a raw function pointer and does not acquire a lifetime
-  lease. The application must stop new calls, wait for every in-flight detour
-  callback and original/trampoline call to finish, and only then call
-  `remove()`, destroy the hook, or unload the module containing the detour.
-  Do not remove a hook from inside its own detour callback. Tessera does not
-  currently provide an owning call lease for raw trampoline pointers.
+  Calls made through `Hook::operator()` hold an internal shared call lease;
+  `remove()`, `install()`, and `release()` wait for those calls to finish
+  before changing the callable/trampoline lifetime. The lease does not track
+  direct calls to the patched target or calls through copied function pointers.
+  `original()` returns a non-owning raw function pointer and does not acquire
+  a lifetime lease. The application must stop new target calls, wait for every
+  in-flight detour callback and every raw trampoline call to finish, and only
+  then call `remove()`, destroy the hook, or unload the module containing the
+  detour. Do not remove a hook from inside its own detour callback.
 - Concurrent calls to `install()`, `remove()`, move operations, or destruction
   on the same `Hook` object require external synchronization. The backend's
   process-wide lock serializes patch transactions across hook objects; it does
