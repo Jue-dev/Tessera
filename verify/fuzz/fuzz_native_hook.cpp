@@ -93,7 +93,11 @@ int main() {
     constexpr std::array<std::uint8_t, 6> simple_prologue{
         0xB8, 0x2A, 0x00, 0x00, 0x00, 0xC3
     };
+    const std::uint64_t lifecycle_count_before_baseline = g_successful_lifecycles;
     (void)LLVMFuzzerTestOneInput(simple_prologue.data(), simple_prologue.size());
+    if (g_successful_lifecycles != lifecycle_count_before_baseline + 1u) {
+        std::abort();
+    }
 
     // Small, deterministic seeds focus the native relocator's less common
     // paths. The bytes are decoded and copied but are never executed.
@@ -156,12 +160,6 @@ int main() {
         (void)LLVMFuzzerTestOneInput(random_input.data(), length);
     }
 
-    // If even the known-good prologue did not install and remove, the harness
-    // failed to exercise the success path (for example due to an allocation or
-    // environment issue) and CI must not report this smoke run as a pass.
-    if (g_successful_lifecycles == 0) {
-        std::abort();
-    }
     return 0;
 }
 #endif // !defined(TESSERA_LIBFUZZER)
