@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <shared_mutex>
@@ -115,8 +116,7 @@ public:
     // of the same lock and therefore wait for leased invocations to finish.
     [[nodiscard]] CallableLease acquire_callable() const;
     [[nodiscard]] bool installed() const noexcept {
-        std::shared_lock lock(lifecycle_mutex_);
-        return installed_;
+        return installed_.load(std::memory_order_acquire);
     }
     [[nodiscard]] Address target() const noexcept { return target_; }
 
@@ -134,7 +134,7 @@ private:
     void* active_callable_ = nullptr;
     HookToken token_{};
     HookBackend* backend_ = nullptr;
-    bool installed_ = false;
+    std::atomic<bool> installed_{false};
 };
 
 } // namespace detail
