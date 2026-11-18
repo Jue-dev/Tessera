@@ -30,19 +30,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  debug-smoke:
-    name: ${{ matrix.arch }} Debug build and tests
+  build-and-test:
+    name: ${{ matrix.arch }} ${{ matrix.configuration }} build and tests
     if: ${{ github.event.pull_request.draft == false }}
     runs-on: windows-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: x64
             preset: x64-debug
+            configuration: Debug
           - arch: x86
             preset: x86-debug
+            configuration: Debug
+          - arch: x64
+            preset: x64-release
+            configuration: Release
+          - arch: x86
+            preset: x86-release
+            configuration: Release
 
     steps:
       - name: Checkout source
