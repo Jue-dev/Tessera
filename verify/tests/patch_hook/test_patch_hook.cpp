@@ -231,7 +231,7 @@ TEST_CASE("Native hook address range helpers remain correct at uintptr limits",
 
     REQUIRE(address_range_contains(maximum - 2u, 3u, maximum - 2u));
     REQUIRE(address_range_contains(maximum - 2u, 3u, maximum));
-    REQUIRE_FALSE(address_range_contains(maximum - 2u, 3u, maximum));
+    REQUIRE_FALSE(address_range_contains(maximum - 2u, 2u, maximum));
     REQUIRE_FALSE(address_range_contains(maximum, 0u, maximum));
     REQUIRE(address_range_contains(1u, (std::numeric_limits<std::size_t>::max)(), maximum));
 }
