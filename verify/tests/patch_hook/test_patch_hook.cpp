@@ -19,6 +19,7 @@
 
 #include "FakeMemoryBackend.hpp"
 #include "hook/backends/patch_write_transaction.hpp"
+#include "hook/backends/address_range.hpp"
 #include "hook/backends/x86_instruction_decoder.hpp"
 #include "tessera/hook/hook.hpp"
 #include "tessera/patch/patch.hpp"
@@ -213,6 +214,27 @@ public:
 };
 
 } // namespace
+
+TEST_CASE("Native hook address range helpers remain correct at uintptr limits",
+          "[hook][native][address-range]") {
+    using tessera::detail::address_range_contains;
+    using tessera::detail::address_ranges_overlap;
+
+    constexpr std::uintptr_t maximum =
+        (std::numeric_limits<std::uintptr_t>::max)();
+
+    REQUIRE(address_ranges_overlap(maximum - 7u, 8u, maximum - 2u, 2u));
+    REQUIRE(address_ranges_overlap(maximum - 2u, 2u, maximum - 7u, 8u));
+    REQUIRE_FALSE(address_ranges_overlap(maximum - 7u, 4u, maximum - 2u, 2u));
+    REQUIRE_FALSE(address_ranges_overlap(maximum, 0u, maximum, 1u));
+    REQUIRE_FALSE(address_ranges_overlap(maximum, 1u, maximum, 0u));
+
+    REQUIRE(address_range_contains(maximum - 2u, 3u, maximum - 2u));
+    REQUIRE(address_range_contains(maximum - 2u, 3u, maximum));
+    REQUIRE_FALSE(address_range_contains(maximum - 2u, 3u, maximum));
+    REQUIRE_FALSE(address_range_contains(maximum, 0u, maximum));
+    REQUIRE(address_range_contains(1u, (std::numeric_limits<std::size_t>::max)(), maximum));
+}
 
 TEST_CASE("Patch apply, restore, expected_original, and PatchTransaction rollback", "[patch]") {
     using namespace tessera;
