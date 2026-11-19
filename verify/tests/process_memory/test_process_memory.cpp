@@ -9,6 +9,7 @@
 
 #include "FakeMemoryBackend.hpp"
 #include "tessera/memory/memory.hpp"
+#include "tessera/memory/protection_scope.hpp"
 #include "tessera/platform/windows/native.hpp"
 #include "tessera/process/process.hpp"
 
@@ -149,3 +150,33 @@ TEST_CASE("Remote process integration with tessera_test_host", "[process][integr
 }
 
 #endif // !TESSERA_PORTABLE_VALIDATION
+
+TEST_CASE("ProtectionScope retains restoration ownership after a failed restore", "[memory][protection]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    auto& region = backend->map_region(Address{0x20000}, 0x1000, MemoryProtection::Read);
+    Process process = FakeMemoryBackend::make_process(backend);
+
+    auto scope_result = ProtectionScope::create(
+        process, AddressRange{Address{0x20000}, 16}, MemoryProtection::ReadWrite);
+    REQUIRE(scope_result.has_value());
+    auto scope = std::move(*scope_result);
+    REQUIRE(scope.active());
+    REQUIRE(region.protection == MemoryProtection::ReadWrite);
+
+    region.fail_restore_protect = true;
+    auto failed_restore = scope.restore();
+    REQUIRE_FALSE(failed_restore.has_value());
+    REQUIRE(failed_restore.error().code == ErrorCode::ProtectionRestoreFailed);
+    REQUIRE(scope.active());
+    REQUIRE(region.protection == MemoryProtection::ReadWrite);
+
+    // Explicitly retry after the injected API failure is removed. The failed
+    // attempt must not have consumed the scope's restoration responsibility.
+    region.fail_restore_protect = false;
+    REQUIRE(scope.restore().has_value());
+    REQUIRE_FALSE(scope.active());
+    REQUIRE(region.protection == MemoryProtection::Read);
+}
