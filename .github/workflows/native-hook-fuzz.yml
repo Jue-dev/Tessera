@@ -12,6 +12,8 @@ on:
           - "60"
           - "300"
           - "900"
+  schedule:
+    - cron: "41 4 * * 1" # Weekly Monday 04:41 UTC, 300-second campaign.
 
 permissions:
   contents: read
@@ -76,7 +78,7 @@ jobs:
           $asanDll = Join-Path $resource "lib\windows\clang_rt.asan_dynamic-x86_64.dll"
           if (-not (Test-Path $asanDll)) { throw "Missing ASan runtime DLL: $asanDll" }
           Copy-Item $asanDll (Split-Path $target -Parent) -Force
-          & $target $corpus "-max_total_time=${{ inputs.campaign_seconds }}" "-timeout=10" "-max_len=96" "-rss_limit_mb=4096" "-seed=20261119" "-print_final_stats=1" "-artifact_prefix=$crashes\"
+          & $target $corpus "-max_total_time=${{ inputs.campaign_seconds || '300' }}" "-timeout=10" "-max_len=96" "-rss_limit_mb=4096" "-seed=20261119" "-print_final_stats=1" "-artifact_prefix=$crashes\"
           if ($LASTEXITCODE -ne 0) { throw "Coverage-guided native-hook fuzzing failed ($LASTEXITCODE)" }
 
       - name: Upload fuzz corpus and crash artifacts
