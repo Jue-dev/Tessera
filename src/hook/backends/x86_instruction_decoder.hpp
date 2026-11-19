@@ -386,7 +386,6 @@ struct Encoding {
 
     const auto* const bytes = reinterpret_cast<const std::uint8_t*>(code);
     Cursor cursor{bytes, available};
-    DecodedInstruction decoded_output{};
 
     bool operand16 = false;
     bool address_override = false;
