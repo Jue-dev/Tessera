@@ -155,6 +155,9 @@ tessera_add_test(tessera_test_patch_hook
         tessera::patch
         tessera::hook
 )
+if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+    target_sources(tessera_test_patch_hook PRIVATE patch_hook/test_patch_hook_x86.cpp)
+endif()
 target_include_directories(tessera_test_patch_hook PRIVATE
     ${PROJECT_SOURCE_DIR}/src
 )
