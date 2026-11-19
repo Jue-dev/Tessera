@@ -1,62 +1,71 @@
 # Portable validation (Linux / Google Colab)
 
-Portable validation is supplemental. It can build and run project-provided test
-commands in a Linux environment, but it does **not** emulate Windows, the
-Windows loader, unwind registration, executable memory, or native inline-hook
-runtime behavior.
+Portable validation runs project-provided build and test commands in a Linux
+environment. It is supplemental and does **not** emulate Windows, the Windows
+loader, unwind registration, executable memory, or native inline-hook runtime
+behavior.
 
-## Google Colab — Project Test Console
+## Google Colab — native form notebook
 
 Open
 [Tessera_Portable_Validation.ipynb](../verify/portable/Tessera_Portable_Validation.ipynb)
-in Google Colab. The notebook is a compact two-cell console: a short guide and
-one configurable panel. Its initial settings target the current
-`issue-6/unwind-lifecycle` branch and the Tessera portable mock harness, but
-the repository URL, ref, setup commands, test commands, compiler requirements,
-timeouts, and workspace behavior can all be changed for another project.
+in Google Colab. The notebook has two cells: a short guide and one runner cell.
+All settings use Google Colab's native `#@param` form controls; it does not
+depend on ipywidgets or a separate HTML/web UI.
+
+The initial form values target the current `issue-6/unwind-lifecycle` branch
+and Tessera's portable mock harness. For another project, change the repository
+URL, ref, and test commands in the form.
 
 1. For a private GitHub repository, add a Colab Secret named `GH_TOKEN` and
    enable notebook access. A fine-grained token with repository
    `Contents: Read-only` is sufficient for cloning. Public repositories do
    not need a token.
-2. Run the panel cell once. Change settings if needed, then press **Testleri
-   çalıştır**.
-3. When complete, press **Raporu kopyala** and paste the complete report into
-   the issue or conversation being investigated.
+2. Adjust the form fields above the runner cell. Optional setup commands and
+   up to five test commands can be entered without editing the Python code.
+3. Run the cell. The report is printed directly in the cell output and is also
+   saved as `/content/PROJECT_VALIDATION_REPORT.txt`.
+4. Copy the report text from the Colab output and paste it into the issue or
+   conversation being investigated.
 
-Test commands use one line each in this format:
+### Test command format
+
+Each test field uses this format:
 
 ```text
 Test name :: shell command
-Compiler test :: command :: needs=clang++
+Compiler test :: CXX=clang++ ./test.sh :: needs=clang++
 ```
 
-The optional `needs=` field checks for required executables. When a required
-tool is unavailable, that test is marked `SKIP`; it is not reported as a test
-failure. Clang installation is available as an opt-in setting. Setup commands
-are also configurable, one shell command per line.
+The optional `needs=` section checks that required executables exist. Missing
+executables are marked `SKIP`, not test failures. Clang installation is
+enabled by default only when a configured test requires `clang++` and it is
+not installed; this can be disabled in the form. Three optional setup command
+fields run before tests.
 
-The runner records the repository, branch, exact commit SHA, environment,
-duration, commands, exit codes, captured output, and an issue pool. The report
-copy button uses the browser clipboard; if the browser blocks clipboard
-access, select the report text area and copy it manually. Tokens are used only
+The runner records repository, ref, exact commit SHA, platform, duration,
+commands, exit codes, captured output, and an issue pool. Tokens are used only
 for cloning, removed from the clone environment before test commands run, and
-redacted from captured clone output. Only run trusted repositories and
-commands: user-configured setup and test commands execute in the Colab runtime.
+redacted from captured clone output. User-configured setup and test commands
+execute as shell commands in Colab; run only commands and repositories you
+trust.
 
 ## Current Tessera portable test profile
 
-The default command set runs:
+The default test fields run:
 
 1. GCC strict mock build and test:
    `bash verify/windows_mock/run_windows_mock_tests.sh`
-2. Clang strict mock build and test (skipped when `clang++` is unavailable,
-   unless the opt-in installation setting is enabled).
+2. Clang strict mock build and test:
+   `CXX=clang++ bash verify/windows_mock/run_windows_mock_tests.sh`
 3. GCC AddressSanitizer + UndefinedBehaviorSanitizer build and test.
 
+The Clang test declares `needs=clang++`; if the compiler is missing, the
+notebook installs it by default before running the test (unless disabled).
+
 A result of `PASS` means all configured tests ran and passed.
-`PARTIAL` means no test failed, but at least one configured test was skipped.
-`FAIL` means cloning, setup, configuration, or a test failed.
+`PARTIAL` means no test failed, but at least one test was skipped.
+`FAIL` means cloning, configuration, setup, or a test failed.
 
 ## Run locally on Linux
 
