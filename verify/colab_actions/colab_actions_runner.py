@@ -423,10 +423,12 @@ class ColabActionsRunner:
                     self.emit(jid + ": " + platform + " — " + reason)
                     self.job_results.append(JobResult(jid, s(job.get("name")) or jid, platform, [], reason)); completed[jid] = platform; continue
                 statuses, all_steps = [], []
+                workflow_failed_before_job = self._run_failed
                 original_timeout = self.step_timeout; minutes = int(s(job.get("timeout-minutes")) or "0")
                 if minutes: self.step_timeout = min(original_timeout, minutes*60)
                 for matrix in self.matrix_variants(job):
                     if self.cancel_event.is_set(): statuses.append("CANCELLED"); break
+                    self._run_failed = False
                     label = ", ".join(k + "=" + s(v) for k,v in matrix.items())
                     self.emit("\n========== JOB " + jid + ((" [" + label + "]") if label else "") + " ==========")
                     workflow_env, job_env = mp(self.workflow.get("env")), mp(job.get("env"))
@@ -450,6 +452,7 @@ class ColabActionsRunner:
                     statuses.append("FAIL" if failed else ("PARTIAL" if unsupported else ("CANCELLED" if self.cancel_event.is_set() else "PASS")))
                 self.step_timeout = original_timeout
                 state = "FAIL" if "FAIL" in statuses else ("CANCELLED" if "CANCELLED" in statuses else ("PARTIAL" if "PARTIAL" in statuses else "PASS"))
+                self._run_failed = workflow_failed_before_job or state in {"FAIL", "PARTIAL"}
                 self.job_results.append(JobResult(jid, s(job.get("name")) or jid, state, all_steps, reason)); completed[jid] = state
             if not progressed:
                 for jid in pending:
