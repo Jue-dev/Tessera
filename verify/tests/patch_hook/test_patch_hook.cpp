@@ -67,6 +67,13 @@ int __cdecl blocking_trampoline_function(int value) {
 
 using NativeHookFn = int(__cdecl*)(int);
 using NativeHookFastFn = std::uintptr_t(__fastcall*)(std::uintptr_t);
+std::atomic<NativeHookFn> g_lease_detour_original{nullptr};
+
+int __cdecl blocking_lease_detour(int value) {
+    const NativeHookFn original =
+        g_lease_detour_original.load(std::memory_order_acquire);
+    return original != nullptr ? original(value) : -1;
+}
 
 #if defined(_M_X64) || defined(__x86_64__)
 struct TestUnwindCode {
@@ -983,7 +990,7 @@ TEST_CASE("Native x64 unwind registration remains alive until an explicit callab
     auto hook = Hook<NativeHookFn>::create(
         Address{static_cast<std::uint64_t>(
             reinterpret_cast<std::uintptr_t>(code + target_offset))},
-        &native_hook_detour,
+        &blocking_lease_detour,
         &backend);
     REQUIRE(hook.has_value());
     HookOptions options{};
@@ -991,6 +998,7 @@ TEST_CASE("Native x64 unwind registration remains alive until an explicit callab
     REQUIRE(hook->install(options).has_value());
 
     const NativeHookFn trampoline = hook->original();
+    g_lease_detour_original.store(trampoline, std::memory_order_release);
     REQUIRE(trampoline != nullptr);
     DWORD64 table_image_base = 0;
     REQUIRE(::RtlLookupFunctionEntry(
@@ -1004,9 +1012,11 @@ TEST_CASE("Native x64 unwind registration remains alive until an explicit callab
     std::atomic<bool> remove_succeeded{false};
     std::thread caller([&] {
         auto lease = hook->acquire();
+        const NativeHookFn target_entry = lease.target();
         const NativeHookFn callable = lease.get();
-        call_result.store(callable != nullptr ? callable(5) : -1,
-                          std::memory_order_release);
+        call_result.store(
+            target_entry != nullptr && callable == trampoline ? target_entry(5) : -1,
+            std::memory_order_release);
     });
 
     const auto entered_deadline =
@@ -1060,6 +1070,7 @@ TEST_CASE("Native x64 unwind registration remains alive until an explicit callab
                 static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(trampoline)),
                 &removed_table_base,
                 nullptr) == nullptr);
+    g_lease_detour_original.store(nullptr, std::memory_order_release);
 }
 #endif
 
