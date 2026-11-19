@@ -12,7 +12,8 @@ Pull-request validation is intentionally one-shot. A normal code commit on
 this draft PR must not start a Windows matrix or fuzz campaign. The dedicated
 `.github/workflows/issue-6-acceptance.yml` runs the four-way Windows matrix
 only when the PR is explicitly marked ready for review (or manually dispatched
-after the workflow exists on the default branch). It has no synchronize trigger.
+after the workflow exists on the default branch). It has no commit-synchronize
+trigger and watches all test and Windows fixture inputs.
 The short `pr-smoke.yml` and focused `native-hook-fuzz.yml` workflows are
 manual-only. The five-minute fuzz campaign is a separate deliberate dispatch.
 The full SDK/quality workflow runs on relevant main-branch pushes, tags, or

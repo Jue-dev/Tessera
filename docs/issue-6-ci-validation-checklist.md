@@ -19,7 +19,8 @@ for PR validation so each iteration does not consume Actions automatically.
 
 Primary workflow: `.github/workflows/issue-6-acceptance.yml`. It runs once when
 the PR is explicitly marked ready for review, or can be manually dispatched
-after the workflow exists on the default branch. It has no synchronize trigger.
+after the workflow exists on the default branch. It has no commit-synchronize
+trigger and watches all `verify/tests/**` and `verify/windows/**` inputs.
 The standalone `.github/workflows/pr-smoke.yml` is manual-only for a shorter repeat.
 Expected evidence: four successful Windows jobs for the exact commit SHA.
 
