@@ -329,12 +329,14 @@ class ColabActionsRunner:
         action = load_yaml(meta); runs = mp(action.get("runs"))
         if s(runs.get("using")) != "composite": return [StepResult(uses, "UNSUPPORTED", 0, None, "Only local composite actions are supported.")]
         supplied = mp(step.get("with")); local_inputs = {k: supplied.get(k, mp(v).get("default", "")) for k, v in mp(action.get("inputs")).items()}
+        action_ctx = dict(ctx)
+        action_ctx["inputs"] = local_inputs
         for child_raw in seq(runs.get("steps")):
             child = dict(mp(child_raw)); child_env = {}
             for key, val in mp(child.get("env")).items():
                 child_env[key] = re.sub(r"\$\{\{\s*inputs\.([A-Za-z0-9_-]+)\s*\}\}", lambda m: s(local_inputs.get(m.group(1), "")), s(val))
             child["env"] = child_env
-            result = self.run_step(child, ctx, cwd, env_base, depth+1)
+            result = self.run_step(child, action_ctx, cwd, env_base, depth+1)
             if result[0].status not in {"PASS", "SKIP"} and not truth(child.get("continue-on-error")): return result
         return [StepResult(s(step.get("name")) or uses, "PASS", 0, 0, "Composite action completed.")]
     def run_step(self, step, ctx, cwd, env_base, depth=0):
@@ -439,7 +441,13 @@ class ColabActionsRunner:
                     label = ", ".join(k + "=" + s(v) for k,v in matrix.items())
                     self.emit("\n========== JOB " + jid + ((" [" + label + "]") if label else "") + " ==========")
                     workflow_env, job_env = mp(self.workflow.get("env")), mp(job.get("env"))
-                    ctx = self.context(matrix, jid, {**workflow_env, **job_env}); env_base = {**workflow_env, **job_env}
+                    env_base = {**workflow_env, **job_env}
+                    ctx = self.context(matrix, jid, env_base)
+                    resolved_env = {}
+                    for env_key, env_value in env_base.items():
+                        resolved_env[env_key] = self.interpolate(env_value, ctx)
+                    ctx["env"] = resolved_env
+                    env_base = resolved_env
                     failed, unsupported = False, False
                     for raw_step in seq(job.get("steps")):
                         step = mp(raw_step); results = self.run_step(step, ctx, self.workspace, env_base)
