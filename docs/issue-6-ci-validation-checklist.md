@@ -17,11 +17,11 @@ for PR validation so each iteration does not consume Actions automatically.
 - [ ] No warnings promoted to errors, test hangs, or flaky thread lifecycle
   failures.
 
-Primary workflow: `.github/workflows/issue-6-acceptance.yml`. It runs once when
-the PR is explicitly marked ready for review, or can be manually dispatched
-after the workflow exists on the default branch. It has no commit-synchronize
-trigger and watches all `verify/tests/**` and `verify/windows/**` inputs.
-The standalone `.github/workflows/pr-smoke.yml` is manual-only for a shorter repeat.
+Primary workflow: `.github/workflows/issue-6-acceptance.yml`. It is
+**manual-only**: PR open/ready/synchronize/reopen, branch push, and schedule
+events do not start it. Dispatch once against the final PR branch/head SHA.
+The default run executes the four-way Windows matrix and deterministic x64
+Release fuzz smoke. Enable sustained fuzz only when validating section C.
 Expected evidence: four successful Windows jobs for the exact commit SHA.
 
 ## B. x64 unwind runtime correctness — all tests below
@@ -85,9 +85,9 @@ Relevant regression tests (exact names):
   retain any new reproducer as a checked-in regression seed.
 
 Run `.github/workflows/issue-6-acceptance.yml` manually with
-`run_sustained_fuzz=true` and `campaign_seconds=300` after Actions allowance is available. The acceptance
-workflow's PR-ready event intentionally skips the sustained campaign to avoid
-starting a second long job automatically.
+`run_sustained_fuzz=true` and `campaign_seconds=300` after Actions allowance
+is available. The sustained campaign is an optional input on the same manual
+workflow; there is no duplicate fuzz workflow.
 Expected evidence: successful “Run bounded coverage-guided campaign” and
 “Upload fuzz corpus and crash artifacts” steps for the exact commit SHA.
 
