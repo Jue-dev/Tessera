@@ -58,7 +58,7 @@ class ColabActionsRunner:
         self.artifact_dir = self.workspace.parent / "colab-actions-artifacts"
         self.artifact_dir.mkdir(parents=True, exist_ok=True)
         self.workflow_path = None; self.workflow = {}; self.event_name = "workflow_dispatch"
-        self.inputs = {}; self.event_ref = "refs/heads/main"; self.event_sha = ""
+        self.inputs = {}; self.event_ref = "refs/heads/main"; self.event_sha = ""; self.repo_full_name = ""
         self.job_results = []; self.warnings = []; self.env_global = {}; self.step_outputs = {}; self.job_outputs = {}
         self._run_failed = False; self._report_data = {}
     def emit(self, m): self.log(str(m))
@@ -90,7 +90,7 @@ class ColabActionsRunner:
             if askpass and os.path.exists(askpass):
                 try: os.remove(askpass)
                 except OSError: pass
-        self.workspace = dest; self.artifact_dir = dest.parent / "colab-actions-artifacts"; self.artifact_dir.mkdir(parents=True, exist_ok=True)
+        self.workspace = dest; self.repo_full_name = full; self.artifact_dir = dest.parent / "colab-actions-artifacts"; self.artifact_dir.mkdir(parents=True, exist_ok=True)
         return dest
     def discover_workflows(self):
         folder = self.workspace / ".github" / "workflows"
@@ -139,7 +139,7 @@ class ColabActionsRunner:
         except Exception: return ""
     def context(self, matrix=None, job_id="", env=None):
         ref, name = ref_parts(self.event_ref)
-        return {"github": {"workspace": str(self.workspace), "repository": "", "event_name": self.event_name, "ref": ref, "ref_name": name, "sha": self.event_sha or self.git_sha(), "actor": "colab-user"},
+        return {"github": {"workspace": str(self.workspace), "repository": self.repo_full_name, "event_name": self.event_name, "ref": ref, "ref_name": name, "sha": self.event_sha or self.git_sha(), "actor": "colab-user"},
                 "runner": {"os": "Linux", "name": "Colab", "temp": tempfile.gettempdir()},
                 "matrix": mp(matrix), "inputs": self.inputs, "env": env or {}, "job": {"id": job_id},
                 "steps": self.step_outputs, "needs": self.job_outputs}
@@ -174,7 +174,7 @@ class ColabActionsRunner:
                 if len(args) != 2: return False
                 left = s(self.lookup(args[0], ctx)) if re.fullmatch(r"[A-Za-z_][\w.]*", args[0]) else args[0]
                 right = s(self.lookup(args[1], ctx)) if re.fullmatch(r"[A-Za-z_][\w.]*", args[1]) else args[1]
-                result = right.startswith(left) if fn == "startsWith" else left in right
+                result = left.startswith(right) if fn == "startsWith" else right in left
                 expr = expr[:m.start()] + str(result) + expr[m.end():]
         expr = re.sub(r"\b(?:github|runner|matrix|inputs|env|job|needs|steps)\.[A-Za-z_][A-Za-z0-9_.]*", lambda m: repr(self.lookup(m.group(0), ctx)), expr)
         try:
@@ -207,6 +207,16 @@ class ColabActionsRunner:
         if os.path.isfile(path):
             entries = pathlib.Path(path).read_text(errors="replace").splitlines()
             if entries: self.env_global["PATH"] = os.pathsep.join(entries) + os.pathsep + os.environ.get("PATH", "")
+    def read_step_outputs(self, env, step):
+        step_id = s(step.get("id"))
+        path = env.get("GITHUB_OUTPUT", "")
+        if step_id and path and os.path.isfile(path):
+            outputs = {}
+            for line in pathlib.Path(path).read_text(errors="replace").splitlines():
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    outputs[key] = value
+            self.step_outputs[step_id] = {"outputs": outputs}
     def cleanup_env(self, env):
         for key in ("GITHUB_ENV", "GITHUB_PATH", "GITHUB_OUTPUT", "GITHUB_STEP_SUMMARY"):
             try: pathlib.Path(env.get(key, "")).unlink(missing_ok=True)
@@ -214,8 +224,8 @@ class ColabActionsRunner:
     def run_command(self, name, command, shell, cwd, env, timeout):
         started = time.monotonic(); shell = shell.lower()
         if shell in {"pwsh", "powershell", "powershell.exe"}: return StepResult(name, "UNSUPPORTED", 0, None, "PowerShell is not available in standard Colab Linux.")
-        if shell.startswith("bash"): args, script, suffix = [shutil.which("bash") or "bash", "--noprofile", "--norc", "-e", "-o", "pipefail"], "set -euo pipefail\\n" + command, ".sh"
-        elif shell.startswith("sh"): args, script, suffix = [shutil.which("sh") or "sh", "-e"], "set -e\\n" + command, ".sh"
+        if shell.startswith("bash"): args, script, suffix = [shutil.which("bash") or "bash", "--noprofile", "--norc", "-e", "-o", "pipefail"], "set -euo pipefail\n" + command, ".sh"
+        elif shell.startswith("sh"): args, script, suffix = [shutil.which("sh") or "sh", "-e"], "set -e\n" + command, ".sh"
         elif shell in {"python", "python3"}: args, script, suffix = [sys.executable], command, ".py"
         else: return StepResult(name, "UNSUPPORTED", 0, None, "Unsupported shell: " + shell)
         fd, path = tempfile.mkstemp(prefix="colab-actions-step-", suffix=suffix); os.close(fd)
@@ -254,13 +264,14 @@ class ColabActionsRunner:
                 for entry in z.namelist(): safe_path(dest, entry)
                 z.extractall(dest)
         return StepResult(s(step.get("name")) or "Download artifact", "PASS", 0, 0, "Restored " + str(len(matches)) + " local artifact(s).")
-    def checkout(self, step):
-        cfg = mp(step.get("with")); repo = s(cfg.get("repository"))
+    def checkout(self, step, ctx):
+        cfg = mp(step.get("with"))
+        repo = self.interpolate(cfg.get("repository"), ctx) if cfg.get("repository") else ""
         if not repo: return StepResult(s(step.get("name")) or "Checkout", "PASS", 0, 0, "Primary workspace already checked out.")
         try:
-            dest = safe_path(self.workspace, s(cfg.get("path")) or "external/" + normalize_repo(repo).replace("/", "-"))
+            dest = safe_path(self.workspace, self.interpolate(cfg.get("path"), ctx) if cfg.get("path") else "external/" + normalize_repo(repo).replace("/", "-"))
             nested = ColabActionsRunner(dest, self.token, self.step_timeout, self.log, self.cancel_event)
-            nested.clone_repository(repo, s(cfg.get("ref")) or "main", 1, dest)
+            nested.clone_repository(repo, self.interpolate(cfg.get("ref"), ctx) if cfg.get("ref") else "main", 1, dest)
             return StepResult(s(step.get("name")) or "Checkout", "PASS", 0, 0, "Checked out " + repo)
         except Exception as exc: return StepResult(s(step.get("name")) or "Checkout", "FAIL", 0, 1, str(exc))
     def local_action(self, uses, step, ctx, cwd, env_base, depth):
@@ -288,7 +299,7 @@ class ColabActionsRunner:
         if uses:
             low = uses.lower()
             if uses.startswith("./"): results = self.local_action(uses, step, ctx, cwd, env_base, depth)
-            elif low.startswith("actions/checkout@"): results = [self.checkout(step)]
+            elif low.startswith("actions/checkout@"): results = [self.checkout(step, ctx)]
             elif low.startswith("actions/upload-artifact@"): results = [self.upload_artifact(step, cwd)]
             elif low.startswith("actions/download-artifact@"): results = [self.download_artifact(step)]
             elif low.startswith("actions/cache@"): results = [StepResult(name, "PASS", 0, 0, "Cache treated as no-op in ephemeral Colab.")]
@@ -310,7 +321,7 @@ class ColabActionsRunner:
             env = self.make_env({**mp(env_base), **mp(step.get("env"))}, ctx)
             expanded = self.interpolate(command, ctx)
             result = self.run_command(name, expanded, s(step.get("shell")) or "bash", folder, env, self.step_timeout)
-            self.update_env(env); self.cleanup_env(env); return [result]
+            self.update_env(env); self.read_step_outputs(env, step); self.cleanup_env(env); return [result]
         except Exception as exc: return [StepResult(name, "FAIL", 0, 1, str(exc))]
     def execute(self, workflow_path, event_name="workflow_dispatch", inputs=None, ref="main"):
         self.read_workflow(workflow_path); self.event_name = event_name; self.inputs = mp(inputs)
@@ -348,7 +359,7 @@ class ColabActionsRunner:
                 for matrix in self.matrix_variants(job):
                     if self.cancel_event.is_set(): statuses.append("CANCELLED"); break
                     label = ", ".join(k + "=" + s(v) for k,v in matrix.items())
-                    self.emit("\\n========== JOB " + jid + ((" [" + label + "]") if label else "") + " ==========")
+                    self.emit("\n========== JOB " + jid + ((" [" + label + "]") if label else "") + " ==========")
                     workflow_env, job_env = mp(self.workflow.get("env")), mp(job.get("env"))
                     ctx = self.context(matrix, jid, {**workflow_env, **job_env}); env_base = {**workflow_env, **job_env}
                     failed, unsupported = False, False
@@ -400,7 +411,7 @@ class ColabActionsRunner:
         lines += ["| " + j["name"].replace("|","/") + " | " + j["status"] + " | " + j["detail"].replace("|","/") + " |" for j in report["jobs"]]
         lines += ["", "## Warnings", ""] + (["- " + x for x in report["warnings"]] or ["- None"])
         lines += ["", "## Limitations", ""] + ["- " + x for x in report["limitations"]]
-        md.write_text("\\n".join(lines) + "\\n", encoding="utf-8"); return jp, md
+        md.write_text("\n".join(lines) + "\n", encoding="utf-8"); return jp, md
 
 def github_api(path, token=""):
     import urllib.request
@@ -495,7 +506,7 @@ def launch_ui():
         try:
             say("Repository indiriliyor…"); token=get_token()
             workspace=pathlib.Path("/content/colab-actions-workspace")/re.sub(r"[^A-Za-z0-9_.-]+","-",repo.value)
-            runner=ColabActionsRunner(workspace,token,timeout.value,lambda m:logs.append_stdout(str(m)+"\\n"))
+            runner=ColabActionsRunner(workspace,token,timeout.value,lambda m:logs.append_stdout(str(m)+"\n"))
             runner.clone_repository(repo.value,ref.value or "main",depth.value,workspace); files=runner.discover_workflows()
             if not files: raise RuntimeError(".github/workflows altında YAML bulunamadı.")
             state["runner"],state["workspace"]=runner,workspace; workflow.options=files; workflow.value=files[0]
@@ -515,7 +526,7 @@ def launch_ui():
                 clear_output(); display(Markdown("### Workflow planı")); display(Markdown("Event: **"+str(event.value)+"** · Ref: **"+ref.value+"**"))
                 table=["| Job | Matrix | Runs-on | Colab durumu | Steps |","|---|---|---|---|---|"]
                 for row in rows: table.append("| "+row["name"]+" | "+json.dumps(row["matrix"],ensure_ascii=False)+" | "+row["runs_on"]+" | **"+row["compatibility"]+"** — "+row["reason"]+" | "+str(row["step_count"])+" |")
-                display(Markdown("\\n".join(table)))
+                display(Markdown("\n".join(table)))
                 if any(x["compatibility"]=="BLOCKED_PLATFORM" for x in rows): display(Markdown("> Windows/macOS job'ları Colab'da çalıştırılmayacak."))
             say("Plan hazır.","#2e9d63")
         except Exception as exc:
@@ -537,7 +548,7 @@ def launch_ui():
                     clear_output(); display(Markdown("### Sonuç: **"+report["status"]+"**"))
                     display(Markdown("Jobs: "+json.dumps(report["job_counts"])+" · Steps: "+json.dumps(report["step_counts"])))
                     for job in report["jobs"]: display(Markdown("- **"+job["name"]+"** — Status: **"+job["status"]+"** "+job["detail"]))
-                    if report["warnings"]: display(Markdown("**Uyarılar**\\n"+"\\n".join("- "+x for x in report["warnings"])))
+                    if report["warnings"]: display(Markdown("**Uyarılar**\n"+"\n".join("- "+x for x in report["warnings"])))
                     display(Markdown("Raporlar kaydedildi: "+str(state["paths"][0])+" · "+str(state["paths"][1])))
                 download.disabled=False
                 if not keep.value: shutil.rmtree(state["workspace"],ignore_errors=True)
