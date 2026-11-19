@@ -125,6 +125,17 @@ public:
         void* callable_ = nullptr;
         Frame frame_{};
         inline static thread_local Frame* active_lease_frame_ = nullptr;
+
+        [[nodiscard]] static bool is_active_on_current_thread(
+            const HookCore& owner) noexcept {
+            for (Frame* frame = active_lease_frame_; frame != nullptr;
+                 frame = frame->previous) {
+                if (frame->owner == &owner) {
+                    return true;
+                }
+            }
+            return false;
+        }
     };
 
     HookCore() noexcept = default;
