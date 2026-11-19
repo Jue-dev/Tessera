@@ -4,7 +4,7 @@ The notebook at `verify/colab_actions/Colab_Actions_Workbench.ipynb` provides a 
 
 ## Start
 
-1. Open the notebook in Google Colab and run its launcher cell.
+1. Open the notebook in Google Colab and run its launcher cell. Repository and ref fields start blank; leave the ref empty to auto-detect the selected repository's default branch.
 2. Public repositories can be cloned without a token. For private repository access and repository/branch discovery, add a fine-grained GitHub token to Colab Secrets under the name `GH_TOKEN` (or change the secret-name field in the UI).
 3. Select the repository and ref, then choose **Depoyu indir ve workflow'ları tara**.
 4. Select a workflow and event. Inputs declared under `workflow_dispatch.inputs` are rendered automatically.
