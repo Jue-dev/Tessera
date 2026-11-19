@@ -16,7 +16,7 @@ This checklist distinguishes automated evidence from host-level integration obli
 - [x] All four jobs ran on the exact PR head above.
 - [x] No failed jobs; release publication was skipped by its tag-push guard.
 
-Run #44561390158 completed successfully. All eight active jobs passed; the release job was skipped as expected. SDK artifacts were produced for all four configurations:
+Run #44566729475 completed successfully on the validated PR head. All eight active jobs passed; the release job was skipped as expected. SDK artifacts were produced for all four configurations:
 - `Tessera-SDK-x86-debug`
 - `Tessera-SDK-x86-release`
 - `Tessera-SDK-x64-debug`
@@ -48,7 +48,7 @@ The sustained campaign is separate and manual-only in `.github/workflows/native-
 - [x] SDK packaging/staging matrix.
 - [x] Confirmed release publication skipped; no release was created.
 
-Evidence: CI run #44561390158, exact validated head.
+Evidence: CI run #44566729475, exact validated head.
 
 ## E. Host lifecycle acceptance
 
