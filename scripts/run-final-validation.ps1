@@ -46,10 +46,21 @@ function Invoke-Logged([string]$name, [scriptblock]$command) {
 Push-Location $root
 try {
     if (-not $SkipWindowsMock) {
-        Invoke-Logged "windows-mock" {
-            bash ./verify/windows_mock/run_windows_mock_tests.sh
+        $mockCompiler = Get-Command g++ -ErrorAction SilentlyContinue
+        if (-not $mockCompiler) { $mockCompiler = Get-Command clang++ -ErrorAction SilentlyContinue }
+        $bash = Get-Command bash -ErrorAction SilentlyContinue
+        if ($mockCompiler -and $bash) {
+            Invoke-Logged "windows-mock" {
+                bash ./verify/windows_mock/run_windows_mock_tests.sh
+            }
+        } else {
+            Write-Warning "Windows mock skipped: bash and a host g++/clang++ are required. Run it from Linux/WSL separately."
+            $summary.Add([pscustomobject]@{ Stage = "windows-mock"; Result = "SKIP"; Log = "No bash/host C++ compiler" })
         }
     }
+
+    & ./verify/windows/generate_test_fixtures.ps1 -OutputDirectory ./verify/tests/fixtures
+    if ($LASTEXITCODE -ne 0) { throw "Fixture generation failed." }
 
     foreach ($arch in @("x64", "x86")) {
         Set-MsvcEnvironment $arch
@@ -76,18 +87,18 @@ try {
     }
 
     Invoke-Logged "no-rtti-fuzz-bench-package" {
-        cmake -S . -B build-final-nortti -G Ninja -DTESSERA_BUILD_TESTS=ON -DTESSERA_BUILD_BENCH=ON -DTESSERA_BUILD_FUZZ=ON -DCMAKE_CXX_FLAGS="/GR-"
+        cmake -S . -B build-final-nortti -G Ninja -DCMAKE_BUILD_TYPE=Release -DTESSERA_BUILD_TESTS=ON -DTESSERA_BUILD_BENCH=ON -DTESSERA_BUILD_FUZZ=ON -DCMAKE_CXX_FLAGS="/GR-"
         if ($LASTEXITCODE -ne 0) { throw "No-RTTI configure failed" }
         cmake --build build-final-nortti --config Release --parallel
         if ($LASTEXITCODE -ne 0) { throw "No-RTTI build failed" }
         ctest --test-dir build-final-nortti -C Release --output-on-failure
         if ($LASTEXITCODE -ne 0) { throw "No-RTTI CTest failed" }
         $smokes = @(
-            "build-final-nortti/verify/fuzz/Release/tessera_fuzz_pattern.exe",
-            "build-final-nortti/verify/fuzz/Release/tessera_fuzz_pe.exe",
-            "build-final-nortti/verify/fuzz/Release/tessera_fuzz_json.exe",
-            "build-final-nortti/verify/fuzz/Release/tessera_fuzz_native_hook.exe",
-            "build-final-nortti/verify/bench/Release/tessera_bench.exe"
+            "build-final-nortti/verify/fuzz/tessera_fuzz_pattern.exe",
+            "build-final-nortti/verify/fuzz/tessera_fuzz_pe.exe",
+            "build-final-nortti/verify/fuzz/tessera_fuzz_json.exe",
+            "build-final-nortti/verify/fuzz/tessera_fuzz_native_hook.exe",
+            "build-final-nortti/verify/bench/tessera_bench.exe"
         )
         foreach ($exe in $smokes) {
             if (-not (Test-Path $exe)) { throw "Missing smoke executable: $exe" }
