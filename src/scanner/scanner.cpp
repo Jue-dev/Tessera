@@ -351,6 +351,17 @@ Result<std::vector<Address>> find_rel32_refs(const Process& process,
     const std::size_t pre_len = prefix.size();
     const std::uint64_t tgt_val = target.value();
     std::vector<Address> out;
+    std::optional<Error> arithmetic_error{};
+    auto instruction_span = checked_add<std::size_t>(pre_len, sizeof(std::int32_t));
+    if (!instruction_span) {
+        return fail(ErrorCode::OutOfRange, "xref::find_rel32_refs", 0,
+                    "Prefix and displacement length overflowed");
+    }
+    instruction_span = checked_add<std::size_t>(*instruction_span, trailing_bytes);
+    if (!instruction_span) {
+        return fail(ErrorCode::OutOfRange, "xref::find_rel32_refs", 0,
+                    "Instruction length plus trailing bytes overflowed");
+    }
 
     try {
         bool cancelled = false;
@@ -370,8 +381,14 @@ Result<std::vector<Address>> find_rel32_refs(const Process& process,
                     std::int32_t disp = 0;
                     std::memcpy(&disp, data.data() + off + pre_len, sizeof(disp));
                     const std::uint64_t ins_addr = chunk_base.value() + off;
-                    const std::uint64_t next_ip = ins_addr + pre_len + 4ULL + trailing_bytes;
-                    auto resolved = checked_offset<std::uint64_t>(next_ip, disp);
+                    auto next_ip = checked_add<std::uint64_t>(
+                        ins_addr, static_cast<std::uint64_t>(*instruction_span));
+                    if (!next_ip) {
+                        arithmetic_error = next_ip.error();
+                        more = false;
+                        return false;
+                    }
+                    auto resolved = checked_offset<std::uint64_t>(*next_ip, disp);
                     if (resolved && *resolved == tgt_val) {
                         out.emplace_back(ins_addr);
                         if (options.max_results > 0 && out.size() >= options.max_results) {
@@ -386,6 +403,9 @@ Result<std::vector<Address>> find_rel32_refs(const Process& process,
 
         if (!stats_res) {
             return std::unexpected(stats_res.error());
+        }
+        if (arithmetic_error) {
+            return std::unexpected(*arithmetic_error);
         }
         if (cancelled) {
             return fail(ErrorCode::Cancelled, "xref::find_rel32_refs");
