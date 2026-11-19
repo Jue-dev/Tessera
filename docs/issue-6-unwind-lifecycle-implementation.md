@@ -35,16 +35,16 @@ or older-head checks as passing.
 | Source metadata memory bounds | [x] Implemented | Validate runtime-function record, four-byte unwind header, and full unwind-code byte span in committed readable memory |
 | Source function bounds | [x] Implemented | Reject stolen prologue ranges that extend past the registered source function before writing target bytes |
 | No-source-record policy | [x] Implemented | Only audited stack-neutral leaf subset accepted; unsupported dynamic prologues rejected |
-| Detach/unregister retry | [x] Implemented; test pending CI | On unregister failure, reinstate the patch and retain registration, allocation, registry ownership, and retryable token; deterministic retry regression test exists |
+| Detach/unregister retry | [x] Implemented and tested | On unregister failure, reinstate the patch and retain registration, allocation, registry ownership, and retryable token; exact-head CI regression passed |
 | Explicit callable lease API | [x] Implemented | Hook::acquire(), get(), and target(); non-copyable, non-movable, thread-affine |
 | Actions quota workflow cleanup | [x] Implemented | Removed automatic PR smoke; full CI and sustained fuzz are manual-only; disabled scheduled fuzz; retained tag-only release |
-| Expanded x64 unwind regression tests | [x] Added; CI pending | ALLOC_LARGE (near/far), PUSH_NONVOL, SAVE_NONVOL (near/far), SET_FPREG, SAVE_XMM128 (near/far), PUSH_MACHFRAME (both OpInfo values), source bounds/readability, handler/chained/version2/reserved opcode and ENDBR-boundary rejection |
-| Unwind slot storage bounds | [x] Corrected; CI pending | Removed `UnwindCode[1]` trailing-array indexing; source and destination slots are read/written using bounded byte spans and `memcpy` |
-| x86/x64 preprocessor separation | [x] Corrected; CI pending | Balanced x64-only guards; the x86 matrix must confirm x64 fixture exclusion |
-| Windows x86/x64 Debug/Release on current head | [ ] Deferred | Actions quota unavailable; see the separate CI checklist |
-| Five-minute Clang libFuzzer + ASan/UBSan on current head | [ ] Deferred | Previous run passed on an earlier commit, not this head |
-| Full /GR-, Detours, /analyze, SDK packaging gates | [ ] Deferred | Must run after PR Smoke returns green |
-| Host admission/drain/module-unload acceptance | [x] Test added; CI pending | A real detour DLL is held active while the exclusive admission gate is blocked; test releases/drains the callback, removes the hook, unloads the DLL, then verifies the original target still runs. x86 export decoration is resolved explicitly |
+| Expanded x64 unwind regression tests | [x] CI passed | ALLOC_LARGE (near/far), PUSH_NONVOL, SAVE_NONVOL (near/far), SET_FPREG, SAVE_XMM128 (near/far), PUSH_MACHFRAME (both OpInfo values), source bounds/readability, handler/chained/version2/reserved opcode and ENDBR-boundary rejection |
+| Unwind slot storage bounds | [x] Corrected and CI passed | Removed `UnwindCode[1]` trailing-array indexing; source and destination slots are read/written using bounded byte spans and `memcpy` |
+| x86/x64 preprocessor separation | [x] Corrected and CI passed | Balanced x64-only guards; exact-head x86 Debug/Release matrix passed |
+| Windows x86/x64 Debug/Release on current head | [x] CI passed | Exact-head x86/x64 Debug/Release matrix and CTest passed |
+| Clang libFuzzer + ASan/UBSan on current head | [x] 900-second campaign passed | Exact-head x64 campaign run #24; 14,666,829 executions, 2,651 new units, no crash/sanitizer finding; artifact inspected |
+| Full /GR-, Detours, /analyze, SDK packaging gates | [x] CI passed | Exact-head quality gate and Detours x86/x64 integration passed |
+| Host admission/drain/module-unload fixture | [x] CI passed; real host acceptance remains | A real detour DLL is held active while the exclusive admission gate is blocked; test releases/drains the callback, removes the hook, unloads the DLL, then verifies the original target still runs. x86 export decoration is resolved explicitly |
 | Allocation and RtlAddFunctionTable failure injection | [x] Static failure-path audit | unique_ptr owns temporary state; registration flag is set only after RtlAddFunctionTable succeeds; all failures before target write unwind and release unpublished state. No API-injection harness yet |
 | Final independent audit | [ ] Remaining | Re-check bytes, page protections, token, registry, unwind registration, and lifetime on every failure edge |
 
@@ -127,8 +127,8 @@ protocol.
 
 ## Validation evidence
 
-- Exact PR head validated: `f4cc4d1715cef026585cf14650659981f891ace4`.
-- Current-head CI run [#44561390158](https://github.com/Jue-dev/Tessera/actions/runs/44561390158) succeeded: x86/x64 Debug/Release matrix, CTest, SDK staging, Detours x86/x64, no-RTTI quality gate, MSVC /analyze, and package checks. Release publication skipped as expected.
+- Exact PR head validated: `313d96f503ac835d602499b7350270d5198d71a0`.
+- Current-head CI run [#44566729475](https://github.com/Jue-dev/Tessera/actions/runs/44566729475) succeeded: x86/x64 Debug/Release matrix, CTest, SDK staging, Detours x86/x64, no-RTTI quality gate, MSVC /analyze, and package checks. Release publication skipped as expected.
 - The current-head run validates the expanded unwind tests, source-metadata bounds checks, ENDBR boundary rejection, bounded unwind-slot serialization, unregister retry, patch rollback tests, and DLL unload-order fixture at aggregate CTest level.
 - Artifacts were uploaded for all four SDK configurations.
 - The separate five-minute Clang libFuzzer + ASan/UBSan campaign has **not** been run on this exact head. The earlier campaign is not current-head evidence.
