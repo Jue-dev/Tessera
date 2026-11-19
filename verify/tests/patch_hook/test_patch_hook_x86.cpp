@@ -68,6 +68,14 @@ struct ExecutableRegion final {
     }
 };
 
+template <typename To, typename From>
+To copy_function_pointer(From source) noexcept {
+    static_assert(sizeof(To) == sizeof(From));
+    To destination{};
+    std::memcpy(&destination, &source, sizeof(destination));
+    return destination;
+}
+
 template <typename Fn, typename... Args>
 int call_and_check_stack(Fn function, Args... args) {
     DWORD before = 0;
@@ -127,9 +135,9 @@ TEST_CASE("Native x86 hooks preserve fastcall register arguments",
 
     constexpr std::size_t target_offset = 64;
     // mov eax,ecx; add eax,edx; ret
-    const std::array<std::byte, 5> target_code{
+    const std::array<std::byte, 6> target_code{
         std::byte{0x8B}, std::byte{0xC1}, std::byte{0x03},
-        std::byte{0xC2}, std::byte{0xC3}};
+        std::byte{0xC2}, std::byte{0xC3}, std::byte{0xC3}};
     std::memcpy(code + target_offset, target_code.data(), target_code.size());
     REQUIRE(region.protect_read_execute());
 
@@ -171,7 +179,7 @@ TEST_CASE("Native x86 hooks preserve thiscall ECX and stack argument behavior",
     HookBackend& backend = native_inline_hook_backend();
     auto hook = Hook<ThiscallFn>::create(
         reinterpret_cast<ThiscallFn>(code + target_offset),
-        reinterpret_cast<ThiscallFn>(&thiscall_detour),
+        copy_function_pointer<ThiscallFn>(&thiscall_detour),
         &backend);
     REQUIRE(hook.has_value());
 
