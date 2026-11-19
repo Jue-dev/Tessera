@@ -1,22 +1,21 @@
 # Issue #6 — CI validation checklist
 
-**Validation branch:** `issue-6/unwind-lifecycle`  
-**Validated PR head:** `f4cc4d1715cef026585cf14650659981f891ace4`  
-**Evidence:** [CI run #18 / 44561390158](https://github.com/Jue-dev/Tessera/actions/runs/44561390158)  
+**Validated implementation commit:** `313d96f503ac835d602499b7350270d5198d71a0`  
+**Windows CI evidence:** [run #19 / 44566729475](https://github.com/Jue-dev/Tessera/actions/runs/44566729475)  
+**Coverage-guided fuzz evidence:** [run #24 / 44566681404](https://github.com/Jue-dev/Tessera/actions/runs/44566681404)  
 **Snapshot date:** 2026-11-19
 
-This checklist distinguishes automated evidence from host-level integration obligations. A green CI run is not a proof that every production host follows the admission/drain contract.
+The implementation commit above passed the Windows matrix, quality gates, and sustained x64 fuzzing. Workflow/documentation cleanup commits after that code checkpoint have not been rerun in this environment. This checklist distinguishes CI evidence from host-level integration obligations.
 
-## A. Current-head Windows matrix
+## A. Current-head Windows matrix (implementation commit 313d96f)
 
 - [x] x86 Debug configure/build/CTest and SDK staging.
 - [x] x86 Release configure/build/CTest and SDK staging.
 - [x] x64 Debug configure/build/CTest and SDK staging.
 - [x] x64 Release configure/build/CTest and SDK staging.
-- [x] All four jobs ran on the exact PR head above.
-- [x] No failed jobs; release publication was skipped by its tag-push guard.
+- [x] No failed jobs; release publication skipped by the tag-push guard.
 
-Run #44566729475 completed successfully on the validated PR head. All eight active jobs passed; the release job was skipped as expected. SDK artifacts were produced for all four configurations:
+Run #44566729475 completed successfully. All eight active jobs passed. SDK artifacts were produced for all four configurations:
 - `Tessera-SDK-x86-debug`
 - `Tessera-SDK-x86-release`
 - `Tessera-SDK-x64-debug`
@@ -24,78 +23,65 @@ Run #44566729475 completed successfully on the validated PR head. All eight acti
 
 ## B. Native x64 unwind and lifecycle regression suite
 
-- [x] Full CTest suite passed in the exact-head Windows matrix.
+- [x] Full CTest suite passed.
 - [x] Regression tests for PUSH_NONVOL, multi-slot ALLOC_LARGE, SAVE_NONVOL, far SAVE_NONVOL, far SAVE_XMM128, PUSH_MACHFRAME, SET_FPREG, and SAVE_XMM128.
 - [x] Malformed/unsupported metadata rejection: handler/chained records, unsupported version/opcode, unmappable instruction-interior offsets, ENDBR boundary, source-function bounds, and unreadable extra slots.
 - [x] Unregister-failure retry regression.
-- [x] DLL fixture / admission-gate / active-detour drain / detach / FreeLibrary ordering regression test ran as part of CTest.
-- [ ] Independently inspect the detailed per-test logs and verify every test name/result beyond the aggregate CTest evidence.
+- [x] DLL fixture admission-gate / active-detour drain / detach / FreeLibrary ordering test ran.
+- [ ] Independently inspect detailed per-test logs beyond aggregate CTest evidence.
 
 ## C. Sustained sanitizer fuzz
 
 - [x] Deterministic fuzz/smoke target passed in CI quality gate.
-- [ ] Current-head Windows x64 Clang libFuzzer + ASan/UBSan bounded 300-second campaign.
-- [ ] Inspect uploaded corpus/crash artifact and retain any new reproducer as a regression seed.
-
-The sustained campaign is separate and manual-only in `.github/workflows/native-hook-fuzz.yml`. The previous five-minute campaign was on an earlier SHA and does not validate this head.
+- [x] Current-head Windows x64 Clang libFuzzer + ASan/UBSan campaign completed for **900 seconds (15 minutes)**, exceeding the 300-second gate.
+- [x] Run #24 used exact implementation commit `313d96f503ac835d602499b7350270d5198d71a0`.
+- [x] Fuzzer reported 14,666,829 executions, 2,651 new units, 978 coverage counters, and 1,999 features.
+- [x] Artifact reviewed: 797 corpus files; no crash/sanitizer reproducer files.
+- [x] No crash or sanitizer failure reported.
+- [ ] Sustained x86 coverage-guided fuzzing is optional follow-up. x86 Debug/Release CI, Detours integration, and deterministic smoke passed; sustained fuzz targets x64.
 
 ## D. Full quality gates
 
 - [x] `/GR-` no-RTTI build, tests, fuzz smoke, benchmark smoke, and SDK install/package check.
-- [x] Live Microsoft Detours integration x86.
-- [x] Live Microsoft Detours integration x64.
+- [x] Microsoft Detours integration x86.
+- [x] Microsoft Detours integration x64.
 - [x] MSVC `/analyze` build and tests.
 - [x] SDK packaging/staging matrix.
-- [x] Confirmed release publication skipped; no release was created.
+- [x] Release publication skipped; no release created.
 
-Evidence: CI run #44566729475, exact validated head.
+Evidence: CI run #44566729475 on the implementation commit.
 
 ## E. Host lifecycle acceptance
 
-- [x] Test fixture demonstrates admission gate blocks stop while an active detour callback is held.
-- [x] Test fixture drains callback, detaches hook, unloads detour DLL, and calls original target afterward.
-- [ ] Independent real-application host integration: prove the host gates all direct target calls, callback entries, and raw/escaped trampoline pointers; this is outside what the fixture can establish.
-- [ ] Document and enforce that `Hook` destruction/move is externally synchronized and explicit `remove()` is checked before unloading callback code.
-- [ ] Host thread-creation policy: a Toolhelp snapshot is not a thread-creation barrier; admission gate/quiescence is required.
+- [x] Fixture demonstrates admission gate blocks stop while an active detour callback is held.
+- [x] Fixture drains callback, detaches hook, unloads detour DLL, and calls original target afterward.
+- [ ] Real-application host integration: prove all direct target calls, callback entries, and raw/escaped trampoline pointers are gated and drained.
+- [ ] Host enforces external synchronization for Hook destruction/move and checks explicit `remove()` before unloading callback code.
+- [ ] Host thread-creation policy accounts for Toolhelp snapshot not being a thread-creation barrier.
 
-The fixture test passed on the validated CI head. This does not replace integration with the actual host application's call paths.
+The fixture is CI evidence, not proof of the application's actual call paths.
 
 ## F. Failure-path audit
 
-- [x] Static ownership/control-flow review: unpublished state is owned by `unique_ptr`; failures before patch publication release temporary resources.
-- [x] `RtlAddFunctionTable` failure path is before target patching and only marks registration after success.
-- [x] Patch transaction rollback tests, including protection failure, flush rollback, fatal rollback, and success, passed in CI.
-- [x] Unregister-failure retry test passed in CI.
-- [x] Additional source-level audit reviewed HookCore lease/install/remove/release/destructor paths, native attach/detach ownership, unwind metadata parsing/registration, thread-suspension RAII, and patch-write rollback transaction. No clear defect was identified in those reviewed paths.
+- [x] Static ownership/control-flow review of unpublished attach state and rollback.
+- [x] `RtlAddFunctionTable` registration occurs before patch publication; registration state is set only after success.
+- [x] Patch transaction rollback tests for protection failure, flush rollback, fatal rollback, and success passed.
+- [x] Unregister-failure retry test passed.
+- [x] Source-level review of HookCore leases/lifecycle, native attach/detach ownership, unwind parsing/registration, thread-suspension RAII, and patch-write rollback found no clear defect in reviewed paths.
 - [ ] Independent reviewer audit of every failure edge, including registry ownership, target bytes, page protection, unwind registration, token validity, and retryability.
-- [ ] Deterministic Windows API failure injection for allocation, registration, protection, and cache flush; current static review/test seams do not inject every system API failure.
+- [ ] Deterministic Windows API failure injection for allocation, registration, protection, and cache-flush failures. Current tests do not inject every system API failure.
 
-## G. Workflow and quota policy
+## G. Workflow policy
 
-- [x] CI validation is manual-only for the PR branch; no PR/schedule triggers.
-- [x] Fuzz workflow is manual-only with bounded campaign choices.
-- [x] `pr-smoke.yml` preserved but manual-only (`workflow_dispatch`).
-- [x] Release job guarded to a version-tag push.
+- [x] Fuzz workflow remains manual-only and bounded (60/300/900 seconds).
+- [x] Release job remains restricted to version-tag pushes.
+- [x] Removed obsolete source-archive import workflow.
+- [x] Removed redundant manual PR-smoke workflow; the full CI workflow now defines a PR trigger in this branch.
+- [ ] Verify the automatic PR CI trigger on the updated branch. The GitHub connector available in this session can inspect runs but cannot dispatch workflows; this PR branch's workflow trigger is not yet present on base `main`, so it cannot be triggered from this session.
 - [x] No merge, release, or tag action performed.
-- [x] Avoid redundant Actions runs: current-head Windows matrix and quality gates are green; do not rerun them without a specific code change or need.
-
-## Additional source review note
-
-Reviewed the lifecycle core and backend source after the current-head CI run. The checked paths preserve ownership until successful detach; unregister failure reinstalls the patch and retains retry state; thread suspension is RAII-resumed; fatal rollback uncertainty terminates rather than returning an unsafe state. This is a source review by the current assistant, not an independent human review or injected system-API failure test.
 
 ## Current conclusion
 
-The current-head Windows CI matrix and quality gates are **PASS**. Issue #6 and PR #7 are **not ready to close/merge** because the sustained current-head sanitizer campaign, independent final failure-path review, and real host integration acceptance remain outstanding. PR #7 remains draft and Issue #6 remains open.
+The implementation commit's Windows matrix, full quality gates, and 900-second x64 sanitizer campaign are **PASS**. Remaining acceptance work is independent failure-path review, real host admission/drain/unload acceptance, and deterministic Windows API failure injection.
 
-## Final batch-test preparation
-
-- [x] Added `scripts/run-final-validation.ps1` to consolidate the x86/x64 Debug/Release matrix, CTest, MSVC analysis, no-RTTI tests, fuzz/benchmark smoke, install/package check, optional Detours integration, and optional sustained fuzz campaign.
-- [x] Corrected workflow documentation: PR smoke and sustained fuzz are manual-only; no weekly schedule is enabled.
-- [x] Runner logs and summary CSV are written under `artifacts/final-validation/logs`; fuzz corpus/crash artifacts are kept under `artifacts/final-validation/native-hook-fuzz`.
-- [ ] Run the consolidated final validation after the user is ready to execute the entire test batch.
-- [ ] Review final batch logs/artifacts and address failures.
-- [ ] Obtain independent reviewer audit and real host admission/drain/unload acceptance.
-
-The consolidated runner has not been executed in this environment: the repository cannot be cloned here because outbound GitHub access is unavailable, and this runtime is not the Windows/MSVC host required for the native hook integration tests. No test result is inferred from the runner being authored.
-
-Do not merge or close Issue #6 without explicit authorization.
+The later workflow/documentation-only branch changes need a fresh CI run before merge. PR #7 remains draft and Issue #6 remains open. Do not merge or close without explicit authorization.
