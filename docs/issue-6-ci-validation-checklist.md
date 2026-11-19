@@ -199,3 +199,13 @@ item is explicitly resolved with a documented technical justification.
 - [ ] Execute the notebook against the current head and save fresh logs. Notebook prepared only; it has **not** been run in this environment.
 - [ ] Review Colab outputs for all 20 current mock assertions and investigate any failure.
 - [ ] Do not treat portable mock results as evidence for native x64 unwind registration, real executable-memory patching, loader/DLL lifetime, or MSVC behavior.
+
+
+## Actions run #8 triage — 2026-11-19
+
+- [x] Inspected run [44545841377](https://github.com/Jue-dev/Tessera/actions/runs/44545841377), triggered manually at commit `26a7b55ea2601a9cc7cbd8bb6bfedd7f70c734d2`.
+- [x] Root cause: test-only constant `kTestUnwindOpPushNonVol` was referenced in three x64 unwind fixtures but not declared. MSVC C2065 stopped x64 Debug/Release, `/analyze`, `/GR-`, and Detours x64 builds. x86 Debug/Release and Detours x86 passed.
+- [x] Added `constexpr UCHAR kTestUnwindOpPushNonVol = 0u` (`UWOP_PUSH_NONVOL`) beside the other local unwind opcode constants.
+- [ ] Re-run CI on the fix commit `ad3338edd7a4cb7e0e03b9a02110b28b16fce674`; the fix is source-reviewed but not yet compiler/runtime validated.
+- [ ] Review newly exposed failures after compilation proceeds beyond this blocker.
+
