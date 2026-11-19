@@ -1138,6 +1138,11 @@ TEST_CASE("Native x64 unwind unregister failure restores the patch and keeps the
     recovery.needs_restore = true;
 
     const auto first_remove = hook->remove();
+    if (first_remove) {
+        // Keep the guard from registering a table whose owning hook state has
+        // already been destroyed if the expected unregister failure regresses.
+        recovery.needs_restore = false;
+    }
     REQUIRE_FALSE(first_remove.has_value());
     REQUIRE(first_remove.error().code == ErrorCode::IoError);
     REQUIRE(hook->installed());
