@@ -65,7 +65,7 @@ TEST_CASE("Execute-only regions are not readable", "[memory][protection]") {
     REQUIRE_FALSE(reader.is_readable(range).value());
     REQUIRE(reader.is_executable(range).value());
     REQUIRE_FALSE(matches_region_filter(
-        MemoryRegionInfo{
+        tessera::MemoryRegionInfo{
             .base = Address{0x12000},
             .allocation_base = Address{0x12000},
             .size = 0x1000,
