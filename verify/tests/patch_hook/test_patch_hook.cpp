@@ -958,6 +958,8 @@ TEST_CASE("Native x64 unwind rejects an unreadable extra unwind-code slot withou
                              &restored_protection));
 }
 
+#endif // x64 source-range rejection tests
+
 #if defined(_M_X64) || defined(__x86_64__)
 TEST_CASE("Native x64 trampoline maps ALLOC_LARGE and SET_FPREG together",
           "[hook][native][unwind][integration]") {
@@ -1206,6 +1208,8 @@ TEST_CASE("Native x64 trampoline restores a saved nonvolatile XMM register",
                         expected_xmm6.size()) == 0);
     REQUIRE(hook->remove().has_value());
 }
+
+#endif // x64 multi-opcode unwind tests
 
 #if defined(_M_X64) || defined(__x86_64__)
 TEST_CASE("Native x64 trampoline remaps unwind offsets and unwinds an exception in relocated prologue",
