@@ -507,8 +507,7 @@ TEST_CASE("Hook callable leases drain in-flight operator calls before remove",
     std::thread caller([&] {
         auto lease = hook->acquire();
         const NativeHookFn callable = lease.get();
-        REQUIRE(callable != nullptr);
-        call_result.store(callable(5), std::memory_order_release);
+        call_result.store(callable != nullptr ? callable(5) : -1, std::memory_order_release);
     });
 
     const auto entered_deadline =
