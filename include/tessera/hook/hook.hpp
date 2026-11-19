@@ -247,11 +247,11 @@ public:
     [[nodiscard]] bool installed() const noexcept { return core_.installed(); }
     [[nodiscard]] Address target() const noexcept { return core_.target(); }
 
-    // Explicit call lease for code that needs to retain a callable across a
-    // multi-step operation. The lease is non-copyable and non-movable so its
-    // thread-local nesting frame remains valid. It must not be used to export
-    // the pointer beyond the lease lifetime; direct target entries and escaped
-    // pointers remain outside Tessera's call tracking.
+    // Explicit call lease for both the patched target entry and the current
+    // original/trampoline callable. The lease is thread-affine, non-copyable,
+    // and non-movable because its nesting frame is stored in thread-local state.
+    // The Hook object must outlive the lease, which must be destroyed on the
+    // acquiring thread. Do not export either pointer beyond this scope.
     class ScopedCallable {
     public:
         ScopedCallable(const ScopedCallable&) = delete;
@@ -259,19 +259,28 @@ public:
         ScopedCallable(ScopedCallable&&) = delete;
         ScopedCallable& operator=(ScopedCallable&&) = delete;
 
+        // Returns the current original callable: target before install, or the
+        // trampoline while installed. The shared lifecycle lease pins it.
         [[nodiscard]] Fn get() const noexcept {
             return reinterpret_cast<Fn>(reinterpret_cast<std::uintptr_t>(lease_.get()));
         }
 
+        // Returns the target entry. While installed, invoking this pointer
+        // enters the detour; keep this lease alive for the full call so any
+        // original()/trampoline use made by the callback remains protected.
+        [[nodiscard]] Fn target() const noexcept { return target_; }
+
     private:
         friend class Hook;
         explicit ScopedCallable(const detail::HookCore& core)
-            : lease_(core.acquire_callable()) {}
+            : lease_(core.acquire_callable()),
+              target_(reinterpret_cast<Fn>(static_cast<std::uintptr_t>(core.target().value()))) {}
         detail::HookCore::CallableLease lease_;
+        Fn target_ = nullptr;
     };
 
-    // Acquires the lifecycle lease before returning the current callable.
-    // remove(), install(), and release() wait until this scope ends.
+    // Acquires the lifecycle lease before exposing either callable. remove(),
+    // install(), and release() wait until this scope ends.
     [[nodiscard]] ScopedCallable acquire() const {
         return ScopedCallable{core_};
     }
