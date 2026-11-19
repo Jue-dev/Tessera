@@ -36,7 +36,8 @@ Windows matrix. Do not treat skipped or unstarted checks as passing.
 | Detach/unregister retry | [x] Implemented | On unregister failure, reinstate the patch and retain registration, allocation, registry ownership, and retryable token |
 | Explicit callable lease API | [x] Implemented | Hook::acquire(), get(), and target(); non-copyable, non-movable, thread-affine |
 | Expanded x64 unwind regression tests | [x] Added; CI pending | ALLOC_LARGE (near/far), PUSH_NONVOL, SAVE_NONVOL (near/far), SET_FPREG, SAVE_XMM128 (near/far), PUSH_MACHFRAME (both OpInfo values), source bounds/readability, handler/chained/version2/reserved opcode and ENDBR-boundary rejection |
-| Unwind slot storage bounds | [x] Corrected; CI pending | Removed `UnwindCode[1]` trailing-array indexing; source and destination slots are read/written using bounded byte spans and `memcpy` |\n| x86/x64 preprocessor separation | [x] Corrected; CI pending | Balanced x64-only guards; the x86 matrix must confirm x64 fixture exclusion |
+| Unwind slot storage bounds | [x] Corrected; CI pending | Removed `UnwindCode[1]` trailing-array indexing; source and destination slots are read/written using bounded byte spans and `memcpy` |
+| x86/x64 preprocessor separation | [x] Corrected; CI pending | Balanced x64-only guards; the x86 matrix must confirm x64 fixture exclusion |
 | Windows x86/x64 Debug/Release on current head | [ ] Deferred | Actions quota unavailable; see the separate CI checklist |
 | Five-minute Clang libFuzzer + ASan/UBSan on current head | [ ] Deferred | Previous run passed on an earlier commit, not this head |
 | Full /GR-, Detours, /analyze, SDK packaging gates | [ ] Deferred | Must run after PR Smoke returns green |
