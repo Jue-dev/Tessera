@@ -176,7 +176,8 @@ TEST_CASE("Scanner reports query failures and rejects chunk overlap overflow", "
 
     ScanOptions oversized{};
     oversized.chunk_size = (std::numeric_limits<std::size_t>::max)();
-    auto overflow = scanner.scan(AddressRange{Address{0x700000}, 0x1000}, pattern, oversized);
+    backend->map_region(Address{0x710000}, 0x1000, MemoryProtection::ExecuteRead);
+    auto overflow = scanner.scan(AddressRange{Address{0x710000}, 0x1000}, pattern, oversized);
     REQUIRE_FALSE(overflow.has_value());
     REQUIRE(overflow.error().code == ErrorCode::OutOfRange);
 }
