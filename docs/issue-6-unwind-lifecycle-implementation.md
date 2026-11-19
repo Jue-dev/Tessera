@@ -28,15 +28,15 @@ Windows matrix. Do not treat skipped or unstarted checks as passing.
 | Work item | Status | Evidence / next step |
 |---|---|---|
 | x64 dynamic trampoline unwind registration | [x] Implemented | Stable RUNTIME_FUNCTION and UNWIND_INFO storage; register before publishing the target patch |
-| Version-1 unwind translation | [x] Implemented | Supported code offsets mapped through exact relocated instruction boundaries; multi-slot payloads copied; offsets at/before preserved ENDBR rejected |
+| Version-1 unwind translation | [x] Implemented | Supported code offsets mapped through exact relocated instruction boundaries; multi-slot payloads copied via bounded byte spans; offsets at/before preserved ENDBR rejected |
 | Fail-closed unwind validation | [x] Implemented | Unsupported version/opcodes, handler/chained records, malformed slot streams, non-entry targets, and unmappable offsets rejected |
-| Source metadata memory bounds | [x] Implemented | Validate runtime-function record, unwind header, and full unwind-code array are in committed readable memory |
+| Source metadata memory bounds | [x] Implemented | Validate runtime-function record, four-byte unwind header, and full unwind-code byte span in committed readable memory |
 | Source function bounds | [x] Implemented | Reject stolen prologue ranges that extend past the registered source function before writing target bytes |
 | No-source-record policy | [x] Implemented | Only audited stack-neutral leaf subset accepted; unsupported dynamic prologues rejected |
 | Detach/unregister retry | [x] Implemented | On unregister failure, reinstate the patch and retain registration, allocation, registry ownership, and retryable token |
 | Explicit callable lease API | [x] Implemented | Hook::acquire(), get(), and target(); non-copyable, non-movable, thread-affine |
 | Expanded x64 unwind regression tests | [x] Added; CI pending | ALLOC_LARGE (near/far), PUSH_NONVOL, SAVE_NONVOL (near/far), SET_FPREG, SAVE_XMM128 (near/far), PUSH_MACHFRAME (both OpInfo values), source bounds/readability, handler/chained/version2/reserved opcode and ENDBR-boundary rejection |
-| x86/x64 preprocessor separation | [x] Corrected; CI pending | Balanced x64-only guards; the x86 matrix must confirm x64 fixture exclusion |
+| Unwind slot storage bounds | [x] Corrected; CI pending | Removed `UnwindCode[1]` trailing-array indexing; source and destination slots are read/written using bounded byte spans and `memcpy` |\n| x86/x64 preprocessor separation | [x] Corrected; CI pending | Balanced x64-only guards; the x86 matrix must confirm x64 fixture exclusion |
 | Windows x86/x64 Debug/Release on current head | [ ] Deferred | Actions quota unavailable; see the separate CI checklist |
 | Five-minute Clang libFuzzer + ASan/UBSan on current head | [ ] Deferred | Previous run passed on an earlier commit, not this head |
 | Full /GR-, Detours, /analyze, SDK packaging gates | [ ] Deferred | Must run after PR Smoke returns green |
@@ -143,14 +143,17 @@ protocol.
 ## Current exact pause point
 
 The latest source additions include strict ENDBR `CodeOffset` rejection, a
-six-case malformed-metadata regression test, and a real DLL unload-order test.
+six-case malformed-metadata regression test, bounded byte-span serialization
+for unwind slots (removing `UnwindCode[1]` out-of-bounds indexing), and a real
+DLL unload-order test.
 The DLL fixture is built as a separate CMake shared-library target and the test
 checks active callback drain, successful detach, `FreeLibrary`, and continued
 operation of the original target. Static ownership audits for allocation and
 `RtlAddFunctionTable` failure cleanup are documented.
 No Windows validation has been run on the current head because the Actions
 quota is unavailable. Source-level review of the DLL fixture, CMake path quoting, x86 decorated export
-fallback, unload checks, and function-pointer conversion is complete. The next
+fallback, unload checks, function-pointer conversion, and unwind-slot byte
+bounds is complete. The next
 step is not another code edit: run the exact-head four-way Windows matrix once
 when Actions allowance is restored, then dispatch the five-minute Clang fuzz
 campaign separately. Do not mark CI checkboxes as passed before those runs.

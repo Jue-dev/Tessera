@@ -120,6 +120,8 @@ weekly runs are disabled). Inspect every job and do not publish a release.
 
 - [ ] Source `RUNTIME_FUNCTION` and `UNWIND_INFO` reads are bounded to
   committed readable memory.
+- [ ] Unwind slot parsing/serialization uses bounded byte spans; no one-element
+  trailing array is indexed beyond its declared extent.
 - [ ] Source function bounds are checked before the target is patched.
 - [x] Allocation failure path statically audited: temporary state remains in
   a `unique_ptr`; allocation/relocation failures occur before target writes,
@@ -137,6 +139,9 @@ weekly runs are disabled). Inspect every job and do not publish a release.
 - Real shared-library fixture and DLL unload-order test are now part of the
   Windows test executable; the x86 export fallback and DLL basename checks
   were source-reviewed. This test is added, not yet runtime-validated.
+- `UnwindCode[1]` trailing-array indexing was removed from production and test
+  metadata representations; slots are now copied through bounded byte spans.
+  Current-head compilation and runtime checks are still pending.
 
 - Last known green PR Smoke: run #96 on commit
   `ad8a378d994522d7bebabde5a70d9330298fac33`.
