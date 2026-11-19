@@ -1,5 +1,7 @@
 # Issue #6 — CI validation checklist
 
+**Validation target:** current PR branch `issue-6/unwind-lifecycle`. The last source/test commit is followed by documentation and workflow-only commits. The current exact head must be checked when dispatching; no result from an earlier SHA counts for the current head.
+
 This checklist is intentionally separate from the implementation notes. Do not
 mark an item complete until the corresponding job/test has passed on the
 current PR head commit. The latest source changes are not considered validated until this checklist
