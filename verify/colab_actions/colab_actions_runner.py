@@ -340,7 +340,11 @@ class ColabActionsRunner:
         if not meta: return [StepResult(uses, "FAIL", 0, 1, "Local action metadata missing.")]
         action = load_yaml(meta); runs = mp(action.get("runs"))
         if s(runs.get("using")) != "composite": return [StepResult(uses, "UNSUPPORTED", 0, None, "Only local composite actions are supported.")]
-        supplied = mp(step.get("with")); local_inputs = {k: supplied.get(k, mp(v).get("default", "")) for k, v in mp(action.get("inputs")).items()}
+        supplied = mp(step.get("with"))
+        local_inputs = {
+            k: self.interpolate(supplied.get(k, mp(v).get("default", "")), ctx)
+            for k, v in mp(action.get("inputs")).items()
+        }
         action_ctx = dict(ctx)
         action_ctx["inputs"] = local_inputs
         for child_raw in seq(runs.get("steps")):
