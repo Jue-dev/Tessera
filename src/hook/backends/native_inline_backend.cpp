@@ -1691,6 +1691,22 @@ public:
         state->unwind_registered = false;
 #endif
 
+#if defined(TESSERA_HOOK_X64)
+        if (state->target_detached &&
+            std::memcmp(state->patch_target,
+                        state->original_bytes.data(),
+                        state->patch_size) != 0) {
+            // The first detach attempt already restored the entry but could not
+            // unregister the function table. If another writer changed those
+            // bytes before a retry, retain the trampoline/table and token.
+            suspended.resume();
+            return fail(ErrorCode::Conflict,
+                        "NativeInlineHook::detach",
+                        0,
+                        "Target bytes changed after the entry patch was restored; unwind metadata remains registered");
+        }
+#endif
+
         suspended.resume();
         registry.erase(registry_entry);
         delete state;
