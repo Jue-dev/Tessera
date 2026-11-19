@@ -3,8 +3,8 @@ name: Native Hook Coverage-Guided Fuzz
 on:
   push:
     branches:
-      - issue-6/unwind-lifecycle
-    - main
+      - "issue-6/unwind-lifecycle"
+      - "main"
     paths:
       - ".github/workflows/native-hook-fuzz.yml"
       - ".github/actions/setup-msvc/**"
