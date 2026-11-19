@@ -137,7 +137,7 @@ jobs:
       - name: Run x64 coverage-guided ASan/UBSan campaign
         shell: pwsh
         env:
-          CAMPAIGN_SECONDS: \${{ inputs.campaign_seconds || '300' }}
+          CAMPAIGN_SECONDS: ${{ inputs.campaign_seconds || '300' }}
         run: |
           $ErrorActionPreference = "Stop"
           $seedSource = Join-Path $env:GITHUB_WORKSPACE "verify/fuzz/corpus/native_hook"
