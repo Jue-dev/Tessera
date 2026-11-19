@@ -831,6 +831,7 @@ TEST_CASE("ObjectView owns its Process and resolves virtual bases without adding
     using namespace tessera;
     using namespace tessera::testing;
     using namespace tessera::reflection;
+    using namespace tessera::rtti;
 
     auto backend = std::make_shared<FakeMemoryBackend>();
     backend->map_region(Address{0xA00000}, 0x2000, MemoryProtection::ReadWrite);
