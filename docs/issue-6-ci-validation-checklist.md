@@ -110,7 +110,8 @@ weekly runs are disabled). Inspect every job and do not publish a release.
   raw/escaped trampoline call, not only calls made through `Hook::acquire()`.
 - [ ] Detach succeeds before hook state or the detour module is destroyed.
 - [ ] `Native hook host admission drains active detours before unloading the detour module`
-  passes on x86 and x64. It loads a real DLL detour, holds a callback active,
+  passes on x86 and x64. The regression test is implemented; Windows execution
+  is pending. It loads a real DLL detour, holds a callback active,
   proves the host admission gate cannot close early, drains the call, removes
   the hook, calls `FreeLibrary`, and verifies the original target still runs.
 - [ ] Concurrent operations on the same `Hook` object are externally
@@ -130,9 +131,11 @@ weekly runs are disabled). Inspect every job and do not publish a release.
   flag is set only after success; failure returns before thread suspension or
   target patching, and the unpublished allocation is freed by state destruction.
 - [ ] `RtlDeleteFunctionTable` failure remains retryable and does not free
-  memory still registered with Windows.
+  memory still registered with Windows. Regression test exists:
+  `Native x64 unwind unregister failure restores the patch and keeps the token retryable`.
 - [ ] Patch-write failure rollback preserves original bytes and page protection;
-  uncertain rollback remains fail-fast.
+  uncertain rollback remains fail-fast. Deterministic `FakePatchWriteOps`
+  tests cover protection failure, flush rollback, fatal rollback, and success.
 
 ## Current execution state
 

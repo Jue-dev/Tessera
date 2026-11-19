@@ -33,7 +33,7 @@ Windows matrix. Do not treat skipped or unstarted checks as passing.
 | Source metadata memory bounds | [x] Implemented | Validate runtime-function record, four-byte unwind header, and full unwind-code byte span in committed readable memory |
 | Source function bounds | [x] Implemented | Reject stolen prologue ranges that extend past the registered source function before writing target bytes |
 | No-source-record policy | [x] Implemented | Only audited stack-neutral leaf subset accepted; unsupported dynamic prologues rejected |
-| Detach/unregister retry | [x] Implemented | On unregister failure, reinstate the patch and retain registration, allocation, registry ownership, and retryable token |
+| Detach/unregister retry | [x] Implemented; test pending CI | On unregister failure, reinstate the patch and retain registration, allocation, registry ownership, and retryable token; deterministic retry regression test exists |
 | Explicit callable lease API | [x] Implemented | Hook::acquire(), get(), and target(); non-copyable, non-movable, thread-affine |
 | Expanded x64 unwind regression tests | [x] Added; CI pending | ALLOC_LARGE (near/far), PUSH_NONVOL, SAVE_NONVOL (near/far), SET_FPREG, SAVE_XMM128 (near/far), PUSH_MACHFRAME (both OpInfo values), source bounds/readability, handler/chained/version2/reserved opcode and ENDBR-boundary rejection |
 | Unwind slot storage bounds | [x] Corrected; CI pending | Removed `UnwindCode[1]` trailing-array indexing; source and destination slots are read/written using bounded byte spans and `memcpy` |
@@ -42,7 +42,7 @@ Windows matrix. Do not treat skipped or unstarted checks as passing.
 | Five-minute Clang libFuzzer + ASan/UBSan on current head | [ ] Deferred | Previous run passed on an earlier commit, not this head |
 | Full /GR-, Detours, /analyze, SDK packaging gates | [ ] Deferred | Must run after PR Smoke returns green |
 | Host admission/drain/module-unload acceptance | [x] Test added; CI pending | A real detour DLL is held active while the exclusive admission gate is blocked; test releases/drains the callback, removes the hook, unloads the DLL, then verifies the original target still runs. x86 export decoration is resolved explicitly |
-| Allocation and RtlAddFunctionTable failure injection | [x] Static failure-path audit | unique_ptr owns temporary state; registration flag is set only after RtlAddFunctionTable succeeds; all failures before target write unwind and release unpublished state |
+| Allocation and RtlAddFunctionTable failure injection | [x] Static failure-path audit | unique_ptr owns temporary state; registration flag is set only after RtlAddFunctionTable succeeds; all failures before target write unwind and release unpublished state. No API-injection harness yet |
 | Final independent audit | [ ] Remaining | Re-check bytes, page protections, token, registry, unwind registration, and lifetime on every failure edge |
 
 ## Failure-path ownership audit
@@ -146,7 +146,8 @@ protocol.
 The latest source additions include strict ENDBR `CodeOffset` rejection, a
 six-case malformed-metadata regression test, bounded byte-span serialization
 for unwind slots (removing `UnwindCode[1]` out-of-bounds indexing), and a real
-DLL unload-order test.
+DLL unload-order test. Existing unregister-retry and patch-write rollback
+regression tests are already present; they still need exact-head Windows CI.
 The DLL fixture is built as a separate CMake shared-library target and the test
 checks active callback drain, successful detach, `FreeLibrary`, and continued
 operation of the original target. Static ownership audits for allocation and
