@@ -1,9 +1,26 @@
 name: Tessera CI & SDK Release
 
 on:
-  # Full validation runs automatically on main only when build, source, or
-  # verification inputs change. Documentation-only changes stay quiet.
-  # Tag pushes still run the release pipeline; path filters do not apply to tags.
+  # Full validation runs for relevant pull requests, main pushes, manual dispatch,
+  # and the weekly schedule. Documentation-only changes stay quiet.
+  # Release publication remains restricted to version-tag pushes.
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - ".clang-tidy"
+      - "*.cmake"
+      - "CMakeLists.txt"
+      - "CMakePresets.json"
+      - "cmake/**"
+      - "include/**"
+      - "src/**"
+      - "verify/**"
+      - "examples/**"
+      - "scripts/**"
+      - "vcpkg.json"
+      - "vcpkg-configuration.json"
+      - ".github/workflows/**"
+      - ".github/actions/**"
   push:
     branches: [ "main" ]
     tags: [ "v*" ]
