@@ -496,10 +496,11 @@ class ColabActionsRunner:
                                 else:
                                     failed = True; self._run_failed = True
                             if r.status == "UNSUPPORTED":
+                                unsupported = True
                                 if truth(step.get("continue-on-error")):
-                                    self.warnings.append("Unsupported step ignored: " + r.name)
+                                    self.warnings.append("Unsupported step ignored; job remains PARTIAL: " + r.name)
                                 else:
-                                    unsupported = True; self._run_failed = True
+                                    self._run_failed = True
                         if self.cancel_event.is_set(): break
                     statuses.append("FAIL" if failed else ("PARTIAL" if unsupported else ("CANCELLED" if self.cancel_event.is_set() else "PASS")))
                 self.step_timeout = original_timeout
