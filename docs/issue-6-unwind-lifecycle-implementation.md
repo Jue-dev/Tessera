@@ -41,8 +41,40 @@ Windows matrix. Do not treat skipped or unstarted checks as passing.
 | Five-minute Clang libFuzzer + ASan/UBSan on current head | [ ] Deferred | Previous run passed on an earlier commit, not this head |
 | Full /GR-, Detours, /analyze, SDK packaging gates | [ ] Deferred | Must run after PR Smoke returns green |
 | Host admission/drain/module-unload acceptance | [ ] Remaining | Verify stop-admission → drain all target/detour/raw calls → remove → unload |
-| Allocation and RtlAddFunctionTable failure injection | [ ] Remaining | Add deterministic injection or document a rigorous proof for the affected cleanup paths |
+| Allocation and RtlAddFunctionTable failure injection | [x] Static failure-path audit | unique_ptr owns temporary state; registration flag is set only after RtlAddFunctionTable succeeds; all failures before target write unwind and release unpublished state |
 | Final independent audit | [ ] Remaining | Re-check bytes, page protections, token, registry, unwind registration, and lifetime on every failure edge |
+
+## Failure-path ownership audit
+
+The backend's attach path is failure-atomic before the first target write:
+
+- The `NativeHookState` remains owned by a local `std::unique_ptr` until the
+  patch has committed, the active registry entry has been inserted, and the
+  returned `HookToken` takes ownership.
+- A failed `VirtualAlloc` returns before any target bytes or target page
+  protection are changed. Any later relocation, metadata-validation,
+  trampoline-protection, or cache-flush failure returns while the same
+  `unique_ptr` still owns the state and allocation.
+- `RtlAddFunctionTable` is called before thread suspension and before
+  `write_target_bytes`. The `unwind_registered` bit is set only after the API
+  returns success. If registration fails, the destructor sees the bit clear
+  and releases the unpublished allocation; the target bytes and target page
+  protection are untouched.
+- Registry capacity is reserved before target modification. The registry
+  entry is inserted only after the patch transaction succeeds, so failed
+  attachment cannot leave an active-range owner behind.
+- If registration succeeds but a later pre-patch step fails, state destruction
+  first calls `RtlDeleteFunctionTable`; it frees the allocation only after
+  successful deregistration. If Windows refuses deregistration, the process
+  fails fast instead of freeing memory still visible to the unwinder.
+- Patch-write failures use the rollback transaction. Recoverable failures
+  return only after original bytes and page protection are restored;
+  unprovable rollback is fail-fast. Detach/unregister failure is covered by
+  the deterministic retry test.
+
+This is a static ownership/control-flow proof, not injected Windows API
+failure testing. Deterministic injection remains a possible future enhancement;
+the exact-head Windows acceptance run is still required.
 
 ## Implementation contract
 

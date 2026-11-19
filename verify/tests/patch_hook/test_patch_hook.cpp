@@ -2251,9 +2251,9 @@ TEST_CASE("Native x64 unwind rejects unsupported, malformed, and prefix-boundary
     auto* code = static_cast<std::byte*>(region.address);
     std::memset(code, 0x90, 4096);
 
-    constexpr std::array<std::size_t, 4> target_offsets{64u, 128u, 192u, 256u};
-    constexpr std::array<std::size_t, 4> unwind_offsets{512u, 528u, 544u, 560u};
-    std::array<std::array<std::byte, 8>, 4> original{};
+    constexpr std::array<std::size_t, 6> target_offsets{64u, 128u, 192u, 256u, 320u, 384u};
+    constexpr std::array<std::size_t, 6> unwind_offsets{512u, 528u, 544u, 560u, 576u, 592u};
+    std::array<std::array<std::byte, 8>, 6> original{};
     for (std::size_t index = 0; index < target_offsets.size(); ++index) {
         const std::size_t offset = target_offsets[index];
         code[offset + 0u] = std::byte{0x48};
@@ -2290,6 +2290,10 @@ TEST_CASE("Native x64 unwind rejects unsupported, malformed, and prefix-boundary
     endbr_unwind->size_of_prolog = 8u;
     endbr_unwind->unwind_code[0].code_offset = 4u;
 
+    // Version 2 and reserved version-1 opcodes are not copied by this backend.
+    reinterpret_cast<TestUnwindInfo*>(code + unwind_offsets[4])->version_and_flags = 2u;
+    reinterpret_cast<TestUnwindInfo*>(code + unwind_offsets[5])->unwind_code[0].operation = 6u;
+
     for (std::size_t index = 0; index < target_offsets.size(); ++index) {
         std::memcpy(original[index].data(), code + target_offsets[index],
                     original[index].size());
@@ -2306,7 +2310,7 @@ TEST_CASE("Native x64 unwind rejects unsupported, malformed, and prefix-boundary
     reinterpret_cast<TestUnwindInfo*>(code + unwind_offsets[2])->unwind_code[0].code_offset = 2u;
 
     struct SourceFunctionTableGuard {
-        std::array<RUNTIME_FUNCTION, 4> entries{};
+        std::array<RUNTIME_FUNCTION, 6> entries{};
         bool registered = false;
         ~SourceFunctionTableGuard() noexcept {
             if (registered && !::RtlDeleteFunctionTable(entries.data())) {

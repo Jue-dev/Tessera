@@ -48,6 +48,8 @@ Run the complete `[hook][native][unwind]` test group, not just the new cases.
   target bytes change.
 - [ ] An unwind CodeOffset equal to the preserved ENDBR64 prefix length is
   rejected; ENDBR cannot complete a stack-changing unwind operation.
+- [ ] Version-2 unwind metadata and reserved version-1 opcodes fail closed
+  before target bytes change.
 - [ ] A stolen patch that crosses the source function end is rejected before
   target bytes change.
 - [ ] A truncated/unreadable extra unwind-code slot is rejected without an
@@ -62,6 +64,7 @@ Relevant regression tests (exact names):
 - `Native x64 trampoline maps far UWOP_SAVE_NONVOL and UWOP_ALLOC_LARGE`
 - `Native x64 trampoline maps far UWOP_SAVE_XMM128 and UWOP_ALLOC_LARGE`
 - `Native x64 trampoline maps UWOP_PUSH_MACHFRAME with and without error code`
+- `Native x64 unwind rejects unsupported, malformed, and prefix-boundary source metadata`
 - `Native x64 trampoline maps ALLOC_LARGE and SET_FPREG together`
 - `Native x64 trampoline restores a saved nonvolatile XMM register`
 - `Native x64 unwind rejects a stolen patch that crosses the source function end`
@@ -115,11 +118,12 @@ weekly runs are disabled). Inspect every job and do not publish a release.
 - [ ] Source `RUNTIME_FUNCTION` and `UNWIND_INFO` reads are bounded to
   committed readable memory.
 - [ ] Source function bounds are checked before the target is patched.
-- [ ] Allocation failure is tested or the cleanup path is independently
-  demonstrated to preserve bytes, page protection, token state, and registry.
-- [ ] `RtlAddFunctionTable` failure is tested or the failure path is
-  independently audited to leave target bytes untouched and free the
-  unpublished allocation.
+- [x] Allocation failure path statically audited: temporary state remains in
+  a `unique_ptr`; allocation/relocation failures occur before target writes,
+  and a partially built trampoline is freed by state destruction.
+- [x] `RtlAddFunctionTable` failure path statically audited: the registered
+  flag is set only after success; failure returns before thread suspension or
+  target patching, and the unpublished allocation is freed by state destruction.
 - [ ] `RtlDeleteFunctionTable` failure remains retryable and does not free
   memory still registered with Windows.
 - [ ] Patch-write failure rollback preserves original bytes and page protection;
