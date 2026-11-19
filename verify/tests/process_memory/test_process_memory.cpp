@@ -78,6 +78,23 @@ TEST_CASE("Execute-only regions are not readable", "[memory][protection]") {
     REQUIRE_FALSE(reader.read<std::uint8_t>(Address{0x12000}).has_value());
 }
 
+TEST_CASE("Unbounded region enumeration stops at the address-space boundary", "[memory][regions]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    backend->map_region(Address{0x10000}, 0x1000, MemoryProtection::Read);
+    backend->map_region(Address{0x30000}, 0x2000, MemoryProtection::Read);
+
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X86);
+    const auto regions = enumerate_regions(process);
+
+    REQUIRE(regions.has_value());
+    REQUIRE(regions->size() == 2);
+    REQUIRE((*regions)[0].base == Address{0x10000});
+    REQUIRE((*regions)[1].base == Address{0x30000});
+}
+ 
 TEST_CASE("FakeMemoryBackend reader, writer, rollback, and protection warnings", "[memory]") {
     using namespace tessera;
     using namespace tessera::testing;
