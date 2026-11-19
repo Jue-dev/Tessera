@@ -29,9 +29,13 @@ must describe a tested support envelope rather than claim universal operation.
   quiescence. Snapshot-based suspension is not a thread-creation barrier.
 - Hook tokens retain backend state until detach succeeds. Calls through
   `Hook::operator()` hold an internal shared lease, and lifecycle operations
-  wait for those leased calls to complete. The public `original()` pointer is
-  still non-owning and bypasses the lease; raw-pointer users must stop new
-  calls and drain all users before detach, destruction, or module unload.
+  wait for those leased calls to complete. Per-thread nesting avoids
+  re-locking the non-recursive shared mutex during recursive calls through the
+  same Hook object. The public `original()` pointer is still non-owning and
+  bypasses the lease; raw-pointer users must stop new calls and drain all users
+  before detach, destruction, or module unload.
+- The installed-state query is atomic, so observing `installed()` does not
+  recursively acquire the callable lease lock.
 - PR smoke validates x86/x64 Debug and Release, including a deterministic
   native-hook corpus (nine focused seeds plus 512 fixed-seed inputs). The
   x64 Release fuzz smoke has a known-good lifecycle assertion.
@@ -84,8 +88,9 @@ without changing target bytes. A green compile alone is not sufficient.
 4. Define behavior for detach timeout, shutdown, move assignment, destruction,
    `release()`, and repeated remove. A failed detach must retain all resources
    reachable from the still-installed patch.
-5. Add deterministic tests for call leases racing with remove, detach failure
-   and retry, move/destructor behavior, and module-lifetime boundaries.
+5. Add deterministic tests for recursive call leases, call leases racing
+   with remove, detach failure and retry, move/destructor behavior, and
+   module-lifetime boundaries.
 
 **Exit criterion:** calls made through `Hook::operator()` cannot execute
 freed trampoline memory; raw-pointer callers remain clearly documented as
