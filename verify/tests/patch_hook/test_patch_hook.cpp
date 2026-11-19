@@ -1081,6 +1081,176 @@ TEST_CASE("Native x64 unwind registration remains alive until an explicit callab
 }
 #endif
 
+#if defined(_M_X64) || defined(__x86_64__)
+TEST_CASE("Native x64 unwind unregister failure restores the patch and keeps the token retryable",
+          "[hook][native][unwind][failure][integration]") {
+    using namespace tessera;
+
+    ExecutableRegionGuard region{
+        ::VirtualAlloc(nullptr, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE)};
+    REQUIRE(region.address != nullptr);
+    auto* code = static_cast<std::byte*>(region.address);
+    std::memset(code, 0x90, 4096);
+    constexpr std::size_t target_offset = 64u;
+    code[target_offset] = std::byte{0xB8};
+    constexpr std::uint32_t return_value = 42u;
+    std::memcpy(code + target_offset + 1u, &return_value, sizeof(return_value));
+    code[target_offset + 5u] = std::byte{0xC3};
+    std::array<std::byte, 8> original{};
+    std::memcpy(original.data(), code + target_offset, original.size());
+
+    DWORD old_protection = 0;
+    REQUIRE(::VirtualProtect(region.address, 4096, PAGE_EXECUTE_READ, &old_protection));
+
+    HookBackend& backend = native_inline_hook_backend();
+    auto hook = Hook<NativeHookFn>::create(
+        Address{static_cast<std::uint64_t>(
+            reinterpret_cast<std::uintptr_t>(code + target_offset))},
+        &native_hook_detour,
+        &backend);
+    REQUIRE(hook.has_value());
+    HookOptions options{};
+    options.threads = ThreadPolicy::None;
+    REQUIRE(hook->install(options).has_value());
+
+    const NativeHookFn trampoline = hook->original();
+    REQUIRE(trampoline != nullptr);
+    DWORD64 image_base = 0;
+    PRUNTIME_FUNCTION function_entry = ::RtlLookupFunctionEntry(
+        static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(trampoline)),
+        &image_base,
+        nullptr);
+    REQUIRE(function_entry != nullptr);
+
+    struct FunctionTableRecovery {
+        PRUNTIME_FUNCTION entry = nullptr;
+        DWORD64 image_base = 0;
+        bool needs_restore = false;
+        ~FunctionTableRecovery() noexcept {
+            if (needs_restore &&
+                !::RtlAddFunctionTable(entry, 1u, image_base)) {
+                std::terminate();
+            }
+        }
+    } recovery{function_entry, image_base, false};
+
+    REQUIRE(::RtlDeleteFunctionTable(function_entry));
+    recovery.needs_restore = true;
+
+    const auto first_remove = hook->remove();
+    REQUIRE_FALSE(first_remove.has_value());
+    REQUIRE(first_remove.error().code == ErrorCode::IoError);
+    REQUIRE(hook->installed());
+    REQUIRE(code[target_offset] == std::byte{0xE9});
+    DWORD64 missing_image_base = 0;
+    REQUIRE(::RtlLookupFunctionEntry(
+                static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(trampoline)),
+                &missing_image_base,
+                nullptr) == nullptr);
+
+    REQUIRE(::RtlAddFunctionTable(function_entry, 1u, image_base));
+    recovery.needs_restore = false;
+
+    REQUIRE(hook->remove().has_value());
+    REQUIRE_FALSE(hook->installed());
+    REQUIRE(std::memcmp(code + target_offset, original.data(), original.size()) == 0);
+    DWORD64 removed_image_base = 0;
+    REQUIRE(::RtlLookupFunctionEntry(
+                static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(trampoline)),
+                &removed_image_base,
+                nullptr) == nullptr);
+}
+
+TEST_CASE("Native x64 unwind rejects handler, chained, and non-boundary source metadata",
+          "[hook][native][unwind][validation][integration]") {
+    using namespace tessera;
+
+    ExecutableRegionGuard region{
+        ::VirtualAlloc(nullptr, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE)};
+    REQUIRE(region.address != nullptr);
+    auto* code = static_cast<std::byte*>(region.address);
+    std::memset(code, 0x90, 4096);
+
+    constexpr std::array<std::size_t, 3> target_offsets{64u, 128u, 192u};
+    constexpr std::array<std::size_t, 3> unwind_offsets{512u, 528u, 544u};
+    std::array<std::array<std::byte, 8>, 3> original{};
+    for (std::size_t index = 0; index < target_offsets.size(); ++index) {
+        const std::size_t offset = target_offsets[index];
+        code[offset + 0u] = std::byte{0x48};
+        code[offset + 1u] = std::byte{0x83};
+        code[offset + 2u] = std::byte{0xEC};
+        code[offset + 3u] = std::byte{0x28}; // sub rsp, 0x28
+        code[offset + 4u] = std::byte{0x90};
+        std::memcpy(original[index].data(), code + offset, original[index].size());
+
+        auto* unwind_info =
+            reinterpret_cast<TestUnwindInfo*>(code + unwind_offsets[index]);
+        std::memset(unwind_info, 0, 16u);
+        unwind_info->version_and_flags = 1u;
+        unwind_info->size_of_prolog = 4u;
+        unwind_info->count_of_codes = 1u;
+        unwind_info->frame_register_and_offset = 0u;
+        unwind_info->unwind_code[0].code_offset = 4u;
+        unwind_info->unwind_code[0].operation = kTestUnwindOpAllocSmall | (4u << 4u);
+    }
+
+    // EHANDLER and CHAININFO must be rejected before reading/using their
+    // handler-specific or chained payloads as if they were position-independent.
+    reinterpret_cast<TestUnwindInfo*>(code + unwind_offsets[0])->version_and_flags =
+        static_cast<UCHAR>(1u | (1u << 3u));
+    reinterpret_cast<TestUnwindInfo*>(code + unwind_offsets[1])->version_and_flags =
+        static_cast<UCHAR>(1u | (4u << 3u));
+    // A valid v1 record whose CodeOffset lands inside the four-byte SUB
+    // instruction, not at its end, must also fail closed.
+    reinterpret_cast<TestUnwindInfo*>(code + unwind_offsets[2])->unwind_code[0].code_offset = 2u;
+
+    struct SourceFunctionTableGuard {
+        std::array<RUNTIME_FUNCTION, 3> entries{};
+        bool registered = false;
+        ~SourceFunctionTableGuard() noexcept {
+            if (registered && !::RtlDeleteFunctionTable(entries.data())) {
+                std::terminate();
+            }
+        }
+    } source_table;
+    for (std::size_t index = 0; index < target_offsets.size(); ++index) {
+        source_table.entries[index].BeginAddress =
+            static_cast<DWORD>(target_offsets[index]);
+        source_table.entries[index].EndAddress =
+            static_cast<DWORD>(target_offsets[index] + 32u);
+        source_table.entries[index].UnwindData =
+            static_cast<DWORD>(unwind_offsets[index]);
+    }
+    REQUIRE(::RtlAddFunctionTable(
+        source_table.entries.data(),
+        static_cast<DWORD>(source_table.entries.size()),
+        static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(region.address))));
+    source_table.registered = true;
+
+    DWORD old_protection = 0;
+    REQUIRE(::VirtualProtect(region.address, 4096, PAGE_EXECUTE_READ, &old_protection));
+
+    HookBackend& backend = native_inline_hook_backend();
+    HookOptions options{};
+    options.threads = ThreadPolicy::None;
+    for (std::size_t index = 0; index < target_offsets.size(); ++index) {
+        auto hook = Hook<NativeHookFn>::create(
+            Address{static_cast<std::uint64_t>(
+                reinterpret_cast<std::uintptr_t>(code + target_offsets[index]))},
+            &native_hook_detour,
+            &backend);
+        REQUIRE(hook.has_value());
+        const auto install = hook->install(options);
+        REQUIRE_FALSE(install.has_value());
+        REQUIRE(install.error().code == ErrorCode::UnsupportedInstruction);
+        REQUIRE_FALSE(hook->installed());
+        REQUIRE(std::memcmp(code + target_offsets[index],
+                            original[index].data(),
+                            original[index].size()) == 0);
+    }
+}
+#endif
+
 TEST_CASE("Native inline backend relocates x64 RIP-relative code and restores the target", "[hook][native]") {
     using namespace tessera;
 
