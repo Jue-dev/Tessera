@@ -85,7 +85,7 @@ if(TESSERA_ENABLE_LIBFUZZER)
         # The bundled libFuzzer runtime is built without MSVC STL string annotations.
         # Disable that annotation consistently to avoid linker detect_mismatch conflicts.
         if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-            target_compile_definitions(${module_target} PRIVATE _DISABLE_STRING_ANNOTATION)
+            target_compile_definitions(${module_target} PRIVATE _DISABLE_STRING_ANNOTATION _DISABLE_VECTOR_ANNOTATION)
         endif()
         target_compile_options(${module_target} PRIVATE
             -fsanitize=fuzzer-no-link,address,undefined
