@@ -177,7 +177,7 @@ int main() {
         ? (g_total_inputs * 1000u) / static_cast<std::uint64_t>(elapsed_ms)
         : 0u;
     std::printf(
-        "native-hook-stress-summary: inputs=%llu successful_lifecycles=%llu elapsed_ms=%lld inputs_per_second=%llu\\n",
+        "native-hook-stress-summary: inputs=%llu successful_lifecycles=%llu elapsed_ms=%lld inputs_per_second=%llu\n",
         static_cast<unsigned long long>(g_total_inputs),
         static_cast<unsigned long long>(g_successful_lifecycles),
         static_cast<long long>(elapsed_ms),

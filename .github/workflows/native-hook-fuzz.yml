@@ -265,7 +265,7 @@ jobs:
           $stressLog = Get-Content (Join-Path $artifactRoot "stress.log") -Raw
           $summary = [regex]::Match(
             $stressLog,
-            "native-hook-stress-summary: inputs=65546 successful_lifecycles=(\d+) elapsed_ms=(\d+) inputs_per_second=(\d+)"
+            "(?m)^native-hook-stress-summary: inputs=65546 successful_lifecycles=(\d+) elapsed_ms=(\d+) inputs_per_second=(\d+)$"
           )
           if (-not $summary.Success) {
             throw "x86 stress corpus did not report all 65,546 inputs, elapsed time, and throughput."
