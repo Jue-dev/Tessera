@@ -519,8 +519,8 @@ TEST_CASE("Hook callable leases drain in-flight operator calls before remove",
     if (!call_entered) {
         g_callable_lease_release.store(true, std::memory_order_release);
         caller.join();
-        FAIL("The leased trampoline invocation did not start");
     }
+    REQUIRE(call_entered);
 
     std::thread remover([&] {
         remove_started.store(true, std::memory_order_release);
