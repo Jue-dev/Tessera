@@ -741,6 +741,53 @@ TEST_CASE("Hook lifecycle and Detours-off contract", "[hook]") {
     REQUIRE_FALSE(invalid_policy_hook->installed());
 }
 
+TEST_CASE("Native inline backend rejects modified detach thread policy",
+          "[hook][native][validation][threads]") {
+    using namespace tessera;
+
+    ExecutableRegionGuard region{
+        ::VirtualAlloc(nullptr, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE)};
+    REQUIRE(region.address != nullptr);
+    auto* code = static_cast<std::byte*>(region.address);
+    std::memset(code, 0x90, 4096);
+    code[64] = std::byte{0xB8};
+    const std::uint32_t return_value = 42;
+    std::memcpy(code + 65, &return_value, sizeof(return_value));
+    code[69] = std::byte{0xC3};
+
+    DWORD previous_protection = 0;
+    REQUIRE(::VirtualProtect(region.address, 4096, PAGE_EXECUTE_READ, &previous_protection));
+
+    HookOptions options{}; // Strict thread policy is the default.
+    HookBackend& backend = native_inline_hook_backend();
+    auto attached = backend.attach(
+        Address{static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(code + 64))},
+        &native_hook_detour,
+        options);
+    REQUIRE(attached.has_value());
+
+    HookToken token = std::move(*attached);
+    const auto installed_policy = token.threads;
+    REQUIRE(installed_policy == ThreadPolicy::SuspendOthersStrict);
+    REQUIRE(token.backend_data != nullptr);
+    REQUIRE(code[64] == std::byte{0xE9});
+
+    // A public token must not be able to weaken the thread-suspension policy
+    // that was chosen when the patch was installed.
+    token.threads = ThreadPolicy::None;
+    const auto weakened_detach = backend.detach(token);
+    REQUIRE_FALSE(weakened_detach.has_value());
+    REQUIRE(weakened_detach.error().code == ErrorCode::Conflict);
+    REQUIRE(token.backend_data != nullptr);
+    REQUIRE(code[64] == std::byte{0xE9});
+
+    token.threads = installed_policy;
+    REQUIRE(backend.detach(token).has_value());
+    REQUIRE(token.backend_data == nullptr);
+    REQUIRE(code[64] == std::byte{0xB8});
+    REQUIRE(code[69] == std::byte{0xC3});
+}
+
 TEST_CASE("Native inline backend rejects invalid thread policies without changing hook state",
           "[hook][native][validation][threads]") {
     using namespace tessera;

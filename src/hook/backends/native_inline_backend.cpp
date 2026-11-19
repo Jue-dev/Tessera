@@ -151,6 +151,7 @@ struct DecodedBlock {
 }
 
 struct NativeHookState {
+    ThreadPolicy thread_policy = ThreadPolicy::SuspendOthersStrict;
     void* target = nullptr;
     void* patch_target = nullptr;
     void* detour = nullptr;
@@ -1604,6 +1605,7 @@ public:
         } catch (const std::bad_alloc&) {
             return fail(ErrorCode::OutOfMemory, "NativeInlineHook::attach");
         }
+        state->thread_policy = options.threads;
         state->target = reinterpret_cast<void*>(target_address);
         state->detour = detour;
         state->allocation_size = kTrampolineAllocationSize;
@@ -1836,6 +1838,12 @@ public:
                         "NativeInlineHook::detach",
                         0,
                         "Unknown thread coordination policy in hook token");
+        }
+        if (token.threads != state->thread_policy) {
+            return fail(ErrorCode::Conflict,
+                        "NativeInlineHook::detach",
+                        0,
+                        "The thread coordination policy was modified after hook installation");
         }
 
         platform::windows::ProcessWideHookLock lock{};
