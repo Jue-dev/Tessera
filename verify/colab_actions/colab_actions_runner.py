@@ -454,6 +454,8 @@ class ColabActionsRunner:
                 for matrix in self.matrix_variants(job):
                     if self.cancel_event.is_set(): statuses.append("CANCELLED"); break
                     self._run_failed = False
+                    self.env_global = {}
+                    self.step_outputs = {}
                     label = ", ".join(k + "=" + s(v) for k,v in matrix.items())
                     self.emit("\n========== JOB " + jid + ((" [" + label + "]") if label else "") + " ==========")
                     workflow_env, job_env = mp(self.workflow.get("env")), mp(job.get("env"))
