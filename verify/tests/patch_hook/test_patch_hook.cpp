@@ -2241,7 +2241,7 @@ TEST_CASE("Native x64 unwind unregister failure restores the patch and keeps the
                 nullptr) == nullptr);
 }
 
-TEST_CASE("Native x64 unwind rejects handler, chained, and non-boundary source metadata",
+TEST_CASE("Native x64 unwind rejects unsupported, malformed, and prefix-boundary source metadata",
           "[hook][native][unwind][validation][integration]") {
     using namespace tessera;
 
@@ -2251,9 +2251,9 @@ TEST_CASE("Native x64 unwind rejects handler, chained, and non-boundary source m
     auto* code = static_cast<std::byte*>(region.address);
     std::memset(code, 0x90, 4096);
 
-    constexpr std::array<std::size_t, 3> target_offsets{64u, 128u, 192u};
-    constexpr std::array<std::size_t, 3> unwind_offsets{512u, 528u, 544u};
-    std::array<std::array<std::byte, 8>, 3> original{};
+    constexpr std::array<std::size_t, 4> target_offsets{64u, 128u, 192u, 256u};
+    constexpr std::array<std::size_t, 4> unwind_offsets{512u, 528u, 544u, 560u};
+    std::array<std::array<std::byte, 8>, 4> original{};
     for (std::size_t index = 0; index < target_offsets.size(); ++index) {
         const std::size_t offset = target_offsets[index];
         code[offset + 0u] = std::byte{0x48};
@@ -2261,7 +2261,6 @@ TEST_CASE("Native x64 unwind rejects handler, chained, and non-boundary source m
         code[offset + 2u] = std::byte{0xEC};
         code[offset + 3u] = std::byte{0x28}; // sub rsp, 0x28
         code[offset + 4u] = std::byte{0x90};
-        std::memcpy(original[index].data(), code + offset, original[index].size());
 
         auto* unwind_info =
             reinterpret_cast<TestUnwindInfo*>(code + unwind_offsets[index]);
@@ -2272,6 +2271,28 @@ TEST_CASE("Native x64 unwind rejects handler, chained, and non-boundary source m
         unwind_info->frame_register_and_offset = 0u;
         unwind_info->unwind_code[0].code_offset = 4u;
         unwind_info->unwind_code[0].operation = kTestUnwindOpAllocSmall | (4u << 4u);
+    }
+
+    // The fourth source has an ENDBR64 prefix followed by SUB RSP. Its invalid
+    // unwind metadata claims the allocation completed at CodeOffset 4, which
+    // is the end of ENDBR64 and before the stack-changing instruction.
+    const std::size_t endbr_target = target_offsets[3];
+    code[endbr_target + 0u] = std::byte{0xF3};
+    code[endbr_target + 1u] = std::byte{0x0F};
+    code[endbr_target + 2u] = std::byte{0x1E};
+    code[endbr_target + 3u] = std::byte{0xFA};
+    code[endbr_target + 4u] = std::byte{0x48};
+    code[endbr_target + 5u] = std::byte{0x83};
+    code[endbr_target + 6u] = std::byte{0xEC};
+    code[endbr_target + 7u] = std::byte{0x28};
+    auto* endbr_unwind =
+        reinterpret_cast<TestUnwindInfo*>(code + unwind_offsets[3]);
+    endbr_unwind->size_of_prolog = 8u;
+    endbr_unwind->unwind_code[0].code_offset = 4u;
+
+    for (std::size_t index = 0; index < target_offsets.size(); ++index) {
+        std::memcpy(original[index].data(), code + target_offsets[index],
+                    original[index].size());
     }
 
     // EHANDLER and CHAININFO must be rejected before reading/using their
@@ -2285,7 +2306,7 @@ TEST_CASE("Native x64 unwind rejects handler, chained, and non-boundary source m
     reinterpret_cast<TestUnwindInfo*>(code + unwind_offsets[2])->unwind_code[0].code_offset = 2u;
 
     struct SourceFunctionTableGuard {
-        std::array<RUNTIME_FUNCTION, 3> entries{};
+        std::array<RUNTIME_FUNCTION, 4> entries{};
         bool registered = false;
         ~SourceFunctionTableGuard() noexcept {
             if (registered && !::RtlDeleteFunctionTable(entries.data())) {

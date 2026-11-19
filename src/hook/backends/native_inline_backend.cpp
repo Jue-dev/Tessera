@@ -707,18 +707,15 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
     std::size_t entry_prefix_size,
     const DecodedBlock& block,
     std::uint8_t& trampoline_offset) noexcept {
-    if (source_offset < entry_prefix_size) {
+    // The preserved source prefix is only an ENDBR landing pad. It cannot
+    // complete a stack-unwind operation, so CodeOffset must be strictly after it.
+    if (source_offset <= entry_prefix_size) {
         return false;
     }
     const std::size_t patch_offset =
         static_cast<std::size_t>(source_offset) - entry_prefix_size;
-    if (patch_offset > block.length) {
+    if (patch_offset == 0u || patch_offset > block.length) {
         return false;
-    }
-
-    if (patch_offset == 0u) {
-        trampoline_offset = static_cast<std::uint8_t>(kTrampolineEntryPrefixSize);
-        return true;
     }
     for (std::size_t index = 0; index < block.instruction_count; ++index) {
         const auto& instruction = block.instructions[index];

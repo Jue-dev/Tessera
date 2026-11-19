@@ -56,7 +56,9 @@ For an existing source RUNTIME_FUNCTION, the hook target must be the
 function entry. The backend validates the source record and unwind bytes before
 reading them, checks the stolen range against the source function bounds, and
 maps supported CodeOffset values only when they coincide with relocated
-instruction boundaries. Extra slots are retained. Unsupported versions,
+instruction boundaries. A CodeOffset at or before the preserved ENDBR prefix is
+rejected because the landing pad cannot complete an unwind operation. Extra
+slots are retained. Unsupported versions,
 opcodes, malformed records, exception/termination handler flags, chained
 records, and non-mappable offsets fail closed before target modification.
 

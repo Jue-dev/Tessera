@@ -34,12 +34,20 @@ Run the complete `[hook][native][unwind]` test group, not just the new cases.
 - [ ] `UWOP_ALLOC_LARGE` with OpInfo=1: three-slot metadata is copied and
   `RtlVirtualUnwind` restores RSP to the caller frame.
 - [ ] `UWOP_SAVE_NONVOL`: two-slot metadata restores the saved GPR value.
+- [ ] `UWOP_SAVE_NONVOL_FAR`: three-slot metadata restores a saved GPR at a
+  far stack offset.
+- [ ] `UWOP_SAVE_XMM128_FAR`: three-slot metadata restores the saved XMM value
+  at a far stack offset.
+- [ ] `UWOP_PUSH_MACHFRAME`: OpInfo=0 and OpInfo=1 reconstruct the simulated
+  machine frame correctly.
 - [ ] `UWOP_ALLOC_LARGE` with OpInfo=0 plus `UWOP_SET_FPREG` and
   `UWOP_PUSH_NONVOL`: frame-pointer based unwind restores RBP and RSP.
 - [ ] `UWOP_SAVE_XMM128`: the saved nonvolatile XMM register is restored.
 - [ ] Handler and chained records are rejected before target bytes change.
 - [ ] An unwind CodeOffset inside a relocated instruction is rejected before
   target bytes change.
+- [ ] An unwind CodeOffset equal to the preserved ENDBR64 prefix length is
+  rejected; ENDBR cannot complete a stack-changing unwind operation.
 - [ ] A stolen patch that crosses the source function end is rejected before
   target bytes change.
 - [ ] A truncated/unreadable extra unwind-code slot is rejected without an
@@ -51,6 +59,9 @@ Relevant regression tests (exact names):
 - `Native x64 trampoline unwinds multiple pushed nonvolatile registers`
 - `Native x64 trampoline maps multi-slot UWOP_ALLOC_LARGE for virtual unwind`
 - `Native x64 trampoline maps multi-slot UWOP_SAVE_NONVOL for virtual unwind`
+- `Native x64 trampoline maps far UWOP_SAVE_NONVOL and UWOP_ALLOC_LARGE`
+- `Native x64 trampoline maps far UWOP_SAVE_XMM128 and UWOP_ALLOC_LARGE`
+- `Native x64 trampoline maps UWOP_PUSH_MACHFRAME with and without error code`
 - `Native x64 trampoline maps ALLOC_LARGE and SET_FPREG together`
 - `Native x64 trampoline restores a saved nonvolatile XMM register`
 - `Native x64 unwind rejects a stolen patch that crosses the source function end`
