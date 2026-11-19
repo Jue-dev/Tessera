@@ -665,9 +665,9 @@ def run_self_tests():
             "    runs-on: ubuntu-latest",
             "    steps:",
             "      - name: Write environment file",
-            "        run: echo COLAB_ACTIONS_SMOKE=passed >> \\"$GITHUB_ENV\\"",
+            "        run: echo COLAB_ACTIONS_SMOKE=passed >> \"$GITHUB_ENV\"",
             "      - name: Verify environment is passed between steps",
-            "        run: test \\"$COLAB_ACTIONS_SMOKE\\" = \\"passed\\"",
+            "        run: test \"$COLAB_ACTIONS_SMOKE\" = \"passed\"",
         ])
         (workflow_dir / "smoke.yml").write_text(workflow_text, encoding="utf-8")
         runner = ColabActionsRunner(root, step_timeout=20, log=lambda _message: None)
