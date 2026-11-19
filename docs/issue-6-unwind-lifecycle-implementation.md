@@ -8,17 +8,20 @@ current-head evidence.
 
 ## CI / Actions usage policy
 
-Pull-request validation is intentionally manual. A normal code commit on this
-draft PR must not start a Windows matrix and a five-minute fuzz run. Use the
-single `.github/workflows/issue-6-acceptance.yml` manual run after the code is
-ready; enable the sustained fuzz input only when the full gate is intended.
+Pull-request validation is intentionally one-shot. A normal code commit on
+this draft PR must not start a Windows matrix or fuzz campaign. The dedicated
+`.github/workflows/issue-6-acceptance.yml` runs the four-way Windows matrix
+only when the PR is explicitly marked ready for review (or manually dispatched
+after the workflow exists on the default branch). It has no synchronize trigger.
 The short `pr-smoke.yml` and focused `native-hook-fuzz.yml` workflows are
-also manual-only. The full SDK/quality workflow runs on relevant main-branch
-pushes, tags, or manual dispatch; its weekly schedule is disabled.
+manual-only. The five-minute fuzz campaign is a separate deliberate dispatch.
+The full SDK/quality workflow runs on relevant main-branch pushes, tags, or
+manual dispatch; its weekly schedule is disabled.
 
 This keeps PR iterations cheap, avoids duplicate smoke/fuzz workflows, and
-makes expensive validation a deliberate action. Do not treat skipped or
-unstarted checks as passing.
+makes expensive validation deliberate. Keep the PR draft while code changes
+are in progress; mark it ready only once the current commit is ready for the
+Windows matrix. Do not treat skipped or unstarted checks as passing.
 
 ## Progress summary
 

@@ -1,6 +1,22 @@
 name: Issue #6 Native Hook Acceptance
 
 on:
+  # One deliberate matrix run when the PR is explicitly marked ready.
+  # No synchronize/opened/reopened trigger: ordinary commit iterations are free.
+  pull_request:
+    branches: [ "main" ]
+    types: [ ready_for_review ]
+    paths:
+      - ".github/workflows/issue-6-acceptance.yml"
+      - ".github/actions/**"
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - "include/tessera/hook/**"
+      - "src/hook/**"
+      - "verify/tests/patch_hook/**"
+      - "verify/fuzz/**"
+      - "vcpkg.json"
+      - "vcpkg-configuration.json"
   workflow_dispatch:
     inputs:
       run_sustained_fuzz:
@@ -86,7 +102,7 @@ jobs:
 
   sustained-fuzz:
     name: Windows x64 Clang libFuzzer + ASan/UBSan
-    if: ${{ inputs.run_sustained_fuzz }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_sustained_fuzz }}
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -166,12 +182,12 @@ jobs:
             echo "## Issue #6 native-hook acceptance"
             echo ""
             echo "- Windows x86/x64 Debug/Release matrix: ${{ needs.windows-matrix.result }}"
-            if [ "${{ inputs.run_sustained_fuzz }}" = "true" ]; then
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.run_sustained_fuzz }}" = "true" ]; then
               echo "- Sustained Clang libFuzzer + ASan/UBSan: ${{ needs.sustained-fuzz.result }}"
             else
-              echo "- Sustained Clang libFuzzer + ASan/UBSan: **not requested**"
+              echo "- Sustained Clang libFuzzer + ASan/UBSan: **not run in this event**"
               echo ""
-              echo "Run again with run_sustained_fuzz=true and campaign_seconds=300 before marking Issue #6 complete."
+              echo "Run the manual Native Hook Coverage-Guided Fuzz workflow with campaign_seconds=300 before marking Issue #6 complete."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "${{ needs.windows-matrix.result }}" != "success" ]; then exit 1; fi

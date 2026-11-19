@@ -17,8 +17,10 @@ for PR validation so each iteration does not consume Actions automatically.
 - [ ] No warnings promoted to errors, test hangs, or flaky thread lifecycle
   failures.
 
-Primary workflow: `.github/workflows/issue-6-acceptance.yml` (manual dispatch only).
-The standalone `.github/workflows/pr-smoke.yml` is also manual-only for a shorter repeat.
+Primary workflow: `.github/workflows/issue-6-acceptance.yml`. It runs once when
+the PR is explicitly marked ready for review, or can be manually dispatched
+after the workflow exists on the default branch. It has no synchronize trigger.
+The standalone `.github/workflows/pr-smoke.yml` is manual-only for a shorter repeat.
 Expected evidence: four successful Windows jobs for the exact commit SHA.
 
 ## B. x64 unwind runtime correctness — all tests below
@@ -66,9 +68,10 @@ Relevant regression tests (exact names):
 - [ ] Corpus/crash artifact uploads successfully; inspect the artifact and
   retain any new reproducer as a checked-in regression seed.
 
-Primary workflow: `.github/workflows/issue-6-acceptance.yml` with
-`run_sustained_fuzz=true` and `campaign_seconds=300`. The standalone
-`.github/workflows/native-hook-fuzz.yml` is manual-only for focused fuzz runs.
+Run `.github/workflows/native-hook-fuzz.yml` manually with
+`campaign_seconds=300` after Actions allowance is available. The acceptance
+workflow's PR-ready event intentionally skips the sustained campaign to avoid
+starting a second long job automatically.
 Expected evidence: successful “Run bounded coverage-guided campaign” and
 “Upload fuzz corpus and crash artifacts” steps for the exact commit SHA.
 
@@ -124,8 +127,10 @@ weekly runs are disabled). Inspect every job and do not publish a release.
   allowance is exhausted. Do not infer success from queued, skipped, cancelled,
   or runner-less workflow records.
 
-After Actions allowance is restored, run the dedicated acceptance workflow
-once on the final branch head and select the full five-minute fuzz campaign.
+After Actions allowance is restored, mark the PR ready once on the final branch
+head to run the four-way Windows matrix. Then manually dispatch the focused fuzz
+workflow with a five-minute campaign. Do not push intermediate commits while
+the PR is marked ready; new commits do not automatically start another run.
 Current PR head and checklist progress must be refreshed when Actions becomes
 available. Keep Issue #6 open until sections A–F have evidence or a remaining
 item is explicitly resolved with a documented technical justification.
