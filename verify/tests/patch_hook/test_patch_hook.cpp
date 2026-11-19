@@ -89,6 +89,7 @@ struct TestUnwindInfo {
     TestUnwindCode unwind_code[1]{};
 };
 
+constexpr std::size_t kTestTrampolineEntryPrefixSize = 4u;
 constexpr UCHAR kTestUnwindOpAllocSmall = 2u;
 constexpr UCHAR kTestUnwindOpPushNonVol = 0u;
 static_assert(offsetof(TestUnwindInfo, unwind_code) == 4u);
@@ -1274,7 +1275,7 @@ TEST_CASE("Native x64 trampoline maps multi-slot UWOP_ALLOC_LARGE for virtual un
     CONTEXT context{};
     context.ContextFlags = CONTEXT_FULL;
     context.Rip = static_cast<DWORD64>(
-        reinterpret_cast<std::uintptr_t>(trampoline) + kTrampolineEntryPrefixSize + 7u);
+        reinterpret_cast<std::uintptr_t>(trampoline) + kTestTrampolineEntryPrefixSize + 7u);
     context.Rsp = static_cast<DWORD64>(entry_stack_pointer - allocation_size);
     PVOID handler_data = nullptr;
     DWORD64 establisher_frame = 0;
@@ -1397,7 +1398,7 @@ TEST_CASE("Native x64 trampoline maps multi-slot UWOP_SAVE_NONVOL for virtual un
     context.ContextFlags = CONTEXT_FULL;
     context.Rip = static_cast<DWORD64>(
         reinterpret_cast<std::uintptr_t>(trampoline) +
-        kTrampolineEntryPrefixSize + save_instruction.size());
+        kTestTrampolineEntryPrefixSize + save_instruction.size());
     context.Rsp = static_cast<DWORD64>(entry_stack_pointer);
     context.Rsi = 0u;
     PVOID handler_data = nullptr;
