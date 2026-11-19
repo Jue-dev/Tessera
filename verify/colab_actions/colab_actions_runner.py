@@ -590,7 +590,10 @@ def launch_ui():
             say("Repository indiriliyor…"); token=get_token()
             workspace=pathlib.Path("/content/colab-actions-workspace")/re.sub(r"[^A-Za-z0-9_.-]+","-",repo.value)
             runner=ColabActionsRunner(workspace,token,timeout.value,lambda m:logs.append_stdout(str(m)+"\n"))
-            runner.clone_repository(repo.value,ref.value,depth.value,workspace);\n            if not ref.value: ref.value=runner.default_branch()\n            files=runner.discover_workflows()
+            runner.clone_repository(repo.value,ref.value,depth.value,workspace)
+            if not ref.value:
+                ref.value = runner.default_branch()
+            files = runner.discover_workflows()
             if not files: raise RuntimeError(".github/workflows altında YAML bulunamadı.")
             state["runner"],state["workspace"]=runner,workspace; workflow.options=files; workflow.value=files[0]
             analyze.disabled=False; run.disabled=False; selected_workflow({"new":files[0]})
