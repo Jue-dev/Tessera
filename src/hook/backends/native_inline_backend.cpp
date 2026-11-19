@@ -949,9 +949,10 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
             &state.unwind_function,
             1u,
             static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(state.allocation)))) {
+        // The BOOLEAN API does not document a last-error contract.
         return fail(ErrorCode::IoError,
                     "RtlAddFunctionTable",
-                    ::GetLastError(),
+                    0,
                     "Windows rejected the generated trampoline runtime-function record");
     }
     state.unwind_registered = true;
@@ -1757,7 +1758,6 @@ public:
 
         if (state->unwind_registered &&
             !::RtlDeleteFunctionTable(&state->unwind_function)) {
-            const DWORD error = ::GetLastError();
             // A failed unregister must not leave HookCore believing it has
             // detached while its target is still restored. Reinstall the entry
             // patch under the same suspended-thread window and retain the
@@ -1772,9 +1772,11 @@ public:
             }
             state->target_detached = false;
             suspended.resume();
+            // RtlDeleteFunctionTable reports only BOOLEAN success/failure; it
+            // does not define a GetLastError contract.
             return fail(ErrorCode::IoError,
                         "RtlDeleteFunctionTable",
-                        error,
+                        0,
                         "The target patch was restored because Windows could not unregister the trampoline unwind table");
         }
         state->unwind_registered = false;
