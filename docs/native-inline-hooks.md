@@ -182,14 +182,14 @@ original_function = nullptr;
   on the same `Hook` object require external synchronization. The backend's
   process-wide lock serializes patch transactions across hook objects; it does
   not make the public `Hook` wrapper or a detour's application state thread-safe.
-- Tessera does not expose an automatic in-flight counter or call lease for
-  this API. A counter entered from the detour body alone cannot close the race
-  between a thread branching to the detour and incrementing that counter;
-  additionally, callers can retain and invoke the raw pointer returned by
-  `original()` without passing through the `Hook` object. A correct reclamation
-  protocol therefore needs application-level admission control around both
-  target calls and every retained trampoline call, followed by a drain before
-  detach. Do not treat a detour-only reference count as sufficient.
+- The `Hook::operator()` path has a lock-backed callable lease, and the
+  `original()` snapshot is atomic with respect to lifecycle pointer updates.
+  Neither protects calls made directly through the patched target or copied
+  raw trampoline pointers. A detour-body counter alone cannot close the race
+  between a thread branching to the detour and incrementing that counter.
+  Applications still need admission control around target calls and retained
+  raw trampoline calls, followed by a drain before detach. Do not treat a
+  detour-only reference count as sufficient.
 - Hooks should be installed early where practical. Functions with unsupported
   short-branch layouts or prologues too close to a page boundary fail with an
   error instead of being patched.
