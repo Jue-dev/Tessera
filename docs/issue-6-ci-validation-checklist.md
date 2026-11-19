@@ -190,3 +190,12 @@ do not start jobs. Avoid duplicate dispatches.
 Current PR head and checklist progress must be refreshed when Actions becomes
 available. Keep Issue #6 open until sections A–F have evidence or a remaining
 item is explicitly resolved with a documented technical justification.
+
+
+## Portable test preparation — 2026-11-19
+
+- [x] Added `verify/portable/Tessera_Portable_Validation.ipynb` for Google Colab. It clones this branch and runs the existing Windows-backend mock harness with GCC, Clang, and GCC ASan/UBSan.
+- [x] Added `docs/portable-validation.md` documenting scope, commands, and what remains Windows-only.
+- [ ] Execute the notebook against the current head and save fresh logs. Notebook prepared only; it has **not** been run in this environment.
+- [ ] Review Colab outputs for all 20 current mock assertions and investigate any failure.
+- [ ] Do not treat portable mock results as evidence for native x64 unwind registration, real executable-memory patching, loader/DLL lifetime, or MSVC behavior.
