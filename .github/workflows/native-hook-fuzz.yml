@@ -196,7 +196,7 @@ jobs:
         with:
           version: "22.1.8"
           force-url: https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-win64.exe
-          directory: \${{ runner.temp }}/llvm22
+          directory: ${{ runner.temp }}/llvm22
 
       - name: Setup MSVC Developer Environment (x86)
         uses: ./.github/actions/setup-msvc
@@ -290,7 +290,7 @@ jobs:
       - name: Run x86 coverage-guided ASan/UBSan campaign
         shell: pwsh
         env:
-          CAMPAIGN_SECONDS: \${{ inputs.campaign_seconds || '300' }}
+          CAMPAIGN_SECONDS: ${{ inputs.campaign_seconds || '300' }}
         run: |
           $ErrorActionPreference = "Stop"
           $seedSource = Join-Path $env:GITHUB_WORKSPACE "verify/fuzz/corpus/native_hook"
@@ -362,6 +362,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: native-hook-libfuzzer-x86-\${{ github.run_number }}
+          name: native-hook-libfuzzer-x86-${{ github.run_number }}
           path: artifacts/native-hook-fuzz/x86/
           if-no-files-found: warn
