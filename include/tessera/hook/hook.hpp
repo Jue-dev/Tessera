@@ -238,6 +238,8 @@ public:
     [[nodiscard]] Status remove() noexcept { return core_.remove(); }
 
     // Leaves the hook installed permanently and prevents the destructor from detaching it.
+    // Calling this from the hook's own leased operator() invocation returns
+    // nullptr and retains normal ownership instead of self-deadlocking.
     Fn release() noexcept {
         return reinterpret_cast<Fn>(reinterpret_cast<std::uintptr_t>(core_.release()));
     }
