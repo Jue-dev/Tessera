@@ -243,11 +243,6 @@ HookCore& HookCore::operator=(HookCore&& other) noexcept {
     return *this;
 }
 
-HookCore::CallableLease HookCore::acquire_callable() const {
-    std::shared_lock lock(lifecycle_mutex_);
-    return CallableLease{std::move(lock), active_callable_};
-}
-
 HookCore::~HookCore() noexcept {
     if (installed_.load(std::memory_order_acquire)) {
         auto st = remove();
