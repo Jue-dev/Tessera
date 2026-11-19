@@ -467,8 +467,8 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
 }
 
 [[nodiscard]] bool write_unwind_safe_tail(std::byte* destination,
-                                            std::uintptr_t instruction_address,
-                                            std::uintptr_t target) noexcept {
+                                       std::uintptr_t instruction_address,
+                                       std::uintptr_t target) noexcept {
 #if defined(TESSERA_HOOK_X64)
     // JE target; JNE target. Exactly one branch is taken for every flag state.
     // Unlike an unconditional JMP, neither instruction is an x64 epilog marker,
@@ -1688,8 +1688,8 @@ public:
         std::byte* const trampoline_return =
             trampoline_code + block.trampoline_length;
         if (!write_unwind_safe_tail(trampoline_return,
-                                      reinterpret_cast<std::uintptr_t>(trampoline_return),
-                                      patch_address + block.length)) {
+                                    reinterpret_cast<std::uintptr_t>(trampoline_return),
+                                    patch_address + block.length)) {
             return fail(ErrorCode::UnsupportedInstruction,
                         "NativeInlineHook::attach",
                         0,
