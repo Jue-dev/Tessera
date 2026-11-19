@@ -249,7 +249,7 @@ HookCore::CallableLease HookCore::acquire_callable() const {
 }
 
 HookCore::~HookCore() noexcept {
-    if (installed_) {
+    if (installed_.load(std::memory_order_acquire)) {
         auto st = remove();
         if (!st) {
             diagnostics::notify(token_.observer,
@@ -321,7 +321,7 @@ Result<HookCore> HookCore::create(Address target, void* detour, HookBackend* bac
 
 Status HookCore::install(const HookOptions& options) noexcept {
     std::unique_lock lock(lifecycle_mutex_);
-    if (installed_) {
+    if (installed_.load(std::memory_order_acquire)) {
         return ok();
     }
     if (!is_valid_thread_policy(options.threads)) {
@@ -397,7 +397,7 @@ Status HookCore::remove() noexcept {
 void* HookCore::release() noexcept {
     std::unique_lock lock(lifecycle_mutex_);
     void* const current_fn = active_callable_;
-    installed_ = false;
+    installed_.store(false, std::memory_order_release);
     token_ = HookToken{};
     return current_fn;
 }
