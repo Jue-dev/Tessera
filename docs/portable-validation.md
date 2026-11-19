@@ -93,3 +93,12 @@ head. Portable Linux results are not evidence for these Windows-native gates.
 ## GitHub Actions automation
 
 Run the **Project Validation** workflow from the Actions tab using **Run workflow**. Select a profile JSON path; repository and ref inputs can override profile values. The workflow checks out the target repository, executes setup commands and configured tests in order, honors executable requirements, timeout and continue-on-error settings, publishes a job summary, and uploads `PROJECT_VALIDATION_REPORT.txt` as an artifact. For private target repositories, configure the repository secret `VALIDATION_GH_TOKEN` with read access; otherwise the workflow uses the repository's `GITHUB_TOKEN`.
+
+
+## Colab Actions Workbench
+
+For a broader Colab-side workflow runner that reads `.github/workflows`, use
+[Colab Actions Workbench](../verify/colab_actions/Colab_Actions_Workbench.ipynb)
+and its [compatibility and security guide](colab-actions-workbench.md).
+It runs supported Linux steps in Colab; Windows/MSVC jobs remain blocked and
+must be tested on a real Windows runner.
