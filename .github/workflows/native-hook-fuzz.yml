@@ -29,8 +29,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: tessera-native-hook-fuzz-${{ github.ref }}
-  cancel-in-progress: false
+  # New commits supersede old PR runs; manual and scheduled runs remain isolated.
+  group: tessera-native-hook-fuzz-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   native-hook-fuzz-x64:
