@@ -22,7 +22,7 @@ The console supports portable JSON configuration profiles:
 - Profiles include the Colab Secret name only. They never export the actual
   GitHub token or other credential values.
 
-The notebook's included defaults are configured for Tessera. The profile is
+The notebook starts with a blank configuration. To load Tessera's profile, use the GitHub profile source fields with repository `Jue-dev/Tessera`, path `verify/portable/profiles/tessera.portable-validation.json`, and ref `issue-6/unwind-lifecycle`, or import the JSON manually. The profile is
 also available directly at
 [`tessera.portable-validation.json`](../verify/portable/profiles/tessera.portable-validation.json).
 To use another project, import its profile or modify the repository, setup and
