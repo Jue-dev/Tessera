@@ -94,7 +94,7 @@ TEST_CASE("Unbounded region enumeration stops at the address-space boundary", "[
     REQUIRE((*regions)[0].base == Address{0x10000});
     REQUIRE((*regions)[1].base == Address{0x30000});
 }
- 
+
 TEST_CASE("FakeMemoryBackend reader, writer, rollback, and protection warnings", "[memory]") {
     using namespace tessera;
     using namespace tessera::testing;
