@@ -1,21 +1,35 @@
-# Portable validation (Linux / server)
+# Portable validation (Google Colab free runtime)
 
 Portable validation runs project-provided build and test commands in a Linux
 environment. It is supplemental and does **not** emulate Windows, the Windows
 loader, unwind registration, executable memory, or native inline-hook runtime
 behavior.
 
-## Recommended interface
+## Colab notebook console
 
-Google Colab is no longer the recommended test console: its notebook layout is
-not suitable for mobile screens, and it runs commands in a notebook runtime.
+Open the
+[Tessera Portable Validation notebook](../verify/portable/Tessera_Portable_Validation.ipynb)
+in Google Colab. The notebook uses compact native widgets instead of wide
+notebook forms or custom external web panels:
 
-The planned replacement is a responsive, self-hosted web console. Its security
-and deployment requirements are tracked in
-[validation-server.md](validation-server.md). The console must keep GitHub
-credentials server-side, authenticate users, and run test commands in disposable,
-resource-limited containers. The server implementation and deployment have not
-yet been completed or security-validated.
+- Mobile-friendly single-column controls.
+- Dynamically add/remove setup commands and tests.
+- Repository URL, branch/ref, Colab Secret name, clone depth and timeouts.
+- Continue-on-failure and workspace retention.
+- Summary, expandable logs, full copyable report, and download.
+- GitHub token read from Colab Secrets and removed from the environment after
+  cloning, before setup/test commands.
+
+Add the GitHub token in Colab's Secrets panel (default name `GH_TOKEN`) and
+grant the notebook access to it. For a private repository, use a fine-grained
+token restricted to Tessera with read-only Contents permission. Do not paste a
+token into notebook cells, test commands, or repository URLs.
+
+**Security warning:** setup/test commands execute arbitrary shell code inside
+your Colab runtime. Run only trusted code. The token is used during clone and
+must never be used to test untrusted pull requests. Colab's managed runtime is
+ephemeral and can disconnect; reports are saved under
+`/content/PROJECT_VALIDATION_REPORT.txt` for download during the session.
 
 ## Current Tessera portable test profile
 
