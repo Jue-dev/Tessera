@@ -1850,7 +1850,7 @@ TEST_CASE("Native x64 trampoline maps far UWOP_SAVE_NONVOL and UWOP_ALLOC_LARGE"
         std::byte{0x24}, std::byte{0x00}, std::byte{0x00},
         std::byte{0x08}, std::byte{0x00}, // mov rsi, [rsp+0x80000]
         std::byte{0x48}, std::byte{0x81}, std::byte{0xC4},
-        std::byte{0x08}, std::byte{0x00}, std::byte{0x08},
+        std::byte{0x28}, std::byte{0x00}, std::byte{0x00},
         std::byte{0x00}, std::byte{0xC3}};
     std::memcpy(code + target_offset + prologue.size(),
                 epilogue.data(), epilogue.size());
@@ -1869,11 +1869,8 @@ TEST_CASE("Native x64 trampoline maps far UWOP_SAVE_NONVOL and UWOP_ALLOC_LARGE"
                     kTestUnwindCodeOffset + sizeof(TestUnwindCode),
                 &save_offset, sizeof(save_offset));
     set_test_unwind_code(
-        source_info, 3u, {7u, static_cast<UCHAR>(1u | (1u << 4u))});
-    std::memcpy(reinterpret_cast<std::byte*>(source_info) +
-                    kTestUnwindCodeOffset +
-                    4u * sizeof(TestUnwindCode),
-                &stack_allocation, sizeof(stack_allocation));
+        source_info, 3u, {4u, static_cast<UCHAR>(2u | (4u << 4u))}); // UWOP_ALLOC_SMALL, 0x28 bytes
+    
 
     struct SourceFunctionTableGuard {
         RUNTIME_FUNCTION entry{};
@@ -1916,7 +1913,7 @@ TEST_CASE("Native x64 trampoline maps far UWOP_SAVE_NONVOL and UWOP_ALLOC_LARGE"
         nullptr);
     REQUIRE(trampoline_function != nullptr);
 
-    std::vector<std::byte> fake_stack(2u * 1024u * 1024u);
+    std::vector<std::byte> fake_stack(3u * 1024u * 1024u);
     const auto entry_stack_pointer =
         reinterpret_cast<std::uintptr_t>(fake_stack.data()) + 0x100008u;
     const auto current_stack_pointer = entry_stack_pointer - stack_allocation;
@@ -1969,9 +1966,8 @@ TEST_CASE("Native x64 trampoline maps far UWOP_SAVE_XMM128 and UWOP_ALLOC_LARGE"
         std::byte{0x0F}, std::byte{0x28}, std::byte{0xB4},
         std::byte{0x24}, std::byte{0x00}, std::byte{0x00},
         std::byte{0x10}, std::byte{0x00}, // movaps xmm6, [rsp+0x100000]
-        std::byte{0x48}, std::byte{0x81}, std::byte{0xC4},
-        std::byte{0x28}, std::byte{0x00}, std::byte{0x10},
-        std::byte{0x00}, std::byte{0xC3}};
+        std::byte{0x48}, std::byte{0x83}, std::byte{0xC4},
+        std::byte{0x28}, std::byte{0xC3}};
     std::memcpy(code + target_offset + prologue.size(),
                 epilogue.data(), epilogue.size());
 
@@ -1989,11 +1985,8 @@ TEST_CASE("Native x64 trampoline maps far UWOP_SAVE_XMM128 and UWOP_ALLOC_LARGE"
                     kTestUnwindCodeOffset + sizeof(TestUnwindCode),
                 &save_offset, sizeof(save_offset));
     set_test_unwind_code(
-        source_info, 3u, {7u, static_cast<UCHAR>(1u | (1u << 4u))});
-    std::memcpy(reinterpret_cast<std::byte*>(source_info) +
-                    kTestUnwindCodeOffset +
-                    4u * sizeof(TestUnwindCode),
-                &stack_allocation, sizeof(stack_allocation));
+        source_info, 3u, {4u, static_cast<UCHAR>(2u | (4u << 4u))}); // UWOP_ALLOC_SMALL, 0x28 bytes
+    
 
     struct SourceFunctionTableGuard {
         RUNTIME_FUNCTION entry{};
