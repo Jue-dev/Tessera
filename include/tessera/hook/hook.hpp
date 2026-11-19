@@ -98,8 +98,7 @@ public:
         };
 
         friend class HookCore;
-        explicit CallableLease(const HookCore& owner)
-            : callable_(owner.active_callable_) {
+        explicit CallableLease(const HookCore& owner) {
             bool already_leased = false;
             for (Frame* frame = active_lease_frame_; frame != nullptr;
                  frame = frame->previous) {
@@ -115,6 +114,7 @@ public:
             if (!already_leased) {
                 lock_ = std::shared_lock<std::shared_mutex>{owner.lifecycle_mutex_};
             }
+            callable_ = owner.active_callable_;
 
             frame_.owner = &owner;
             frame_.previous = active_lease_frame_;
