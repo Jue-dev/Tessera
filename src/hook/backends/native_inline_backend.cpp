@@ -1660,6 +1660,7 @@ public:
 
         if (state->unwind_registered &&
             !::RtlDeleteFunctionTable(&state->unwind_function)) {
+            const DWORD error = ::GetLastError();
             // A failed unregister must not leave HookCore believing it has
             // detached while its target is still restored. Reinstall the entry
             // patch under the same suspended-thread window and retain the
@@ -1676,7 +1677,7 @@ public:
             suspended.resume();
             return fail(ErrorCode::IoError,
                         "RtlDeleteFunctionTable",
-                        ::GetLastError(),
+                        error,
                         "The target patch was restored because Windows could not unregister the trampoline unwind table");
         }
         state->unwind_registered = false;
