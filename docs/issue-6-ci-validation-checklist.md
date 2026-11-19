@@ -222,3 +222,13 @@ item is explicitly resolved with a documented technical justification.
 - [ ] Investigate remaining five x64 virtual-unwind failures. They are not considered fixed by the fixture or SEH-filter edits.
 - [ ] Inspect current run #9's full source SHA and refresh this checkpoint against the PR head before any merge decision.
 
+
+
+## Actions run #10 triage — 2026-11-19
+
+- [x] Inspected run [44549196007](https://github.com/Jue-dev/Tessera/actions/runs/44549196007) at head `71a3b3e0b5894c4ce86fa31914be3b79833c8029`.
+- [x] x86 Debug, x86 Release, and live Detours x86 passed. x64 Debug/Release, live Detours x64, MSVC /analyze test stage, and /GR- test stage fail on the same six x64 virtual-unwind assertions; builds complete successfully.
+- [x] Static diagnosis: the generated trampoline ended with an unconditional `E9 rel32` tail jump. Windows x64 recognizes such jumps as epilog markers; the trampoline tail is not a real epilog because the relocated source prologue's stack/register state is still active. This can bypass the trampoline's unwind operations when the control PC lands on that tail.
+- [x] Changed the x64 tail to two complementary flag-preserving conditional branches (`JE continuation; JNE continuation`). Exactly one branch is taken for every flag state, and conditional branches are not x64 epilog markers. x86 retains its original five-byte relative jump.
+- [ ] Validate the x64 tail encoding and all six unwind regressions on Windows CI. This change is committed but not runtime-validated; do not merge based on static diagnosis alone.
+- [ ] Re-run the x64 matrix, Detours x64, /analyze, and /GR- only when Actions allowance is available; then triage any new failures.
