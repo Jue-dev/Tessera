@@ -51,8 +51,7 @@ def run(name, command, needs=""):
         return False
 
 for i, command in enumerate(setup, 1):
-    if not run(f"Setup {i}", command):
-        if not continue_on_error: break
+    if not run(f"Setup {i}", command) and not continue_on_error: break
 for test in tests:
     name = str(test.get("name", "Unnamed test"))
     command = str(test.get("command", "")).strip()
