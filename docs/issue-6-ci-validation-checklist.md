@@ -17,12 +17,11 @@ for PR validation so each iteration does not consume Actions automatically.
 - [ ] No warnings promoted to errors, test hangs, or flaky thread lifecycle
   failures.
 
-Primary workflow: `.github/workflows/issue-6-acceptance.yml`. It is
-**manual-only**: PR open/ready/synchronize/reopen, branch push, and schedule
-events do not start it. Dispatch once against the final PR branch/head SHA.
-The default run executes the four-way Windows matrix and deterministic x64
-Release fuzz smoke. Enable sustained fuzz only when validating section C.
-Expected evidence: four successful Windows jobs for the exact commit SHA.
+Primary workflow: `.github/workflows/ci.yml`. It is manual-dispatch
+capable and has no PR/schedule trigger. Select the PR branch and dispatch once
+for the full Windows x86/x64 Debug/Release matrix, quality gates, and SDK
+packaging. Expected evidence: successful required jobs on the exact commit SHA.
+The release job is tag-only; dispatching on this branch must not publish.
 
 ## B. x64 unwind runtime correctness — all tests below
 
@@ -84,10 +83,9 @@ Relevant regression tests (exact names):
 - [ ] Corpus/crash artifact uploads successfully; inspect the artifact and
   retain any new reproducer as a checked-in regression seed.
 
-Run `.github/workflows/issue-6-acceptance.yml` manually with
-`run_sustained_fuzz=true` and `campaign_seconds=300` after Actions allowance
-is available. The sustained campaign is an optional input on the same manual
-workflow; there is no duplicate fuzz workflow.
+Run `.github/workflows/native-hook-fuzz.yml` manually from the Actions UI
+with the PR branch selected and `campaign_seconds=300` after allowance is
+available. The workflow has no push, PR, or schedule trigger.
 Expected evidence: successful “Run bounded coverage-guided campaign” and
 “Upload fuzz corpus and crash artifacts” steps for the exact commit SHA.
 
@@ -158,11 +156,10 @@ only; scheduled runs are disabled). Inspect every job and do not publish a relea
   allowance is exhausted. Do not infer success from queued, skipped, cancelled,
   or runner-less workflow records.
 
-After Actions allowance is restored, dispatch the single
-`issue-6-acceptance.yml` workflow against the final PR branch/head. Run it once
-with sustained fuzz disabled to validate the matrix; run it once more only if the
-five-minute sanitizer campaign is still required. The workflow is manual-only,
-so commits do not start or cancel jobs. Avoid duplicate dispatches.
+After Actions allowance is restored, dispatch `ci.yml` once with the PR branch
+selected for full validation. Dispatch `native-hook-fuzz.yml` only if the
+five-minute sanitizer campaign is still required. Both are manual-only; commits
+do not start jobs. Avoid duplicate dispatches.
 Current PR head and checklist progress must be refreshed when Actions becomes
 available. Keep Issue #6 open until sections A–F have evidence or a remaining
 item is explicitly resolved with a documented technical justification.
