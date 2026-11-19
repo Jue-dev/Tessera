@@ -71,7 +71,7 @@ struct MemoryRegionInfo {
         return is_committed() && !is_guard() && !has_flag(protection, MemoryProtection::NoAccess) &&
                any_flag(protection,
                         MemoryProtection::Read | MemoryProtection::Write |
-                            MemoryProtection::Execute | MemoryProtection::CopyOnWrite);
+                            MemoryProtection::CopyOnWrite);
     }
 
     [[nodiscard]] constexpr bool is_writable() const noexcept {
@@ -100,7 +100,7 @@ struct RegionFilter {
     }
     const bool has_read = any_flag(region.protection,
                                    MemoryProtection::Read | MemoryProtection::Write |
-                                       MemoryProtection::Execute | MemoryProtection::CopyOnWrite);
+                                       MemoryProtection::CopyOnWrite);
     if (!has_read) {
         return false;
     }

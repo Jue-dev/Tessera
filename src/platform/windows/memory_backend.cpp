@@ -184,7 +184,11 @@ public:
 
         if (got != sizeof(mbi)) {
             const DWORD err = ::GetLastError();
-            return fail(ErrorCode::OutOfRange, "VirtualQueryEx", err);
+            const ErrorCode code =
+                (err == ERROR_ACCESS_DENIED) ? ErrorCode::AccessDenied :
+                (err == ERROR_INVALID_PARAMETER) ? ErrorCode::OutOfRange :
+                                                    ErrorCode::IoError;
+            return fail(code, "VirtualQueryEx", err);
         }
 
         return MemoryRegionInfo{

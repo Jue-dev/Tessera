@@ -1,8 +1,7 @@
 name: Tessera CI & SDK Release
 
 on:
-  # Full validation runs for relevant pull requests, main pushes, manual dispatch,
-  # and the weekly schedule. Documentation-only changes stay quiet.
+  # Full validation automatically runs for pull requests and relevant main pushes.
   # Release publication remains restricted to version-tag pushes.
   pull_request:
     branches: [ "main" ]
@@ -21,6 +20,8 @@ on:
       - "vcpkg-configuration.json"
       - ".github/workflows/**"
       - ".github/actions/**"
+  # Full validation on main and manually on any selected branch.
+  # Tag pushes still run the release pipeline; path filters do not apply to tags.
   push:
     branches: [ "main" ]
     tags: [ "v*" ]
@@ -242,6 +243,8 @@ jobs:
         run: ctest --preset x64-analyze --output-on-failure
 
   publish-sdk-bundle:
+    # Manual validation must not assemble or publish release artifacts.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     name: Bundle Full SDK & Publish GitHub Release
     needs: [build-and-test, no-rtti-and-packaging-gate, detours-integration, msvc-static-analysis]
     runs-on: windows-latest
@@ -281,7 +284,7 @@ jobs:
           path: Tessera-SDK-Windows.zip
 
       - name: Publish GitHub Release (On Tag Push v*)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: Tessera-SDK-Windows.zip

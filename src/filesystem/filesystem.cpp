@@ -188,6 +188,18 @@ Status AtomicFileWriter::write_bytes(const std::filesystem::path& target_path,
                            nullptr)) {
             return ok();
         }
+
+        const DWORD err = ::GetLastError();
+        // Do not silently downgrade a requested backup to an unbacked replace.
+        // If the target disappeared concurrently, the ordinary move can still
+        // complete without replacing an existing file or losing its contents.
+        if (::GetFileAttributesW(abs_target.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            ::DeleteFileW(temp_path.c_str());
+            return fail(err == ERROR_ACCESS_DENIED ? ErrorCode::AccessDenied : ErrorCode::IoError,
+                        "ReplaceFileW(backup)",
+                        err,
+                        "Requested backup could not be created; original file was not replaced");
+        }
     }
 
     const DWORD move_flags =

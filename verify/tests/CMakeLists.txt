@@ -155,12 +155,30 @@ tessera_add_test(tessera_test_patch_hook
         tessera::patch
         tessera::hook
 )
+if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+    target_sources(tessera_test_patch_hook PRIVATE patch_hook/test_patch_hook_x86.cpp)
+endif()
 target_include_directories(tessera_test_patch_hook PRIVATE
     ${PROJECT_SOURCE_DIR}/src
 )
 if(TESSERA_WITH_DETOURS)
     target_compile_definitions(tessera_test_patch_hook PRIVATE TESSERA_TEST_WITH_DETOURS=1)
 endif()
+
+# Separate DLL fixture used to prove that host admission/drain and successful
+# detach happen before the module containing the detour is unloaded.
+add_library(tessera_hook_module_fixture SHARED
+    patch_hook/native_hook_module_fixture.cpp
+)
+tessera_apply_target_options(tessera_hook_module_fixture)
+set_target_properties(tessera_hook_module_fixture PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "tessera_hook_module_fixture"
+)
+add_dependencies(tessera_test_patch_hook tessera_hook_module_fixture)
+target_compile_definitions(tessera_test_patch_hook PRIVATE
+    TESSERA_HOOK_MODULE_FIXTURE_PATH=\"$<TARGET_FILE:tessera_hook_module_fixture>\"
+)
 
 tessera_add_test(tessera_test_infra
     SOURCES

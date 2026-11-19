@@ -4,11 +4,13 @@
 
 #include <array>
 #include <cstring>
+#include <cstdio>
 #include <memory>
 #include <string>
 
 #include "FakeMemoryBackend.hpp"
 #include "tessera/memory/memory.hpp"
+#include "tessera/memory/protection_scope.hpp"
 #include "tessera/platform/windows/native.hpp"
 #include "tessera/process/process.hpp"
 
@@ -49,6 +51,55 @@ TEST_CASE("Process::current and Process::open contracts", "[process]") {
     REQUIRE(local_var == 42);
 }
 
+
+TEST_CASE("Execute-only regions are not readable", "[memory][protection]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    backend->map_region(Address{0x12000}, 0x1000, MemoryProtection::Execute);
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
+    MemoryReader reader{process};
+
+    const AddressRange range{Address{0x12000}, 16};
+    REQUIRE_FALSE(reader.is_readable(range).value());
+    REQUIRE(reader.is_executable(range).value());
+    REQUIRE_FALSE(matches_region_filter(
+        tessera::MemoryRegionInfo{
+            .base = Address{0x12000},
+            .allocation_base = Address{0x12000},
+            .size = 0x1000,
+            .state = MemoryState::Committed,
+            .protection = MemoryProtection::Execute,
+            .allocation_protection = MemoryProtection::Execute,
+            .type = MemoryType::Private,
+        },
+        RegionFilter{}));
+    REQUIRE_FALSE(reader.read<std::uint8_t>(Address{0x12000}).has_value());
+}
+
+TEST_CASE("Unbounded region enumeration stops at the address-space boundary", "[memory][regions]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    backend->map_region(Address{0x10000}, 0x1000, MemoryProtection::Read);
+    backend->map_region(Address{0x30000}, 0x2000, MemoryProtection::Read);
+
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X86);
+    const auto regions = enumerate_regions(process);
+
+    REQUIRE(regions.has_value());
+    REQUIRE(regions->size() == 2);
+    REQUIRE((*regions)[0].base == Address{0x10000});
+    REQUIRE((*regions)[1].base == Address{0x30000});
+
+    // A caller-supplied bounded range is explicit; do not silently truncate it.
+    const auto bounded = enumerate_regions(
+        process, AddressRange{Address{0x10000}, 0x100000});
+    REQUIRE_FALSE(bounded.has_value());
+    REQUIRE(bounded.error().code == ErrorCode::OutOfRange);
+}
 
 TEST_CASE("FakeMemoryBackend reader, writer, rollback, and protection warnings", "[memory]") {
     using namespace tessera;
@@ -110,7 +161,7 @@ TEST_CASE("FakeMemoryBackend reader, writer, rollback, and protection warnings",
     auto warn_rep = writer.write_with_report(
         Address{0x10000}, std::span<const std::byte>(cross_data.data(), 4));
     REQUIRE(warn_rep.has_value());
-    REQUIRE(warn_rep->succeeded());
+    REQUIRE_FALSE(warn_rep->succeeded());
     REQUIRE(warn_rep->protection_restore_warning.has_value());
     REQUIRE(warn_rep->protection_restore_warning->code == ErrorCode::ProtectionRestoreFailed);
 }
@@ -138,6 +189,14 @@ TEST_CASE("Remote process integration with tessera_test_host", "[process][integr
     REQUIRE(remote_proc->is_alive().value_or(false));
 
     auto regions = enumerate_regions(*remote_proc);
+    if (!regions) {
+        std::fprintf(stderr, "Remote region enumeration failed: %s (native=%u, operation=%.*s, detail=%s)\n",
+                     error_code_name(regions.error().code).data(),
+                     regions.error().native,
+                     static_cast<int>(regions.error().operation.size()),
+                     regions.error().operation.data(),
+                     regions.error().detail.c_str());
+    }
     REQUIRE(regions.has_value());
     REQUIRE_FALSE(regions->empty());
 
@@ -149,3 +208,33 @@ TEST_CASE("Remote process integration with tessera_test_host", "[process][integr
 }
 
 #endif // !TESSERA_PORTABLE_VALIDATION
+
+TEST_CASE("ProtectionScope retains restoration ownership after a failed restore", "[memory][protection]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    auto& region = backend->map_region(Address{0x20000}, 0x1000, MemoryProtection::Read);
+    Process process = FakeMemoryBackend::make_process(backend);
+
+    auto scope_result = ProtectionScope::create(
+        process, AddressRange{Address{0x20000}, 16}, MemoryProtection::ReadWrite);
+    REQUIRE(scope_result.has_value());
+    auto scope = std::move(*scope_result);
+    REQUIRE(scope.active());
+    REQUIRE(region.protection == MemoryProtection::ReadWrite);
+
+    region.fail_restore_protect = true;
+    auto failed_restore = scope.restore();
+    REQUIRE_FALSE(failed_restore.has_value());
+    REQUIRE(failed_restore.error().code == ErrorCode::ProtectionRestoreFailed);
+    REQUIRE(scope.active());
+    REQUIRE(region.protection == MemoryProtection::ReadWrite);
+
+    // Explicitly retry after the injected API failure is removed. The failed
+    // attempt must not have consumed the scope's restoration responsibility.
+    region.fail_restore_protect = false;
+    REQUIRE(scope.restore().has_value());
+    REQUIRE_FALSE(scope.active());
+    REQUIRE(region.protection == MemoryProtection::Read);
+}

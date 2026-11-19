@@ -36,9 +36,15 @@ must describe a tested support envelope rather than claim universal operation.
   before detach, destruction, or module unload.
 - The installed-state query is atomic, so observing `installed()` does not
   recursively acquire the callable lease lock.
-- PR smoke validates x86/x64 Debug and Release, including a deterministic
-  native-hook corpus (nine focused seeds plus 512 fixed-seed inputs). The
-  x64 Release fuzz smoke has a known-good lifecycle assertion.
+- Exact-head sustained campaigns on commit `f3b40519` passed independently:
+  x86 MSVC Fuzzer + ASan ran 301 seconds / 5,117,733 inputs / 1,151 features
+  (523 MB peak RSS); x64 LLVM libFuzzer + ASan/UBSan ran 301 seconds /
+  4,790,089 inputs / 942 coverage counters / 1,956 features (531 MB peak RSS).
+  No crash or sanitizer report was produced.
+- Full CTest on that exact commit remains **failing**: x86 remote process region
+  enumeration, a resolver invalid-length test, and the branching-virtual-base
+  RTTI fixture fail. The next revision adds diagnostics and fixes the
+  architecture-portable test assumption.
 - Address-range membership and overlap now use overflow-safe subtraction and
   have boundary tests at `UINTPTR_MAX`.
 - Thread snapshot iteration clears the Win32 last-error value before

@@ -72,7 +72,7 @@ public:
 
 private:
     Patch(ProcessAddress target, std::vector<std::byte> bytes, PatchOptions options) noexcept;
-    void finish_in_destructor() noexcept;
+    [[nodiscard]] Status finish_in_destructor() noexcept;
 
     ProcessAddress target_;
     std::vector<std::byte> new_bytes_{};

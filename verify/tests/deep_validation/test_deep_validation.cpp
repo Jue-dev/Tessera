@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -219,11 +220,23 @@ TEST_CASE("Deep validation: MSVC ABI preserves branching virtual-base flags in x
             }
         }
 
+        // Give the fake address space a following region so a final unmapped gap
+        // inside SizeOfImage is reported as MEM_FREE, as VirtualQueryEx would.
+        backend->map_uncommitted(Address{image_base.value() + image->size_of_image()}, 0x1000);
+
         Process process = FakeMemoryBackend::make_process(backend, architecture);
         const AddressRange range{image_base, image->size_of_image()};
         const auto loaded_image = PeImage::from_memory(process, image_base);
         REQUIRE(loaded_image.has_value());
         const auto catalog = RttiCatalog::discover_all(process, range, &*loaded_image);
+        if (!catalog) {
+            std::fprintf(stderr, "RTTI fixture discovery failed: %s (native=%u, operation=%.*s, detail=%s)\n",
+                         error_code_name(catalog.error().code).data(),
+                         catalog.error().native,
+                         static_cast<int>(catalog.error().operation.size()),
+                         catalog.error().operation.data(),
+                         catalog.error().detail.c_str());
+        }
         REQUIRE(catalog.has_value());
         const auto diamond = catalog->find_class("VDiamond");
         REQUIRE(diamond.has_value());

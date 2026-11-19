@@ -19,13 +19,18 @@ Result<std::vector<MemoryRegionInfo>> enumerate_regions(const Process& process,
                                                         RegionFilter filter) {
     const std::uint64_t max_addr = process.info().max_application_address;
     std::uint64_t cur = bounds.empty() ? 0ULL : bounds.begin().value();
-    std::uint64_t limit = max_addr;
+    auto max_exclusive = checked_add<std::uint64_t>(max_addr, 1u);
+    if (!max_exclusive) {
+        return fail(ErrorCode::OutOfRange, "enumerate_regions", 0,
+                    "Maximum application address cannot be represented as an exclusive limit");
+    }
+    std::uint64_t limit = *max_exclusive;
     if (!bounds.empty()) {
         auto end_res = bounds.end();
         if (!end_res) {
             return std::unexpected(end_res.error());
         }
-        limit = (std::min)(end_res->value(), max_addr);
+        limit = (std::min)(end_res->value(), *max_exclusive);
     }
 
     const IMemoryBackend& backend = memory_backend(process);
@@ -34,12 +39,20 @@ Result<std::vector<MemoryRegionInfo>> enumerate_regions(const Process& process,
         while (cur < limit) {
             auto reg_res = backend.query(Address{cur});
             if (!reg_res) {
-                break;
+                // An unbounded walk ends naturally when the backend reaches the
+                // target's highest queryable address (VirtualQueryEx reports
+                // ERROR_INVALID_PARAMETER there). Explicit bounded queries must
+                // still surface an out-of-range request to the caller.
+                if (bounds.empty() && reg_res.error().code == ErrorCode::OutOfRange) {
+                    break;
+                }
+                return std::unexpected(reg_res.error());
             }
             const MemoryRegionInfo& reg = *reg_res;
             auto reg_end = checked_add<std::uint64_t>(reg.base.value(), reg.size);
             if (!reg_end || *reg_end <= cur) {
-                break; // Ensure strict forward progress and guard against overflow
+                return fail(ErrorCode::OutOfRange, "enumerate_regions", 0,
+                            "Memory-region query returned an invalid or non-progressing range");
             }
             if (matches_region_filter(reg, filter)) {
                 regions.push_back(reg);
@@ -461,21 +474,36 @@ Result<WriteReport> MemoryWriter::write_with_report(Address address,
                 slice.slice_begin,
                 std::span<const std::byte>(backup_bytes.data() + rb_offset, to_restore));
             if (slice.needs_protect_change) {
-                (void)backend.protect(slice.slice_begin, to_restore, restore_prot);
+                auto restore_result = backend.protect(slice.slice_begin, to_restore, restore_prot);
+                if (!restore_result && !report.rollback_error) {
+                    report.rollback_error = make_error(
+                        ErrorCode::ProtectionRestoreFailed,
+                        restore_result.error().operation,
+                        restore_result.error().native,
+                        "Failed to restore page protection during rollback");
+                }
             }
             if (!w || *w != to_restore) {
-                report.rollback_error =
-                    w ? make_error(ErrorCode::PartialTransfer, "RollbackWrite") : w.error();
+                if (!report.rollback_error) {
+                    report.rollback_error =
+                        w ? make_error(ErrorCode::PartialTransfer, "RollbackWrite") : w.error();
+                }
                 break;
             }
             rb_offset += to_restore;
         }
+        report.rolled_back = !report.rollback_error.has_value() &&
+                            rb_offset == report.bytes_written;
     }
 
-    // Step 4: Flush instruction cache
+    // Step 4: Flush instruction cache. A failed flush is a safety failure,
+    // even when the bytes were written successfully.
     if (options.flush_icache && report.bytes_written > 0) {
-        (void)backend.flush_instruction_cache(
+        auto flush_status = backend.flush_instruction_cache(
             AddressRange{address, static_cast<std::uint64_t>(report.bytes_written)});
+        if (!flush_status) {
+            report.icache_flush_error = flush_status.error();
+        }
     }
 
     return report;
@@ -490,6 +518,15 @@ Status MemoryWriter::write(Address address,
     }
     if (rep->write_error) {
         return std::unexpected(*rep->write_error);
+    }
+    if (rep->rollback_error) {
+        return std::unexpected(*rep->rollback_error);
+    }
+    if (rep->protection_restore_warning) {
+        return std::unexpected(*rep->protection_restore_warning);
+    }
+    if (rep->icache_flush_error) {
+        return std::unexpected(*rep->icache_flush_error);
     }
     return ok();
 }

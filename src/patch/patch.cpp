@@ -26,7 +26,11 @@ Patch::Patch(Patch&& other) noexcept
 
 Patch& Patch::operator=(Patch&& other) noexcept {
     if (this != &other) {
-        finish_in_destructor();
+        auto restore_status = finish_in_destructor();
+        if (!restore_status) {
+            // Do not discard an applied patch whose automatic restoration failed.
+            return *this;
+        }
         target_ = std::move(other.target_);
         new_bytes_ = std::move(other.new_bytes_);
         original_bytes_ = std::move(other.original_bytes_);
@@ -38,10 +42,12 @@ Patch& Patch::operator=(Patch&& other) noexcept {
 }
 
 Patch::~Patch() noexcept {
-    finish_in_destructor();
+    // The helper reports restoration failures through the diagnostic observer.
+    // Its Status is intentionally not propagated from a noexcept destructor.
+    (void)finish_in_destructor();
 }
 
-void Patch::finish_in_destructor() noexcept {
+Status Patch::finish_in_destructor() noexcept {
     if (options_.auto_restore && state_ == PatchState::Applied) {
         auto st = restore();
         if (!st) {
@@ -50,9 +56,10 @@ void Patch::finish_in_destructor() noexcept {
                                 "Patch",
                                 "Auto-restore failed in Patch destructor",
                                 st.error());
-            TESSERA_ASSERT_MSG(false, "Patch::restore failed in destructor");
+            return st;
         }
     }
+    return ok();
 }
 
 Result<Patch> Patch::create(ProcessAddress target,
@@ -120,14 +127,25 @@ Status Patch::apply() {
         return std::unexpected(report.error());
     }
     if (report->write_error.has_value()) {
-        if (report->bytes_written > 0 && (!report->rolled_back || report->rollback_error.has_value())) {
+        if (report->bytes_written > 0 &&
+            (!report->rolled_back || report->rollback_error.has_value())) {
             state_ = PatchState::Indeterminate;
         }
         return std::unexpected(*report->write_error);
     }
+    if (report->rollback_error.has_value()) {
+        state_ = PatchState::Indeterminate;
+        return std::unexpected(*report->rollback_error);
+    }
 
     original_bytes_ = std::move(*current_bytes);
     state_ = PatchState::Applied;
+    if (report->protection_restore_warning.has_value()) {
+        return std::unexpected(*report->protection_restore_warning);
+    }
+    if (report->icache_flush_error.has_value()) {
+        return std::unexpected(*report->icache_flush_error);
+    }
     return ok();
 }
 
@@ -138,19 +156,42 @@ Status Patch::restore() noexcept {
                    : ok();
     }
 
+    MemoryReader reader{target_.process()};
+    auto current_bytes = reader.read_bytes(target_.address(), new_bytes_.size());
+    if (!current_bytes) {
+        return std::unexpected(current_bytes.error());
+    }
+    if (*current_bytes != new_bytes_) {
+        return fail(ErrorCode::Conflict,
+                    "Patch::restore",
+                    0,
+                    "Target bytes no longer match this patch; refusing to overwrite another writer");
+    }
+
     MemoryWriter writer{target_.process()};
     auto report = writer.write_with_report(target_.address(), original_bytes_);
     if (!report) {
         return std::unexpected(report.error());
     }
     if (report->write_error.has_value()) {
-        if (report->bytes_written > 0 && (!report->rolled_back || report->rollback_error.has_value())) {
+        if (report->bytes_written > 0 &&
+            (!report->rolled_back || report->rollback_error.has_value())) {
             state_ = PatchState::Indeterminate;
         }
         return std::unexpected(*report->write_error);
     }
+    if (report->rollback_error.has_value()) {
+        state_ = PatchState::Indeterminate;
+        return std::unexpected(*report->rollback_error);
+    }
 
     state_ = PatchState::Restored;
+    if (report->protection_restore_warning.has_value()) {
+        return std::unexpected(*report->protection_restore_warning);
+    }
+    if (report->icache_flush_error.has_value()) {
+        return std::unexpected(*report->icache_flush_error);
+    }
     return ok();
 }
 
@@ -161,6 +202,8 @@ void PatchTransaction::add(Patch patch) {
 TransactionReport PatchTransaction::apply() {
     TransactionReport report{};
     report.steps.resize(patches_.size());
+    std::vector<std::size_t> newly_applied;
+    newly_applied.reserve(patches_.size());
     for (std::size_t i = 0; i < patches_.size(); ++i) {
         report.steps[i].index = i;
         report.steps[i].state = patches_[i].state();
@@ -168,8 +211,14 @@ TransactionReport PatchTransaction::apply() {
 
     std::size_t failed_index = patches_.size();
     for (std::size_t i = 0; i < patches_.size(); ++i) {
+        const PatchState before = patches_[i].state();
         auto st = patches_[i].apply();
         report.steps[i].state = patches_[i].state();
+        if (before != PatchState::Applied && patches_[i].state() == PatchState::Applied) {
+            // Include a patch that wrote bytes but returned a safety warning so
+            // the transaction can still roll it back.
+            newly_applied.push_back(i);
+        }
         if (!st) {
             report.steps[i].error = st.error();
             report.failure_error = st.error();
@@ -184,18 +233,22 @@ TransactionReport PatchTransaction::apply() {
         return report;
     }
 
-    // Roll back applied patches in reverse order
-    if (failed_index > 0) {
+    // Roll back only patches newly applied by this invocation. Previously
+    // applied patches are caller-owned state and must not be undone.
+    if (!newly_applied.empty()) {
+        bool rollback_complete = true;
         report.rolled_back = true;
-        for (std::size_t rev = failed_index; rev > 0; --rev) {
-            const std::size_t idx = rev - 1;
+        for (auto it = newly_applied.rbegin(); it != newly_applied.rend(); ++it) {
+            const std::size_t idx = *it;
             auto rst = patches_[idx].restore();
             report.steps[idx].state = patches_[idx].state();
             report.steps[idx].rolled_back = rst.has_value();
             if (!rst) {
+                rollback_complete = false;
                 report.steps[idx].rollback_error = rst.error();
             }
         }
+        report.rolled_back = rollback_complete;
     }
 
     return report;

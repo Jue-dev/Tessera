@@ -2,32 +2,59 @@
 
 ## Branch roles
 
-- `main` is the stable integration and release branch. Changes that affect source code, build configuration, dependencies, examples, scripts, tests, or workflow definitions receive automatic full CI validation.
-- `develop` is the shared development branch. Pushes to it do not start CI automatically; run the full workflow manually when a meaningful checkpoint is ready.
-- Short-lived `feature/*` branches are optional. Create them from `develop`, then merge them back into `develop` after review.
+- `main` is the stable integration and release branch.
+- Pull requests targeting `main` run the full Windows CI matrix when build/source/verification/workflow inputs change.
+- Relevant source/build changes pushed to `main` run the same full CI.
+- Feature branches can be manually validated using workflow dispatch.
+- The sustained native-hook fuzz campaign remains manual-only and bounded.
 
 ## Validation behavior
 
 | Event | Validation |
 | --- | --- |
-| Relevant change pushed to `main` | Full Windows CI: x86/x64, Debug/Release, tests, Detours integration, packaging and MSVC analysis |
-| Documentation-only change pushed to `main` | No automatic CI run |
-| Pull Request targeting `main` with relevant changes | x64 Debug build and CTest smoke run |
-| Push to `develop` or `feature/*` | No automatic CI run |
-| Manual run from Actions | Full CI on the branch selected in the workflow branch picker |
-| Weekly schedule or `v*` tag | Existing full validation / release flow |
+| Relevant pull request to `main` | Full Windows CI: x86/x64 Debug/Release, CTest, Detours integration, packaging, MSVC analysis, and SDK artifacts |
+| Relevant change pushed to `main` | Full Windows CI |
+| Documentation-only change | No automatic CI run unless workflow/config paths are changed |
+| Push to feature branch | No automatic CI unless it is part of a PR targeting `main` |
+| Manual `Tessera CI & SDK Release` dispatch | Full CI on selected branch; release publication remains tag-push-only |
+| Manual `Native Hook Coverage-Guided Fuzz` dispatch | Bounded 60/300/900-second x64 Clang libFuzzer + ASan/UBSan campaign |
 
-The automatic path allowlist covers CMake configuration, `cmake/`, `include/`, `src/`, `verify/`, `examples/`, `scripts/`, dependency manifests, `.clang-tidy`, and GitHub workflow files. Paths such as `docs/**`, `README.md`, and other prose-only files are intentionally not included. A commit containing both documentation and at least one allowlisted file still starts CI.
+The CI path allowlist covers CMake configuration, `cmake/`, `include/`, `src/`, `verify/`, `examples/`, `scripts/`, dependency manifests, `.clang-tidy`, and GitHub workflow files. Prose-only documentation changes do not start CI. A commit containing documentation and an allowlisted input still starts CI.
+
+## Final validation
+
+Run the consolidated validation script on Windows with Visual Studio/MSVC, CMake, Ninja, and Clang available:
+
+```powershell
+.\scripts\run-final-validation.ps1
+```
+
+To include Microsoft Detours v4.0.1, pass its source checkout; the script builds architecture-specific libraries:
+
+```powershell
+.\scripts\run-final-validation.ps1 -DetoursRoot .\dependencies\Detours
+```
+
+To include the bounded sustained native-hook fuzz campaign:
+
+```powershell
+.\scripts\run-final-validation.ps1 -RunFuzz -FuzzSeconds 300
+```
+
+Logs and summary are written under `artifacts/final-validation/logs`; fuzz corpus/crash artifacts are under `artifacts/final-validation/native-hook-fuzz`.
 
 ## Normal development cycle
 
-1. Make day-to-day changes on `develop` (or on a short-lived feature branch based on it).
-2. When a checkpoint is ready, open **Actions → Tessera CI & SDK Release → Run workflow** and choose `develop` in the branch selector. This runs the full Windows validation against that branch.
-3. Once the development branch is ready, open a Pull Request from `develop` to `main`. The lightweight x64 PR smoke test runs automatically when relevant files changed.
-4. Merge only after the PR check is successful. The merge commit on `main` then starts the full CI pipeline automatically when it contains relevant paths.
+1. Make changes on the feature branch.
+2. Run focused local tests while iterating.
+3. Open/update a PR; automatic full CI validates relevant changes.
+4. At the final checkpoint, run the sustained fuzz campaign and inspect artifacts.
+5. Review all logs and artifacts; green tests do not replace real host admission/drain/unload acceptance.
+6. Merge only after review and explicit approval.
 
 ## Notes
 
-- The full CI workflow remains manually runnable from other branches; its `workflow_dispatch` entry is deliberately not restricted to `main`.
-- The weekly run remains as a backstop, and version tags retain the existing release behavior.
-- Path filters decide whether a workflow starts; they do not replace build or test coverage. Update the allowlist when adding a new top-level build input or source directory.
+- Full CI remains manually runnable on any selected branch.
+- The release job is guarded to version-tag pushes.
+- The focused fuzz campaign remains manual because it is intentionally time-bounded and should be run at meaningful checkpoints.
+- Update path filters when adding new build inputs or top-level source folders.

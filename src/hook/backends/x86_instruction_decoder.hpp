@@ -386,7 +386,6 @@ struct Encoding {
 
     const auto* const bytes = reinterpret_cast<const std::uint8_t*>(code);
     Cursor cursor{bytes, available};
-    DecodedInstruction decoded_output{};
 
     bool operand16 = false;
     bool address_override = false;
@@ -495,8 +494,8 @@ struct Encoding {
         } else if (!vector_encoding && opcode2 >= 0x80 && opcode2 <= 0x8F) {
             encoding.relative = true;
             encoding.immediate = Immediate::operand;
-        } else if (!vector_encoding && opcode2 == 0x0A) {
-            return false; // Reserved two-byte opcode.
+        } else if (!vector_encoding && (opcode2 == 0x0A || opcode2 == 0x0C)) {
+            return false; // Reserved two-byte opcodes; never guess an instruction length.
         } else if (!vector_encoding &&
                    (opcode2 == 0x78 || opcode2 == 0x79) && operand16) {
             // AMD SSE4a immediate forms share encodings with non-immediate

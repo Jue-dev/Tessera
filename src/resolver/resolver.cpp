@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstring>
+#include <limits>
 
 #include "tessera/core/checked_math.hpp"
 #include "tessera/memory/memory_backend.hpp"
@@ -71,7 +72,10 @@ Result<ProcessAddress> rel32_impl(const ProcessAddress& pa,
     if (pa.is_null()) {
         return fail(ErrorCode::NullAddress, "resolve::rel32");
     }
-    if (instr_len == 0 || disp_offset + sizeof(std::int32_t) > instr_len) {
+    if (instr_len == 0 ||
+        instr_len > static_cast<std::size_t>((std::numeric_limits<std::int64_t>::max)()) ||
+        disp_offset > instr_len || instr_len - disp_offset < sizeof(std::int32_t) ||
+        disp_offset > static_cast<std::size_t>((std::numeric_limits<std::int64_t>::max)())) {
         return fail(ErrorCode::InvalidArgument,
                     "resolve::rel32",
                     0,
@@ -270,6 +274,10 @@ Result<ProcessAddress> abs32_impl(const ProcessAddress& pa,
     }
     if (pa.is_null()) {
         return fail(ErrorCode::NullAddress, "resolve::abs32");
+    }
+    if (operand_offset > static_cast<std::size_t>((std::numeric_limits<std::int64_t>::max)())) {
+        return fail(ErrorCode::OutOfRange, "resolve::abs32", 0,
+                    "Operand offset cannot be represented as a signed address delta");
     }
     auto op_addr = pa.offset(static_cast<std::int64_t>(operand_offset));
     if (!op_addr) {

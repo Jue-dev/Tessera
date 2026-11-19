@@ -41,7 +41,15 @@ public:
     ProtectionScope& operator=(ProtectionScope&& other) noexcept {
         if (this != &other) {
             if (active_) {
-                (void)restore_internal();
+                auto restore_status = restore_internal();
+                if (!restore_status) {
+                    diagnostics::notify(process_.observer(),
+                                       DiagnosticSeverity::Warning,
+                                       "Memory",
+                                       "ProtectionScope move assignment could not restore the destination protection; assignment was skipped",
+                                       restore_status.error());
+                    return *this;
+                }
             }
             process_ = std::move(other.process_);
             range_ = other.range_;
@@ -86,14 +94,16 @@ private:
           active_(true) {}
 
     [[nodiscard]] Status restore_internal() noexcept {
-        active_ = false;
         auto res = memory_backend(process_).protect(range_.begin(), range_.size(), previous_);
         if (!res) {
+            // Keep ownership active so an explicit caller can retry and so a
+            // move-assignment cannot discard the outstanding restoration.
             return fail(ErrorCode::ProtectionRestoreFailed,
                         res.error().operation,
                         res.error().native,
                         res.error().detail);
         }
+        active_ = false;
         return ok();
     }
 

@@ -77,6 +77,13 @@ TEST_CASE("AtomicFileWriter and FileLock", "[filesystem]") {
     REQUIRE(content.has_value());
     REQUIRE(*content == "{\"ok\": false}");
 
+    // A requested backup must contain the complete previous file, not merely
+    // succeed at replacing the target.
+    const auto backup_path = temp_dir / "config.json.bak";
+    auto backup_content = filesystem::read_file_utf8(backup_path);
+    REQUIRE(backup_content.has_value());
+    REQUIRE(*backup_content == "{\"ok\": true}");
+
     // Exclusive FileLock prevents second concurrent exclusive lock on the same file
     const auto lock_path = temp_dir / "test.lock";
     auto lock1 = filesystem::FileLock::acquire(lock_path, true, true);

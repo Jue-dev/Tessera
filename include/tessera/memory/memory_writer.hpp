@@ -25,10 +25,14 @@ struct WriteReport {
     bool rolled_back = false;
     std::optional<Error> rollback_error{};
     std::optional<Error> protection_restore_warning{};
+    std::optional<Error> icache_flush_error{};
     std::optional<Error> write_error{};
 
     [[nodiscard]] constexpr bool succeeded() const noexcept {
-        return !write_error.has_value();
+        return !write_error.has_value() &&
+               !rollback_error.has_value() &&
+               !protection_restore_warning.has_value() &&
+               !icache_flush_error.has_value();
     }
 };
 
@@ -41,7 +45,7 @@ public:
 
     // Performs 2-pass validated write across regions, restoring page protection and optionally
     // rolling back previously written bytes on mid-transfer failure.
-    // Returns WriteReport even when a mid-transfer failure occurs so partial state is inspectable;
+    // Returns WriteReport even when a mid-transfer or safety failure occurs so partial state is inspectable;
     // returns unexpected(Error) if validation fails before any byte is touched.
     [[nodiscard]] Result<WriteReport> write_with_report(Address address,
                                                         std::span<const std::byte> data,

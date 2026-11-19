@@ -247,6 +247,44 @@ public:
     [[nodiscard]] bool installed() const noexcept { return core_.installed(); }
     [[nodiscard]] Address target() const noexcept { return core_.target(); }
 
+    // Explicit call lease for both the patched target entry and the current
+    // original/trampoline callable. The lease is thread-affine, non-copyable,
+    // and non-movable because its nesting frame is stored in thread-local state.
+    // The Hook object must outlive the lease, which must be destroyed on the
+    // acquiring thread. Do not export either pointer beyond this scope.
+    class ScopedCallable {
+    public:
+        ScopedCallable(const ScopedCallable&) = delete;
+        ScopedCallable& operator=(const ScopedCallable&) = delete;
+        ScopedCallable(ScopedCallable&&) = delete;
+        ScopedCallable& operator=(ScopedCallable&&) = delete;
+
+        // Returns the current original callable: target before install, or the
+        // trampoline while installed. The shared lifecycle lease pins it.
+        [[nodiscard]] Fn get() const noexcept {
+            return reinterpret_cast<Fn>(reinterpret_cast<std::uintptr_t>(lease_.get()));
+        }
+
+        // Returns the target entry. While installed, invoking this pointer
+        // enters the detour; keep this lease alive for the full call so any
+        // original()/trampoline use made by the callback remains protected.
+        [[nodiscard]] Fn target() const noexcept { return target_; }
+
+    private:
+        friend class Hook;
+        explicit ScopedCallable(const detail::HookCore& core)
+            : lease_(core.acquire_callable()),
+              target_(reinterpret_cast<Fn>(static_cast<std::uintptr_t>(core.target().value()))) {}
+        detail::HookCore::CallableLease lease_;
+        Fn target_ = nullptr;
+    };
+
+    // Acquires the lifecycle lease before exposing either callable. remove(),
+    // install(), and release() wait until this scope ends.
+    [[nodiscard]] ScopedCallable acquire() const {
+        return ScopedCallable{core_};
+    }
+
     // Returns a non-owning raw function pointer (the trampoline while installed).
     // It does not pin trampoline memory or participate in call tracking. The
     // caller must quiesce all uses before remove(), destruction, or release of

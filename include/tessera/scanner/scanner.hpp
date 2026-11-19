@@ -29,7 +29,7 @@ struct ScanOptions {
     RegionFilter filter{};
     std::size_t chunk_size = std::size_t{1} << 20; // 1 MiB default
     std::stop_token stop{};
-    std::move_only_function<void(const ScanProgress&)> on_progress{};
+    mutable std::move_only_function<void(const ScanProgress&)> on_progress{};
     DiagnosticObserver* observer = nullptr;
 };
 

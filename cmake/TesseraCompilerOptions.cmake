@@ -11,10 +11,28 @@ function(tessera_verify_cpp23_toolchain)
         message(FATAL_ERROR "Unsupported pointer size: ${CMAKE_SIZEOF_VOID_P}.")
     endif()
 
-    set(CMAKE_REQUIRED_FLAGS "")
-    if(MSVC)
+    # CheckCXXSourceCompiles does not inherit target compile_features.
+    # clang-cl reports compiler ID "Clang" but has the MSVC frontend. Probe it
+    # with Clang's explicit language-mode option so CMake does not accidentally
+    # run the standard-library checks in the driver's default language mode.
+    # Keep /Zc:__cplusplus enabled because the MSVC STL uses the active standard
+    # version when exposing C++23 library facilities.
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        set(CMAKE_REQUIRED_FLAGS "-std=c++23")
+        if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+            string(APPEND CMAKE_REQUIRED_FLAGS " /Zc:__cplusplus")
+        endif()
+    elseif(MSVC)
         set(CMAKE_REQUIRED_FLAGS "/std:c++latest /Zc:__cplusplus")
+    else()
+        set(CMAKE_REQUIRED_FLAGS "-std=c++23")
     endif()
+
+    message(STATUS
+        "C++23 library probe: ${CMAKE_CXX_COMPILER_ID} "
+        "${CMAKE_CXX_COMPILER_VERSION} (${CMAKE_CXX_COMPILER_FRONTEND_VARIANT}); "
+        "flags: ${CMAKE_REQUIRED_FLAGS}")
+    unset(TESSERA_HAS_CPP23_FEATURES CACHE)
 
     check_cxx_source_compiles("
         #include <expected>
@@ -32,14 +50,19 @@ function(tessera_verify_cpp23_toolchain)
         #endif
         int main() {
             std::expected<int, int> e = 42;
-            return e.value_or(0) == 42 ? 0 : 1;
+            std::move_only_function<int()> f = [] { return 42; };
+            return e.value_or(0) == 42 && f() == 42 && std::byteswap(0x01020304u) == 0x04030201u ? 0 : 1;
         }
     " TESSERA_HAS_CPP23_FEATURES)
 
     if(NOT TESSERA_HAS_CPP23_FEATURES)
         message(FATAL_ERROR
-            "Compiler does not support required C++23 features (std::expected, "
-            "std::move_only_function, std::byteswap). Requires MSVC 19.38+ or clang-cl 17+.")
+            "Compiler does not support required C++23 library features "
+            "(std::expected, std::move_only_function, std::byteswap). "
+            "Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}; "
+            "frontend: ${CMAKE_CXX_COMPILER_FRONTEND_VARIANT}; "
+            "probe flags: ${CMAKE_REQUIRED_FLAGS}. "
+            "Inspect CMakeFiles/CMakeConfigureLog.yaml for the failing compile command.")
     endif()
 endfunction()
 
@@ -63,7 +86,6 @@ function(tessera_apply_target_options target_name)
             "$<$<COMPILE_LANGUAGE:CXX>:/W4>"
             "$<$<COMPILE_LANGUAGE:CXX>:/permissive->"
             "$<$<COMPILE_LANGUAGE:CXX>:/Zc:__cplusplus>"
-            "$<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>"
             "$<$<COMPILE_LANGUAGE:CXX>:/Zc:inline>"
             /utf-8
             "$<$<COMPILE_LANGUAGE:CXX>:/EHsc>"
@@ -71,6 +93,14 @@ function(tessera_apply_target_options target_name)
             /sdl
             "$<$<COMPILE_LANGUAGE:CXX>:/wd4324>" # structure was padded due to alignment specifier
         )
+
+        # This switch is specific to cl.exe; clang-cl diagnoses it as an
+        # unused driver option, and warnings are errors in the fuzz build.
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+            target_compile_options(${target_name} PRIVATE
+                "$<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>"
+            )
+        endif()
 
         # /guard:cf requires both compile and link flags
         if(NOT TESSERA_ENABLE_ASAN)
