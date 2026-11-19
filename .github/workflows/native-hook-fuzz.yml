@@ -47,7 +47,7 @@ concurrency:
 
 jobs:
   native-hook-fuzz:
-    name: Windows ${{ matrix.arch }} Clang libFuzzer + ASan/UBSan
+    name: Windows ${{ matrix.arch }} Native Hook Fuzz/Stress
     runs-on: windows-latest
     timeout-minutes: 25
     strategy:
@@ -68,6 +68,7 @@ jobs:
           arch: ${{ matrix.arch }}
 
       - name: Verify Clang toolchain and target
+        if: matrix.arch == 'x64'
         shell: pwsh
         env:
           FUZZ_ARCH: ${{ matrix.arch }}
