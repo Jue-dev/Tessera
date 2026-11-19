@@ -1310,7 +1310,13 @@ TEST_CASE("Native x64 trampoline maps multi-slot UWOP_SAVE_NONVOL for virtual un
         std::byte{0x48}, std::byte{0x89}, std::byte{0x74},
         std::byte{0x24}, std::byte{0x20}};
     std::memcpy(code + target_offset, save_instruction.data(), save_instruction.size());
-    code[target_offset + 5u] = std::byte{0xC3};
+    // Restore the nonvolatile register in the source function's epilogue.
+    code[target_offset + 5u] = std::byte{0x48};
+    code[target_offset + 6u] = std::byte{0x8B};
+    code[target_offset + 7u] = std::byte{0x74};
+    code[target_offset + 8u] = std::byte{0x24};
+    code[target_offset + 9u] = std::byte{0x20};
+    code[target_offset + 10u] = std::byte{0xC3};
 
     constexpr std::size_t source_unwind_offset = 256u;
     auto* source_info =
@@ -1374,8 +1380,9 @@ TEST_CASE("Native x64 trampoline maps multi-slot UWOP_SAVE_NONVOL for virtual un
     REQUIRE(trampoline_function != nullptr);
 
     alignas(16) std::array<std::byte, 128> fake_stack{};
+    // RSP is 8 mod 16 at a Windows x64 function entry (return address on top).
     const auto entry_stack_pointer =
-        reinterpret_cast<std::uintptr_t>(fake_stack.data()) + 16u;
+        reinterpret_cast<std::uintptr_t>(fake_stack.data()) + 24u;
     const DWORD64 return_address =
         static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(&native_hook_detour));
     constexpr DWORD64 saved_rsi = 0x0123456789ABCDEFull;
