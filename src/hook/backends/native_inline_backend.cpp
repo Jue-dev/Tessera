@@ -710,7 +710,7 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
     std::size_t entry_prefix_size,
     const DecodedBlock& block,
     std::uint8_t& trampoline_offset) noexcept {
-    if (source_offset <= entry_prefix_size) {
+    if (source_offset < entry_prefix_size) {
         return false;
     }
     const std::size_t patch_offset =
