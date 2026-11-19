@@ -65,6 +65,17 @@ int __cdecl blocking_trampoline_function(int value) {
 
 using NativeHookFn = int(__cdecl*)(int);
 using NativeHookFastFn = std::uintptr_t(__fastcall*)(std::uintptr_t);
+
+#if defined(_M_X64) || defined(__x86_64__)
+DWORD __cdecl invoke_breakpoint_trampoline(NativeHookFn trampoline) noexcept {
+    __try {
+        (void)trampoline(0);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return ::GetExceptionCode();
+    }
+    return ERROR_SUCCESS;
+}
+#endif
 tessera::Hook<NativeHookFn>* g_recursive_lease_hook = nullptr;
 std::atomic<bool> g_remove_from_lease_rejected{false};
 std::atomic<bool> g_release_from_lease_rejected{false};
@@ -763,6 +774,111 @@ TEST_CASE("Native inline backend rejects invalid thread policies without changin
                         stack_prologue_before.size()) == 0);
 #endif
 }
+
+#if defined(_M_X64) || defined(__x86_64__)
+TEST_CASE("Native x64 trampoline remaps unwind offsets and unwinds an exception in relocated prologue",
+          "[hook][native][unwind][integration]") {
+    using namespace tessera;
+
+    ExecutableRegionGuard region{
+        ::VirtualAlloc(nullptr, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE)};
+    REQUIRE(region.address != nullptr);
+    auto* code = static_cast<std::byte*>(region.address);
+    std::memset(code, 0x90, 4096);
+
+    // The first four bytes allocate the x64 shadow space. INT3 is deliberately
+    // the fifth stolen byte, so the exception is raised inside the trampoline
+    // after the relocated stack adjustment has executed.
+    constexpr std::size_t target_offset = 64u;
+    code[target_offset + 0u] = std::byte{0x48};
+    code[target_offset + 1u] = std::byte{0x83};
+    code[target_offset + 2u] = std::byte{0xEC};
+    code[target_offset + 3u] = std::byte{0x28};
+    code[target_offset + 4u] = std::byte{0xCC};
+    code[target_offset + 5u] = std::byte{0x48};
+    code[target_offset + 6u] = std::byte{0x83};
+    code[target_offset + 7u] = std::byte{0xC4};
+    code[target_offset + 8u] = std::byte{0x28};
+    code[target_offset + 9u] = std::byte{0xC3};
+
+    constexpr std::size_t source_unwind_offset = 256u;
+    auto* source_info =
+        reinterpret_cast<UNWIND_INFO*>(code + source_unwind_offset);
+    std::memset(source_info, 0, 16u);
+    source_info->Version = 1u;
+    source_info->Flags = 0u;
+    source_info->SizeOfProlog = 4u;
+    source_info->CountOfCodes = 1u;
+    source_info->FrameRegister = 0u;
+    source_info->FrameOffset = 0u;
+    source_info->UnwindCode[0].CodeOffset = 4u;
+    source_info->UnwindCode[0].UnwindOp = UWOP_ALLOC_SMALL;
+    source_info->UnwindCode[0].OpInfo = 4u; // (0x28 - 8) / 8.
+
+    struct SourceFunctionTableGuard {
+        RUNTIME_FUNCTION entry{};
+        bool registered = false;
+        ~SourceFunctionTableGuard() noexcept {
+            if (registered && !::RtlDeleteFunctionTable(&entry)) {
+                std::terminate();
+            }
+        }
+    } source_table;
+    source_table.entry.BeginAddress = static_cast<DWORD>(target_offset);
+    source_table.entry.EndAddress = static_cast<DWORD>(target_offset + 32u);
+    source_table.entry.UnwindData = static_cast<DWORD>(source_unwind_offset);
+    REQUIRE(::RtlAddFunctionTable(
+        &source_table.entry,
+        1u,
+        static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(region.address))));
+    source_table.registered = true;
+
+    DWORD old_protection = 0;
+    REQUIRE(::VirtualProtect(region.address, 4096, PAGE_EXECUTE_READ, &old_protection));
+
+    HookBackend& backend = native_inline_hook_backend();
+    auto hook = Hook<NativeHookFn>::create(
+        Address{static_cast<std::uint64_t>(
+            reinterpret_cast<std::uintptr_t>(code + target_offset))},
+        &native_hook_detour,
+        &backend);
+    REQUIRE(hook.has_value());
+
+    HookOptions options{};
+    options.threads = ThreadPolicy::None;
+    REQUIRE(hook->install(options).has_value());
+
+    const NativeHookFn trampoline = hook->original();
+    REQUIRE(trampoline != nullptr);
+    DWORD64 trampoline_image_base = 0;
+    PRUNTIME_FUNCTION trampoline_function = ::RtlLookupFunctionEntry(
+        static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(trampoline)),
+        &trampoline_image_base,
+        nullptr);
+    REQUIRE(trampoline_function != nullptr);
+    const auto* trampoline_info = reinterpret_cast<const UNWIND_INFO*>(
+        trampoline_image_base + trampoline_function->UnwindData);
+    REQUIRE(trampoline_info->Version == 1u);
+    REQUIRE(trampoline_info->CountOfCodes == 1u);
+    REQUIRE(trampoline_info->SizeOfProlog == 8u);
+    REQUIRE(trampoline_info->UnwindCode[0].CodeOffset == 8u);
+    REQUIRE(trampoline_info->UnwindCode[0].UnwindOp == UWOP_ALLOC_SMALL);
+    REQUIRE(trampoline_info->UnwindCode[0].OpInfo == 4u);
+
+    // The OS exception dispatcher must find the generated RUNTIME_FUNCTION,
+    // apply the translated ALLOC_SMALL unwind code, and reach this handler.
+    REQUIRE(invoke_breakpoint_trampoline(trampoline) == EXCEPTION_BREAKPOINT);
+
+    void* const trampoline_address =
+        reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(trampoline));
+    REQUIRE(hook->remove().has_value());
+    DWORD64 removed_image_base = 0;
+    REQUIRE(::RtlLookupFunctionEntry(
+                static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(trampoline_address)),
+                &removed_image_base,
+                nullptr) == nullptr);
+}
+#endif
 
 TEST_CASE("Native inline backend relocates x64 RIP-relative code and restores the target", "[hook][native]") {
     using namespace tessera;
