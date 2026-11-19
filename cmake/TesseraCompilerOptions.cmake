@@ -12,14 +12,27 @@ function(tessera_verify_cpp23_toolchain)
     endif()
 
     # CheckCXXSourceCompiles does not inherit target compile_features.
-    # Use the active driver's native spelling: clang-cl is Clang by compiler ID,
-    # but it consumes MSVC-style options and must probe with the same language
-    # mode used by the project's MSVC-compatible targets.
-    if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC" OR MSVC)
+    # clang-cl reports compiler ID "Clang" but has the MSVC frontend. Probe it
+    # with Clang's explicit language-mode option so CMake does not accidentally
+    # run the standard-library checks in the driver's default language mode.
+    # Keep /Zc:__cplusplus enabled because the MSVC STL uses the active standard
+    # version when exposing C++23 library facilities.
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        set(CMAKE_REQUIRED_FLAGS "-std=c++23")
+        if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+            string(APPEND CMAKE_REQUIRED_FLAGS " /Zc:__cplusplus")
+        endif()
+    elseif(MSVC)
         set(CMAKE_REQUIRED_FLAGS "/std:c++latest /Zc:__cplusplus")
     else()
         set(CMAKE_REQUIRED_FLAGS "-std=c++23")
     endif()
+
+    message(STATUS
+        "C++23 library probe: ${CMAKE_CXX_COMPILER_ID} "
+        "${CMAKE_CXX_COMPILER_VERSION} (${CMAKE_CXX_COMPILER_FRONTEND_VARIANT}); "
+        "flags: ${CMAKE_REQUIRED_FLAGS}")
+    unset(TESSERA_HAS_CPP23_FEATURES CACHE)
 
     check_cxx_source_compiles("
         #include <expected>
@@ -46,7 +59,10 @@ function(tessera_verify_cpp23_toolchain)
         message(FATAL_ERROR
             "Compiler does not support required C++23 library features "
             "(std::expected, std::move_only_function, std::byteswap). "
-            "Requires a C++23-capable compiler and standard library providing all three library features.")
+            "Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}; "
+            "frontend: ${CMAKE_CXX_COMPILER_FRONTEND_VARIANT}; "
+            "probe flags: ${CMAKE_REQUIRED_FLAGS}. "
+            "Inspect CMakeFiles/CMakeConfigureLog.yaml for the failing compile command.")
     endif()
 endfunction()
 

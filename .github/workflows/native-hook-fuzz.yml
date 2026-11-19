@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       campaign_seconds:
-        description: "Fuzz campaign duration per architecture."
+        description: "x64 coverage-guided fuzz campaign duration."
         required: true
         type: choice
         default: "900"
@@ -33,69 +33,51 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  native-hook-fuzz:
-    name: Windows ${{ matrix.arch }} ${{ matrix.arch == 'x64' && 'Coverage-Guided Fuzz' || 'Deterministic Stress' }}
+  native-hook-fuzz-x64:
+    name: Windows x64 Coverage-Guided Native Hook Fuzz
     runs-on: windows-latest
     timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        arch:
-          - x64
-          - x86
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
         with:
           persist-credentials: false
 
-      - name: Setup MSVC Developer Environment (${{ matrix.arch }})
+      - name: Setup MSVC Developer Environment (x64)
         uses: ./.github/actions/setup-msvc
         with:
-          arch: ${{ matrix.arch }}
+          arch: x64
 
-      - name: Verify Clang toolchain and target
-        if: matrix.arch == 'x64'
+      - name: Verify Clang x64 toolchain and sanitizer runtimes
         shell: pwsh
-        env:
-          FUZZ_ARCH: ${{ matrix.arch }}
         run: |
+          $ErrorActionPreference = "Stop"
           $clang = Get-Command clang-cl -ErrorAction Stop
           Write-Host "Using clang-cl: $($clang.Source)"
           clang-cl --version
-          $target = if ($env:FUZZ_ARCH -eq "x86") { "i686-pc-windows-msvc" } else { "x86_64-pc-windows-msvc" }
-          clang-cl "--target=$target" -v
+          if ($LASTEXITCODE -ne 0) { throw "clang-cl version check failed ($LASTEXITCODE)" }
+          clang-cl "--target=x86_64-pc-windows-msvc" -v
+          if ($LASTEXITCODE -ne 0) { throw "clang-cl x64 target check failed ($LASTEXITCODE)" }
 
-      - name: Inspect Clang sanitizer runtime libraries
-        if: matrix.arch == 'x64'
-        shell: pwsh
-        env:
-          FUZZ_ARCH: ${{ matrix.arch }}
-        run: |
           $resource = (clang-cl -print-resource-dir).Trim()
-          $runtimeDir = Join-Path $resource "lib\windows"
-          $runtimeArch = if ($env:FUZZ_ARCH -eq "x86") { "i386" } else { "x86_64" }
-          Write-Host "Clang resource directory: $resource"
-          Write-Host "Runtime library directory: $runtimeDir"
-          if (-not (Test-Path $runtimeDir)) { throw "Missing Clang Windows runtime directory: $runtimeDir" }
+          if ($LASTEXITCODE -ne 0 -or -not $resource) { throw "Unable to locate Clang resource directory." }
+          $runtimeDir = Join-Path $resource "lib/windows"
           $required = @(
-            "clang_rt.fuzzer-$runtimeArch.lib",
-            "clang_rt.asan_dynamic-$runtimeArch.lib",
-            "clang_rt.asan_static_runtime_thunk-$runtimeArch.lib",
-            "clang_rt.asan_dynamic-$runtimeArch.dll"
+            "clang_rt.fuzzer-x86_64.lib",
+            "clang_rt.asan_dynamic-x86_64.lib",
+            "clang_rt.asan_static_runtime_thunk-x86_64.lib",
+            "clang_rt.asan_dynamic-x86_64.dll"
           )
           foreach ($name in $required) {
             $path = Join-Path $runtimeDir $name
-            if (-not (Test-Path $path)) { throw "Missing required Clang runtime for $env:FUZZ_ARCH ($runtimeArch): $path" }
+            if (-not (Test-Path $path)) { throw "Missing required x64 Clang runtime: $path" }
             Write-Host "Found: $name"
           }
 
       - name: Configure instrumented native-hook fuzzer (x64)
-        if: matrix.arch == 'x64'
         shell: pwsh
-        env:
-          FUZZ_ARCH: ${{ matrix.arch }}
         run: |
+          $ErrorActionPreference = "Stop"
           $cmakeArgs = @(
             "-S", ".", "-B", "build-native-hook-fuzz", "-G", "Ninja",
             "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
@@ -108,80 +90,160 @@ jobs:
             "-DTESSERA_STATIC_RUNTIME=ON",
             "-DTESSERA_ENABLE_LIBFUZZER=ON"
           )
-          if ($env:FUZZ_ARCH -eq "x86") {
-            $cmakeArgs += @(
-              "-DCMAKE_C_COMPILER_TARGET=i686-pc-windows-msvc",
-              "-DCMAKE_CXX_COMPILER_TARGET=i686-pc-windows-msvc"
-            )
-          }
           & cmake @cmakeArgs
           $configureExitCode = $LASTEXITCODE
           if ($configureExitCode -ne 0) {
             $diagnosticLogs = @(
+              "build-native-hook-fuzz/CMakeFiles/CMakeConfigureLog.yaml",
               "build-native-hook-fuzz/CMakeFiles/CMakeError.log",
               "build-native-hook-fuzz/CMakeFiles/CMakeOutput.log"
             )
             foreach ($logPath in $diagnosticLogs) {
               if (Test-Path $logPath) {
                 Write-Host "===== $logPath ====="
-                Get-Content $logPath -Tail 160
+                Get-Content $logPath -Tail 240
               }
             }
-            throw "CMake configure failed for $env:FUZZ_ARCH ($configureExitCode)"
+            throw "CMake configure failed for x64 ($configureExitCode)"
           }
 
-      - name: Configure x86 native-hook randomized stress harness
-        if: matrix.arch == 'x86'
+      - name: Build instrumented native-hook fuzzer (x64)
         shell: pwsh
         run: |
-          cmake -S . -B build-native-hook-fuzz -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_FUZZ=ON -DTESSERA_STATIC_RUNTIME=ON -DTESSERA_ENABLE_LIBFUZZER=OFF
-          if ($LASTEXITCODE -ne 0) { throw "x86 stress harness configure failed ($LASTEXITCODE)" }
+          cmake --build build-native-hook-fuzz --target tessera_fuzz_native_hook --parallel
+          if ($LASTEXITCODE -ne 0) { throw "x64 native-hook fuzzer build failed ($LASTEXITCODE)" }
 
-      - name: Build instrumented native-hook fuzzer (x64)
-        if: matrix.arch == 'x64'
-        run: cmake --build build-native-hook-fuzz --target tessera_fuzz_native_hook --parallel
+      - name: Verify x64 fuzzer executable architecture
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz/verify/fuzz/tessera_fuzz_native_hook.exe"
+          if (-not (Test-Path $target)) { throw "Missing x64 fuzzer executable: $target" }
+          $bytes = [System.IO.File]::ReadAllBytes($target)
+          if ($bytes.Length -lt 64) { throw "Fuzzer executable is too small to be a valid PE image." }
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+          if ($peOffset -lt 64 -or ($peOffset + 6) -gt $bytes.Length) { throw "Invalid PE header offset: $peOffset" }
+          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          if ($machine -ne 0x8664) { throw ("Expected AMD64 PE machine 0x8664, got 0x{0:X4}" -f $machine) }
+          Write-Host "Verified executable architecture: AMD64 (PE 0x8664)."
 
-      - name: Build x86 randomized native-hook stress harness
-        if: matrix.arch == 'x86'
-        run: cmake --build build-native-hook-fuzz --target tessera_fuzz_native_hook --parallel
-
-      - name: Run coverage-guided campaign (x64)
-        if: matrix.arch == 'x64'
+      - name: Run x64 coverage-guided ASan/UBSan campaign
         shell: pwsh
         env:
-          FUZZ_ARCH: ${{ matrix.arch }}
           CAMPAIGN_SECONDS: ${{ inputs.campaign_seconds || '900' }}
         run: |
-          $seedSource = Join-Path $env:GITHUB_WORKSPACE "verify\fuzz\corpus\native_hook"
-          $artifactRoot = Join-Path $env:GITHUB_WORKSPACE "artifacts\native-hook-fuzz\$env:FUZZ_ARCH"
+          $ErrorActionPreference = "Stop"
+          $seedSource = Join-Path $env:GITHUB_WORKSPACE "verify/fuzz/corpus/native_hook"
+          $artifactRoot = Join-Path $env:GITHUB_WORKSPACE "artifacts/native-hook-fuzz/x64"
           $corpus = Join-Path $artifactRoot "corpus"
           $crashes = Join-Path $artifactRoot "crashes"
           New-Item -ItemType Directory -Path $corpus -Force | Out-Null
           New-Item -ItemType Directory -Path $crashes -Force | Out-Null
+          $seedFiles = @(Get-ChildItem -Path $seedSource -File)
+          if ($seedFiles.Count -eq 0) { throw "The x64 native-hook seed corpus is empty." }
           Copy-Item -Path (Join-Path $seedSource "*") -Destination $corpus -Recurse -Force
-          $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz\verify\fuzz\tessera_fuzz_native_hook.exe"
-          if (-not (Test-Path $target)) { throw "Missing native-hook fuzzer for $($env:FUZZ_ARCH): $target" }
+
+          if ($env:CAMPAIGN_SECONDS -notin @("300", "600", "900")) {
+            throw "Unsupported fuzz duration: $env:CAMPAIGN_SECONDS"
+          }
+          $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz/verify/fuzz/tessera_fuzz_native_hook.exe"
+          if (-not (Test-Path $target)) { throw "Missing x64 native-hook fuzzer: $target" }
+
           $resource = (clang-cl -print-resource-dir).Trim()
-          $runtimeArch = if ($env:FUZZ_ARCH -eq "x86") { "i386" } else { "x86_64" }
-          $asanDll = Join-Path $resource "lib\windows\clang_rt.asan_dynamic-$runtimeArch.dll"
-          if (-not (Test-Path $asanDll)) { throw "Missing ASan runtime DLL for $($env:FUZZ_ARCH): $asanDll" }
+          if ($LASTEXITCODE -ne 0 -or -not $resource) { throw "Unable to locate Clang resource directory." }
+          $asanDll = Join-Path $resource "lib/windows/clang_rt.asan_dynamic-x86_64.dll"
+          if (-not (Test-Path $asanDll)) { throw "Missing x64 ASan runtime DLL: $asanDll" }
           Copy-Item $asanDll (Split-Path $target -Parent) -Force
-          & $target $corpus "-max_total_time=$env:CAMPAIGN_SECONDS" "-timeout=10" "-max_len=96" "-rss_limit_mb=4096" "-seed=20261119" "-print_final_stats=1" "-artifact_prefix=$crashes\"
-          if ($LASTEXITCODE -ne 0) { throw "Coverage-guided native-hook fuzzing failed for $env:FUZZ_ARCH ($LASTEXITCODE)" }
 
-      - name: Run deterministic randomized x86 stress corpus
-        if: matrix.arch == 'x86'
-        shell: pwsh
-        run: |
-          $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz\verify\fuzz\tessera_fuzz_native_hook.exe"
-          if (-not (Test-Path $target)) { throw "Missing x86 native-hook stress target: $target" }
-          & $target
-          if ($LASTEXITCODE -ne 0) { throw "x86 native-hook randomized stress failed ($LASTEXITCODE)" }
+          $artifactPrefix = "$crashes/"
+          & $target $corpus "-max_total_time=$env:CAMPAIGN_SECONDS" "-timeout=10" "-max_len=96" "-rss_limit_mb=4096" "-seed=20261119" "-print_final_stats=1" "-artifact_prefix=$artifactPrefix" 2>&1 |
+            Tee-Object -FilePath (Join-Path $artifactRoot "campaign.log")
+          $fuzzExitCode = $LASTEXITCODE
+          if ($fuzzExitCode -ne 0) { throw "x64 coverage-guided fuzzing failed ($fuzzExitCode)" }
 
-      - name: Upload architecture-specific fuzz corpus and crash artifacts
+          $campaignLog = Get-Content (Join-Path $artifactRoot "campaign.log") -Raw
+          if ($campaignLog -notmatch "stat::number_of_executed_units:\s*[1-9][0-9]*") {
+            throw "libFuzzer did not report any executed input units; refusing a false-positive pass."
+          }
+          Write-Host "x64 campaign processed $($seedFiles.Count) checked-in seed files for $env:CAMPAIGN_SECONDS seconds."
+
+      - name: Upload x64 fuzz corpus and crash artifacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: native-hook-libfuzzer-${{ matrix.arch }}-${{ github.run_number }}
-          path: artifacts/native-hook-fuzz/${{ matrix.arch }}/
+          name: native-hook-libfuzzer-x64-${{ github.run_number }}
+          path: artifacts/native-hook-fuzz/x64/
+          if-no-files-found: warn
+
+  native-hook-stress-x86:
+    name: Windows x86 Deterministic Native Hook Stress
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Setup MSVC Developer Environment (x86)
+        uses: ./.github/actions/setup-msvc
+        with:
+          arch: x86
+
+      - name: Verify 32-bit MSVC toolchain
+        shell: pwsh
+        run: |
+          cl /Bv
+          if ($LASTEXITCODE -ne 0) { throw "MSVC compiler verification failed ($LASTEXITCODE)" }
+          Write-Host "MSVC environment was initialized for the x86 target."
+
+      - name: Configure x86 native-hook stress harness
+        shell: pwsh
+        run: |
+          cmake -S . -B build-native-hook-fuzz -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_CXX_STANDARD=23 -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_FUZZ=ON -DTESSERA_STATIC_RUNTIME=ON -DTESSERA_ENABLE_LIBFUZZER=OFF
+          if ($LASTEXITCODE -ne 0) { throw "x86 stress harness configure failed ($LASTEXITCODE)" }
+
+      - name: Build x86 randomized native-hook stress harness
+        shell: pwsh
+        run: |
+          cmake --build build-native-hook-fuzz --target tessera_fuzz_native_hook --parallel
+          if ($LASTEXITCODE -ne 0) { throw "x86 native-hook stress build failed ($LASTEXITCODE)" }
+
+      - name: Verify x86 stress executable architecture
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz/verify/fuzz/tessera_fuzz_native_hook.exe"
+          if (-not (Test-Path $target)) { throw "Missing x86 stress executable: $target" }
+          $bytes = [System.IO.File]::ReadAllBytes($target)
+          if ($bytes.Length -lt 64) { throw "Stress executable is too small to be a valid PE image." }
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+          if ($peOffset -lt 64 -or ($peOffset + 6) -gt $bytes.Length) { throw "Invalid PE header offset: $peOffset" }
+          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          if ($machine -ne 0x014c) { throw ("Expected I386 PE machine 0x014c, got 0x{0:X4}" -f $machine) }
+          Write-Host "Verified executable architecture: I386 (PE 0x014c)."
+
+      - name: Run x86 deterministic native-hook stress corpus
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz/verify/fuzz/tessera_fuzz_native_hook.exe"
+          $artifactRoot = Join-Path $env:GITHUB_WORKSPACE "artifacts/native-hook-fuzz/x86"
+          New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
+          if (-not (Test-Path $target)) { throw "Missing x86 native-hook stress target: $target" }
+
+          & $target 2>&1 | Tee-Object -FilePath (Join-Path $artifactRoot "stress.log")
+          $stressExitCode = $LASTEXITCODE
+          if ($stressExitCode -ne 0) { throw "x86 native-hook stress executable failed ($stressExitCode)" }
+
+          $stressLog = Get-Content (Join-Path $artifactRoot "stress.log") -Raw
+          if ($stressLog -notmatch "native-hook-stress-summary: inputs=4106 successful_lifecycles=([1-9][0-9]*)") {
+            throw "x86 stress corpus did not confirm all 4,106 inputs and a successful attach/detach lifecycle."
+          }
+          Write-Host "x86 stress corpus verified: 4,106 inputs and at least one completed attach/detach lifecycle."
+
+      - name: Upload x86 stress logs and artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-hook-stress-x86-${{ github.run_number }}
+          path: artifacts/native-hook-fuzz/x86/
           if-no-files-found: warn

@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <utility>
@@ -19,6 +20,7 @@ constexpr std::size_t kFuzzRegionSize = 96;
 // The standalone CI smoke mode uses this counter to ensure that at least the
 // known-good seed reached and completed a real attach/detach lifecycle.
 std::uint64_t g_successful_lifecycles = 0;
+std::uint64_t g_total_inputs = 0;
 
 extern "C" __declspec(noinline) void tessera_fuzz_detour() noexcept {
     // The fuzz harness validates decoding and patch lifecycle; it never calls
@@ -29,13 +31,16 @@ extern "C" __declspec(noinline) void tessera_fuzz_detour() noexcept {
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
     if (data == nullptr && size != 0) {
-        return 0;
+        std::abort();
     }
+    ++g_total_inputs;
 
     void* allocation = ::VirtualAlloc(
         nullptr, kCodeRegionSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (allocation == nullptr) {
-        return 0;
+        // Infrastructure failures must never be counted as successful fuzz
+        // inputs; doing so could silently skip most of a campaign.
+        std::abort();
     }
 
     auto* const code = static_cast<std::byte*>(allocation);
@@ -52,7 +57,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     if (!::VirtualProtect(allocation, kCodeRegionSize, PAGE_EXECUTE_READ,
                           &previous_protection)) {
         (void)::VirtualFree(allocation, 0, MEM_RELEASE);
-        return 0;
+        std::abort();
     }
 
     tessera::HookOptions options{};
@@ -82,7 +87,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         ++g_successful_lifecycles;
     }
 
-    (void)::VirtualFree(allocation, 0, MEM_RELEASE);
+    if (!::VirtualFree(allocation, 0, MEM_RELEASE)) {
+        // A leaked executable page can invalidate later iterations.
+        std::abort();
+    }
     return 0;
 }
 
@@ -149,7 +157,7 @@ int main() {
         return random_state;
     };
 
-    constexpr std::size_t kRandomSampleCount = 512;
+    constexpr std::size_t kRandomSampleCount = 4096;
     std::array<std::uint8_t, kFuzzRegionSize> random_input{};
     for (std::size_t sample = 0; sample < kRandomSampleCount; ++sample) {
         const std::size_t length =
@@ -159,6 +167,11 @@ int main() {
         }
         (void)LLVMFuzzerTestOneInput(random_input.data(), length);
     }
+
+    std::printf(
+        "native-hook-stress-summary: inputs=%llu successful_lifecycles=%llu\n",
+        static_cast<unsigned long long>(g_total_inputs),
+        static_cast<unsigned long long>(g_successful_lifecycles));
 
     return 0;
 }
