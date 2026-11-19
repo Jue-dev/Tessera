@@ -92,6 +92,15 @@ struct TestUnwindInfo {
 constexpr std::size_t kTestTrampolineEntryPrefixSize = 4u;
 constexpr UCHAR kTestUnwindOpAllocSmall = 2u;
 constexpr UCHAR kTestUnwindOpPushNonVol = 0u;
+void set_test_unwind_code(
+    TestUnwindInfo* info,
+    std::size_t slot,
+    TestUnwindCode code) noexcept {
+    auto* const destination =
+        reinterpret_cast<std::byte*>(info) +
+        offsetof(TestUnwindInfo, unwind_code) + slot * sizeof(TestUnwindCode);
+    std::memcpy(destination, &code, sizeof(code));
+}
 static_assert(offsetof(TestUnwindInfo, unwind_code) == 4u);
 static_assert(sizeof(TestUnwindCode) == 2u);
 DWORD __cdecl invoke_breakpoint_trampoline(NativeHookFn trampoline) noexcept {
@@ -977,12 +986,13 @@ TEST_CASE("Native x64 trampoline maps ALLOC_LARGE and SET_FPREG together",
     source_info->size_of_prolog = static_cast<UCHAR>(prologue.size());
     source_info->count_of_codes = 4u;
     source_info->frame_register_and_offset = 0x05u; // RBP, zero frame offset
-    source_info->unwind_code[0] = {
-        15u, static_cast<UCHAR>(1u)}; // UWOP_ALLOC_LARGE, OpInfo=0
-    source_info->unwind_code[1] = {
-        8u, static_cast<UCHAR>(3u)}; // UWOP_SET_FPREG
-    source_info->unwind_code[2] = {
-        5u, static_cast<UCHAR>(kTestUnwindOpPushNonVol | (5u << 4u))}; // push rbp
+    set_test_unwind_code(source_info, 0u,
+                         {15u, static_cast<UCHAR>(1u)}); // UWOP_ALLOC_LARGE, OpInfo=0
+    set_test_unwind_code(source_info, 1u,
+                         {8u, static_cast<UCHAR>(3u)}); // UWOP_SET_FPREG
+    set_test_unwind_code(
+        source_info, 2u,
+        {5u, static_cast<UCHAR>(kTestUnwindOpPushNonVol | (5u << 4u))}); // push rbp
     const USHORT allocation_in_eight_byte_units = 0x20u;
     std::memcpy(reinterpret_cast<std::byte*>(source_info) +
                     offsetof(TestUnwindInfo, unwind_code) +
@@ -1108,8 +1118,9 @@ TEST_CASE("Native x64 trampoline restores a saved nonvolatile XMM register",
                     offsetof(TestUnwindInfo, unwind_code) + sizeof(TestUnwindCode),
                 &xmm_save_offset_in_sixteen_byte_units,
                 sizeof(xmm_save_offset_in_sixteen_byte_units));
-    source_info->unwind_code[2] = {
-        4u, static_cast<UCHAR>(kTestUnwindOpAllocSmall | (4u << 4u))};
+    set_test_unwind_code(
+        source_info, 2u,
+        {4u, static_cast<UCHAR>(kTestUnwindOpAllocSmall | (4u << 4u))});
 
     struct SourceFunctionTableGuard {
         RUNTIME_FUNCTION entry{};
