@@ -765,6 +765,9 @@ TEST_CASE("Native inline backend rejects invalid thread policies without changin
 #if defined(_M_X64) || defined(__x86_64__)
     // A dynamically allocated function with a stack-changing prologue but no
     // registered source unwind record must fail before its entry bytes change.
+    DWORD writable_protection = 0;
+    REQUIRE(::VirtualProtect(region.address, 4096, PAGE_EXECUTE_READWRITE,
+                             &writable_protection));
     code[256] = std::byte{0x48}; // sub rsp, 0x28
     code[257] = std::byte{0x83};
     code[258] = std::byte{0xEC};
@@ -772,6 +775,9 @@ TEST_CASE("Native inline backend rejects invalid thread policies without changin
     code[260] = std::byte{0x90};
     std::array<std::byte, 8> stack_prologue_before{};
     std::memcpy(stack_prologue_before.data(), code + 256, stack_prologue_before.size());
+    DWORD read_execute_protection = 0;
+    REQUIRE(::VirtualProtect(region.address, 4096, PAGE_EXECUTE_READ,
+                             &read_execute_protection));
     auto unsupported_leaf = Hook<NativeHookFn>::create(
         Address{static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(code + 256))},
         &native_hook_detour,
