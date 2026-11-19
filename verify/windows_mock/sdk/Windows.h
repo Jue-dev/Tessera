@@ -26,6 +26,7 @@ struct THREADENTRY32 { DWORD dwSize; DWORD cntUsage; DWORD th32ThreadID; DWORD t
 #define FALSE 0
 #define INVALID_HANDLE_VALUE reinterpret_cast<HANDLE>(static_cast<std::intptr_t>(-1))
 #define NO_ERROR 0u
+#define ERROR_SUCCESS 0u
 #define STILL_ACTIVE 259u
 #define INFINITE 0xFFFFFFFFu
 #define WAIT_OBJECT_0 0u
