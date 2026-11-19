@@ -1130,7 +1130,7 @@ TEST_CASE("Native x64 trampoline restores a saved nonvolatile XMM register",
         {9u, static_cast<UCHAR>(8u | (6u << 4u))}); // UWOP_SAVE_XMM128 XMM6
     const USHORT xmm_save_offset_in_sixteen_byte_units = 1u;
     std::memcpy(reinterpret_cast<std::byte*>(source_info) +
-                    offsetof(TestUnwindInfo, unwind_code) + sizeof(TestUnwindCode),
+                    kTestUnwindCodeOffset + sizeof(TestUnwindCode),
                 &xmm_save_offset_in_sixteen_byte_units,
                 sizeof(xmm_save_offset_in_sixteen_byte_units));
     set_test_unwind_code(
@@ -1526,7 +1526,7 @@ TEST_CASE("Native x64 trampoline unwinds multiple pushed nonvolatile registers",
         {1u, static_cast<UCHAR>(kTestUnwindOpPushNonVol | (3u << 4u))}, // push rbx
     }};
     std::memcpy(reinterpret_cast<std::byte*>(source_info) +
-                    offsetof(TestUnwindInfo, unwind_code),
+                    kTestUnwindCodeOffset,
                 unwind_codes.data(),
                 sizeof(unwind_codes));
 
@@ -1615,12 +1615,12 @@ TEST_CASE("Native x64 trampoline maps multi-slot UWOP_ALLOC_LARGE for virtual un
     const TestUnwindCode allocation_operation{
         7u, static_cast<UCHAR>(1u | (1u << 4u))}; // UWOP_ALLOC_LARGE, OpInfo=1
     std::memcpy(reinterpret_cast<std::byte*>(source_info) +
-                    offsetof(TestUnwindInfo, unwind_code),
+                    kTestUnwindCodeOffset,
                 &allocation_operation,
                 sizeof(allocation_operation));
     const std::uint32_t encoded_allocation = allocation_size;
     std::memcpy(reinterpret_cast<std::byte*>(source_info) +
-                    offsetof(TestUnwindInfo, unwind_code) + sizeof(TestUnwindCode),
+                    kTestUnwindCodeOffset + sizeof(TestUnwindCode),
                 &encoded_allocation,
                 sizeof(encoded_allocation));
 
@@ -1735,12 +1735,12 @@ TEST_CASE("Native x64 trampoline maps multi-slot UWOP_SAVE_NONVOL for virtual un
     const TestUnwindCode save_operation{
         5u, static_cast<UCHAR>(4u | (6u << 4u))}; // UWOP_SAVE_NONVOL RSI
     std::memcpy(reinterpret_cast<std::byte*>(source_info) +
-                    offsetof(TestUnwindInfo, unwind_code),
+                    kTestUnwindCodeOffset,
                 &save_operation,
                 sizeof(save_operation));
     const USHORT scaled_stack_offset = 4u; // 0x20 / sizeof(ULONG64)
     std::memcpy(reinterpret_cast<std::byte*>(source_info) +
-                    offsetof(TestUnwindInfo, unwind_code) + sizeof(TestUnwindCode),
+                    kTestUnwindCodeOffset + sizeof(TestUnwindCode),
                 &scaled_stack_offset,
                 sizeof(scaled_stack_offset));
 
@@ -1866,12 +1866,12 @@ TEST_CASE("Native x64 trampoline maps far UWOP_SAVE_NONVOL and UWOP_ALLOC_LARGE"
         source_info, 0u,
         {15u, static_cast<UCHAR>(5u | (6u << 4u))}); // UWOP_SAVE_NONVOL_FAR RSI
     std::memcpy(reinterpret_cast<std::byte*>(source_info) +
-                    offsetof(TestUnwindInfo, unwind_code) + sizeof(TestUnwindCode),
+                    kTestUnwindCodeOffset + sizeof(TestUnwindCode),
                 &save_offset, sizeof(save_offset));
     set_test_unwind_code(
         source_info, 3u, {7u, static_cast<UCHAR>(1u | (1u << 4u))});
     std::memcpy(reinterpret_cast<std::byte*>(source_info) +
-                    offsetof(TestUnwindInfo, unwind_code) +
+                    kTestUnwindCodeOffset +
                     4u * sizeof(TestUnwindCode),
                 &stack_allocation, sizeof(stack_allocation));
 
@@ -1988,12 +1988,12 @@ TEST_CASE("Native x64 trampoline maps far UWOP_SAVE_XMM128 and UWOP_ALLOC_LARGE"
         source_info, 0u,
         {15u, static_cast<UCHAR>(9u | (6u << 4u))}); // UWOP_SAVE_XMM128_FAR XMM6
     std::memcpy(reinterpret_cast<std::byte*>(source_info) +
-                    offsetof(TestUnwindInfo, unwind_code) + sizeof(TestUnwindCode),
+                    kTestUnwindCodeOffset + sizeof(TestUnwindCode),
                 &save_offset, sizeof(save_offset));
     set_test_unwind_code(
         source_info, 3u, {7u, static_cast<UCHAR>(1u | (1u << 4u))});
     std::memcpy(reinterpret_cast<std::byte*>(source_info) +
-                    offsetof(TestUnwindInfo, unwind_code) +
+                    kTestUnwindCodeOffset +
                     4u * sizeof(TestUnwindCode),
                 &stack_allocation, sizeof(stack_allocation));
 
