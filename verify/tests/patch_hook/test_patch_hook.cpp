@@ -12,6 +12,7 @@
 #include <initializer_list>
 #include <mutex>
 #include <shared_mutex>
+#include <string>
 #include <thread>
 #include <type_traits>
 #include <utility>
@@ -3913,6 +3914,138 @@ TEST_CASE("Native inline backend supports admission-gated concurrent callers acr
 }
 
 #if defined(TESSERA_TEST_WITH_DETOURS)
+
+TEST_CASE("Native hook host admission drains active detours before unloading the detour module",
+          "[hook][native][lifecycle][module][integration]") {
+    using namespace tessera;
+
+#if !defined(TESSERA_HOOK_MODULE_FIXTURE_PATH)
+    FAIL("The native hook module fixture path was not configured by CMake.");
+#else
+    struct ModuleGuard {
+        HMODULE module = nullptr;
+        bool safe_to_unload = true;
+
+        ~ModuleGuard() noexcept {
+            // If detach could not be proven successful, deliberately retain the
+            // module until process exit rather than unload live detour code.
+            if (module != nullptr && safe_to_unload) {
+                (void)::FreeLibrary(module);
+            }
+        }
+
+        [[nodiscard]] bool unload() noexcept {
+            if (module == nullptr) {
+                return true;
+            }
+            if (!::FreeLibrary(module)) {
+                return false;
+            }
+            module = nullptr;
+            return true;
+        }
+    } module{
+        ::LoadLibraryA(TESSERA_HOOK_MODULE_FIXTURE_PATH), true};
+    REQUIRE(module.module != nullptr);
+
+    const auto find_export = [](HMODULE handle, const char* name) noexcept -> FARPROC {
+        FARPROC symbol = ::GetProcAddress(handle, name);
+#if defined(_M_IX86)
+        if (symbol == nullptr) {
+            std::string decorated{"_"};
+            decorated += name;
+            symbol = ::GetProcAddress(handle, decorated.c_str());
+        }
+#endif
+        return symbol;
+    };
+
+    using ConfigureFn = void(__cdecl*)(NativeHookFn, HANDLE, HANDLE);
+    using ActiveCallsFn = LONG(__cdecl*)();
+    const auto configure = reinterpret_cast<ConfigureFn>(
+        find_export(module.module, "tessera_fixture_configure"));
+    const auto active_calls = reinterpret_cast<ActiveCallsFn>(
+        find_export(module.module, "tessera_fixture_active_calls"));
+    const auto detour = reinterpret_cast<NativeHookFn>(
+        find_export(module.module, "tessera_fixture_detour"));
+    REQUIRE(configure != nullptr);
+    REQUIRE(active_calls != nullptr);
+    REQUIRE(detour != nullptr);
+
+    struct EventGuard {
+        HANDLE handle = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        ~EventGuard() noexcept {
+            if (handle != nullptr) {
+                (void)::CloseHandle(handle);
+            }
+        }
+    } entered_event, release_event;
+    REQUIRE(entered_event.handle != nullptr);
+    REQUIRE(release_event.handle != nullptr);
+
+    HookBackend& backend = native_inline_hook_backend();
+    NativeHookFn volatile target_entry = &native_hook_target;
+    auto hook = Hook<NativeHookFn>::create(
+        target_entry,
+        detour,
+        &backend);
+    REQUIRE(hook.has_value());
+
+    HookOptions options{};
+    options.threads = ThreadPolicy::None;
+    REQUIRE(hook->install(options).has_value());
+    module.safe_to_unload = false;
+    configure(hook->original(), entered_event.handle, release_event.handle);
+
+    std::shared_mutex admission_gate;
+    std::atomic<int> call_result{-1};
+    struct JoiningCall {
+        HANDLE release_event = nullptr;
+        std::thread worker{};
+
+        ~JoiningCall() noexcept {
+            if (worker.joinable()) {
+                if (release_event != nullptr) {
+                    (void)::SetEvent(release_event);
+                }
+                worker.join();
+            }
+        }
+    } caller{release_event.handle};
+
+    caller.worker = std::thread([&] {
+        std::shared_lock admission(admission_gate);
+        call_result.store(target_entry(5), std::memory_order_release);
+    });
+
+    REQUIRE(::WaitForSingleObject(entered_event.handle, 5000) == WAIT_OBJECT_0);
+    REQUIRE(active_calls() == 1);
+
+    // The callback is blocked inside the DLL. The host's exclusive admission
+    // gate cannot be acquired, so neither detach nor FreeLibrary is permitted.
+    std::unique_lock stop_admission(admission_gate, std::defer_lock);
+    REQUIRE_FALSE(stop_admission.try_lock());
+    REQUIRE(::GetModuleHandleA(TESSERA_HOOK_MODULE_FIXTURE_PATH) == module.module);
+
+    REQUIRE(::SetEvent(release_event.handle));
+    caller.worker.join();
+    REQUIRE(call_result.load(std::memory_order_acquire) == 1103);
+    REQUIRE(active_calls() == 0);
+    REQUIRE(stop_admission.try_lock());
+
+    // No new caller can enter while this exclusive gate is held. Successful
+    // detach must precede unloading the module that supplied the detour.
+    REQUIRE(hook->remove().has_value());
+    REQUIRE_FALSE(hook->installed());
+    module.safe_to_unload = true;
+    REQUIRE(module.unload());
+    REQUIRE(::GetModuleHandleA(TESSERA_HOOK_MODULE_FIXTURE_PATH) == nullptr);
+
+    // The original target remains callable after its detour module is gone.
+    REQUIRE(target_entry(5) == 103);
+#endif
+}
+
 TEST_CASE("Microsoft Detours performs a live attach, trampoline call, and detach", "[hook][detours]") {
     using namespace tessera;
 

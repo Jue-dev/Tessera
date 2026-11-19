@@ -40,7 +40,7 @@ Windows matrix. Do not treat skipped or unstarted checks as passing.
 | Windows x86/x64 Debug/Release on current head | [ ] Deferred | Actions quota unavailable; see the separate CI checklist |
 | Five-minute Clang libFuzzer + ASan/UBSan on current head | [ ] Deferred | Previous run passed on an earlier commit, not this head |
 | Full /GR-, Detours, /analyze, SDK packaging gates | [ ] Deferred | Must run after PR Smoke returns green |
-| Host admission/drain/module-unload acceptance | [ ] Remaining | Verify stop-admission → drain all target/detour/raw calls → remove → unload |
+| Host admission/drain/module-unload acceptance | [x] Test added; CI pending | A real detour DLL is held active while the exclusive admission gate is blocked; test releases/drains the callback, removes the hook, unloads the DLL, then verifies the original target still runs |
 | Allocation and RtlAddFunctionTable failure injection | [x] Static failure-path audit | unique_ptr owns temporary state; registration flag is set only after RtlAddFunctionTable succeeds; all failures before target write unwind and release unpublished state |
 | Final independent audit | [ ] Remaining | Re-check bytes, page protections, token, registry, unwind registration, and lifetime on every failure edge |
 
@@ -142,14 +142,14 @@ protocol.
 
 ## Current exact pause point
 
-The latest source change is the strict ENDBR `CodeOffset` rejection and its
-six-case malformed-metadata regression test. Static audit of temporary
-allocation ownership and `RtlAddFunctionTable` failure cleanup is documented.
+The latest source additions include strict ENDBR `CodeOffset` rejection, a
+six-case malformed-metadata regression test, and a real DLL unload-order test.
+Static audit of temporary allocation ownership and `RtlAddFunctionTable`
+failure cleanup is documented.
 No Windows validation has been run on the current head because the Actions
-quota is unavailable. Next work is a final source-level audit of the host
-admission/unload boundary and checking the current-head commit; when Actions is
-available, run the dedicated four-way matrix once, then the five-minute fuzz
-campaign separately. Do not mark CI checkboxes as passed before those runs.
+quota is unavailable. Next work is a final source-level review of the DLL fixture/CMake integration
+and checking the current-head commit; when Actions is available, run the
+dedicated four-way matrix once, then the five-minute fuzz campaign separately. Do not mark CI checkboxes as passed before those runs.
 
 ## Definition of done
 

@@ -26,6 +26,7 @@ Expected evidence: four successful Windows jobs for the exact commit SHA.
 ## B. x64 unwind runtime correctness — all tests below
 
 Run the complete `[hook][native][unwind]` test group, not just the new cases.
+Also run the `[hook][native][lifecycle][module]` group for real DLL unload ordering.
 
 - [ ] Existing `UWOP_ALLOC_SMALL` SEH test: exception raised inside relocated
   prologue is dispatched and unwound successfully.
@@ -110,6 +111,7 @@ weekly runs are disabled). Inspect every job and do not publish a release.
 - [ ] Detach succeeds before hook state or the detour module is destroyed.
 - [ ] A test or documented integration harness verifies the ordering
   stop-admission → drain → remove → unload.
+  Regression test: `Native hook host admission drains active detours before unloading the detour module`.
 - [ ] Concurrent operations on the same `Hook` object are externally
   synchronized; no claim is made that the wrapper is itself thread-safe.
 
