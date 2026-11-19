@@ -530,6 +530,7 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
             value == 0x2Eu || value == 0x36u ||
             value == 0x3Eu || value == 0x26u ||
             value == 0x64u || value == 0x65u) {
+            rex = 0u; // A later legacy prefix makes an earlier REX ineffective.
             ++cursor;
             continue;
         }
@@ -569,8 +570,29 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
             static_cast<unsigned int>(opcode - 0xB8u) + ((rex & 0x01u) != 0u ? 8u : 0u);
         return is_volatile_gpr(reg);
     }
-    if (opcode == 0x0Cu) {
-        return true; // OR AL, imm8.
+    if (opcode <= 0x3Fu) {
+        const unsigned int form = opcode & 0x07u;
+        if (form == 0u || form == 1u || form == 2u || form == 3u) {
+            if (opcode >= 0x38u) {
+                return true; // CMP never writes its operand.
+            }
+            if (cursor >= instruction.length) {
+                return false;
+            }
+            const auto modrm = std::to_integer<std::uint8_t>(code[cursor]);
+            const unsigned int mod = (modrm >> 6u) & 0x03u;
+            const unsigned int reg_field =
+                ((modrm >> 3u) & 0x07u) + ((rex & 0x04u) != 0u ? 8u : 0u);
+            const unsigned int rm_field =
+                (modrm & 0x07u) + ((rex & 0x01u) != 0u ? 8u : 0u);
+            if ((form & 0x02u) != 0u) {
+                return is_volatile_gpr(reg_field);
+            }
+            return mod == 0x03u && is_volatile_gpr(rm_field);
+        }
+        if (form == 4u || form == 5u) {
+            return true; // Accumulator-immediate arithmetic only writes RAX/EAX.
+        }
     }
 
     // Only register-destination forms are accepted below. Memory writes,
@@ -586,10 +608,10 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
     const unsigned int rm_field =
         (modrm & 0x07u) + ((rex & 0x01u) != 0u ? 8u : 0u);
 
-    if (opcode == 0x8Du || opcode == 0x8Bu || opcode == 0x33u) {
-        return is_volatile_gpr(reg_field); // LEA / MOV / XOR destination is ModRM.reg.
+    if (opcode == 0x8Du || opcode == 0x8Bu) {
+        return is_volatile_gpr(reg_field); // LEA / MOV destination is ModRM.reg.
     }
-    if (opcode == 0x89u || opcode == 0x31u) {
+    if (opcode == 0x89u) {
         return mod == 0x03u && is_volatile_gpr(rm_field);
     }
     if (opcode == 0x85u || opcode == 0x84u) {
