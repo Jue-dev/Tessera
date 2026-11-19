@@ -91,7 +91,6 @@ struct TestUnwindInfo {
 constexpr std::size_t kTestUnwindCodeOffset = sizeof(TestUnwindInfo);
 constexpr std::size_t kTestTrampolineEntryPrefixSize = 4u;
 constexpr UCHAR kTestUnwindOpAllocSmall = 2u;
-constexpr UCHAR kTestUnwindOpPushNonVol = 0u;
 void set_test_unwind_code(
     TestUnwindInfo* info,
     std::size_t slot,
