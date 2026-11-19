@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <exception>
 #include <mutex>
 #include <shared_mutex>
 #include <type_traits>
@@ -78,19 +79,52 @@ public:
     public:
         CallableLease(const CallableLease&) = delete;
         CallableLease& operator=(const CallableLease&) = delete;
-        CallableLease(CallableLease&&) noexcept = default;
-        CallableLease& operator=(CallableLease&&) noexcept = default;
+        CallableLease(CallableLease&&) = delete;
+        CallableLease& operator=(CallableLease&&) = delete;
+
+        ~CallableLease() noexcept {
+            if (active_lease_frame_ != &frame_) {
+                std::terminate();
+            }
+            active_lease_frame_ = frame_.previous;
+        }
 
         [[nodiscard]] void* get() const noexcept { return callable_; }
 
     private:
-        friend class HookCore;
-        CallableLease(std::shared_lock<std::shared_mutex>&& lock,
-                      void* callable) noexcept
-            : lock_(std::move(lock)), callable_(callable) {}
+        struct Frame {
+            const HookCore* owner = nullptr;
+            Frame* previous = nullptr;
+        };
 
-        std::shared_lock<std::shared_mutex> lock_;
+        friend class HookCore;
+        explicit CallableLease(const HookCore& owner)
+            : callable_(owner.active_callable_) {
+            bool already_leased = false;
+            for (Frame* frame = active_lease_frame_; frame != nullptr;
+                 frame = frame->previous) {
+                if (frame->owner == &owner) {
+                    already_leased = true;
+                    break;
+                }
+            }
+
+            // std::shared_mutex is not recursively lockable. A nested
+            // invocation on this thread is already protected by its outer
+            // lease, so it must not acquire the same shared mutex again.
+            if (!already_leased) {
+                lock_ = std::shared_lock<std::shared_mutex>{owner.lifecycle_mutex_};
+            }
+
+            frame_.owner = &owner;
+            frame_.previous = active_lease_frame_;
+            active_lease_frame_ = &frame_;
+        }
+
+        std::shared_lock<std::shared_mutex> lock_{};
         void* callable_ = nullptr;
+        Frame frame_{};
+        inline static thread_local Frame* active_lease_frame_ = nullptr;
     };
 
     HookCore() noexcept = default;
@@ -114,7 +148,9 @@ public:
     // A lease keeps the current callable valid until the returned object is
     // destroyed. remove(), install(), and release() take the exclusive side
     // of the same lock and therefore wait for leased invocations to finish.
-    [[nodiscard]] CallableLease acquire_callable() const;
+    [[nodiscard]] CallableLease acquire_callable() const {
+        return CallableLease{*this};
+    }
     [[nodiscard]] bool installed() const noexcept {
         return installed_.load(std::memory_order_acquire);
     }
