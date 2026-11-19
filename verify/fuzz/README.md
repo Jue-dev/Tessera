@@ -10,6 +10,22 @@ The Windows-only `tessera_fuzz_native_hook` target feeds up to 96 arbitrary byte
 
 Standalone smoke mode is still not a substitute for a sustained coverage-guided fuzzing campaign.
 
+## Native-hook seed corpus and scheduled campaign
+
+The binary seed corpus for the native hook harness lives in
+`verify/fuzz/corpus/native_hook`. It includes a known-good leaf prologue and
+focused relative-branch, terminal-padding, VEX, and EVEX encodings. The corpus
+is copied to the runner workspace before fuzzing so libFuzzer can minimize and
+add discoveries without modifying the checked-out source tree.
+
+The `Native Hook Coverage-Guided Fuzz` workflow runs a bounded five-minute
+Windows x64 Clang libFuzzer campaign weekly and can also be started manually.
+It instruments the production Tessera modules with AddressSanitizer and
+UndefinedBehaviorSanitizer, runs the native hook harness with a 96-byte input
+limit, and uploads the evolving corpus and crash artifacts. This campaign
+complements, but does not replace, the x86/x64 Debug/Release PR smoke matrix
+or real application integration tests.
+
 ## LLVM libFuzzer mode
 
 Use a Clang toolchain that provides the libFuzzer runtime:
