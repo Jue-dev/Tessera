@@ -87,9 +87,15 @@ Reviewed the lifecycle core and backend source after the current-head CI run. Th
 
 The current-head Windows CI matrix and quality gates are **PASS**. Issue #6 and PR #7 are **not ready to close/merge** because the sustained current-head sanitizer campaign, independent final failure-path review, and real host integration acceptance remain outstanding. PR #7 remains draft and Issue #6 remains open.
 
-## Next work
+## Final batch-test preparation
 
-1. Obtain an independent reviewer audit of the failure paths; current assistant source review is not a substitute.
-2. Run the current-head five-minute fuzz campaign once and inspect artifacts. Workflow dispatch is not exposed through the current GitHub connection, so this must be initiated from the Actions UI.
-3. Obtain real host admission/drain/unload acceptance in the consuming application.
-4. Produce a final evidence-based report. Do not merge or close Issue #6 without explicit authorization.
+- [x] Added `scripts/run-final-validation.ps1` to consolidate the x86/x64 Debug/Release matrix, CTest, MSVC analysis, no-RTTI tests, fuzz/benchmark smoke, install/package check, optional Detours integration, and optional sustained fuzz campaign.
+- [x] Corrected workflow documentation: PR smoke and sustained fuzz are manual-only; no weekly schedule is enabled.
+- [x] Runner logs and summary CSV are written under `artifacts/final-validation/logs`; fuzz corpus/crash artifacts are kept under `artifacts/final-validation/native-hook-fuzz`.
+- [ ] Run the consolidated final validation after the user is ready to execute the entire test batch.
+- [ ] Review final batch logs/artifacts and address failures.
+- [ ] Obtain independent reviewer audit and real host admission/drain/unload acceptance.
+
+The consolidated runner has not been executed in this environment: the repository cannot be cloned here because outbound GitHub access is unavailable, and this runtime is not the Windows/MSVC host required for the native hook integration tests. No test result is inferred from the runner being authored.
+
+Do not merge or close Issue #6 without explicit authorization.
