@@ -75,3 +75,8 @@ require a Windows runner:
 - DLL unload/admission-drain lifecycle tests
 - Live Microsoft Detours integration
 - MSVC static analysis and Windows SDK install/consumer checks
+
+
+## GitHub Actions automation
+
+The manual `Project Validation` workflow reads a JSON profile, resolves repository/ref overrides, checks out the target repository, runs setup/test commands, writes a report, adds it to the Actions summary, and uploads it as an artifact. Private target repositories may require the `VALIDATION_GH_TOKEN` repository secret.
