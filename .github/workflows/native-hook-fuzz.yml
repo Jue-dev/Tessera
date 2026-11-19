@@ -2,6 +2,20 @@ name: Native Hook Coverage-Guided Fuzz
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [ "main" ]
+    types: [ opened, reopened, synchronize, ready_for_review ]
+    paths:
+      - ".github/workflows/native-hook-fuzz.yml"
+      - ".github/actions/**"
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - "include/tessera/hook/**"
+      - "src/hook/**"
+      - "verify/fuzz/**"
+      - "verify/tests/patch_hook/**"
+      - "vcpkg.json"
+      - "vcpkg-configuration.json"
   schedule:
     - cron: "41 4 * * 1" # Weekly Monday campaign.
 
@@ -9,8 +23,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: tessera-native-hook-fuzz
-  cancel-in-progress: false
+  group: tessera-native-hook-fuzz-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   native-hook-fuzz:
