@@ -13,6 +13,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -568,6 +569,9 @@ TEST_CASE("Hook lifecycle and Detours-off contract", "[hook]") {
     using namespace tessera;
 
     using FnType = int(__cdecl*)(int);
+    using ScopedCallable = Hook<FnType>::ScopedCallable;
+    static_assert(!std::is_copy_constructible_v<ScopedCallable>);
+    static_assert(!std::is_move_constructible_v<ScopedCallable>);
 
     auto self_detour = Hook<FnType>::create(
         &sample_target_function, &sample_target_function);
@@ -581,6 +585,11 @@ TEST_CASE("Hook lifecycle and Detours-off contract", "[hook]") {
     REQUIRE_FALSE(hk_default->installed());
     REQUIRE(hk_default->original() != nullptr);
     REQUIRE((*hk_default)(5) == 15);
+    {
+        auto callable = hk_default->acquire();
+        REQUIRE(callable.get() != nullptr);
+        REQUIRE(callable.get()(5) == 15);
+    }
 
 #if defined(TESSERA_TEST_WITH_DETOURS)
     // The Detours-enabled build must link the real backend and report it available.
