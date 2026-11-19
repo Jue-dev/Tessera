@@ -1,234 +1,91 @@
 # Issue #6 — CI validation checklist
 
-**Validation target:** current PR branch `issue-6/unwind-lifecycle`. The last source/test commit is followed by documentation and workflow-only commits. The current exact head must be checked when dispatching; no result from an earlier SHA counts for the current head.
+**Validation branch:** `issue-6/unwind-lifecycle`  
+**Validated PR head:** `f4cc4d1715cef026585cf14650659981f891ace4`  
+**Evidence:** [CI run #18 / 44561390158](https://github.com/Jue-dev/Tessera/actions/runs/44561390158)  
+**Snapshot date:** 2026-11-19
 
-This checklist is intentionally separate from the implementation notes. Do not
-mark an item complete until the corresponding job/test has passed on the
-current PR head commit. The latest source changes are not considered validated until this checklist
-has been run with Actions available again. Workflows are deliberately manual
-for PR validation so each iteration does not consume Actions automatically.
+This checklist distinguishes automated evidence from host-level integration obligations. A green CI run is not a proof that every production host follows the admission/drain contract.
 
-## A. PR Smoke — required on the latest head
+## A. Current-head Windows matrix
 
-- [ ] x64 Debug: configure, compile, and all CTest suites pass.
-- [ ] x64 Release: configure, compile, all CTest suites, and deterministic
-  native-hook fuzz smoke pass.
-- [ ] x86 Debug: configure, compile, and all CTest suites pass. Confirm that
-  x64-only unwind fixtures are correctly excluded from x86 compilation.
-- [ ] x86 Release: configure, compile, and all CTest suites pass.
-- [ ] No warnings promoted to errors, test hangs, or flaky thread lifecycle
-  failures.
+- [x] x86 Debug configure/build/CTest and SDK staging.
+- [x] x86 Release configure/build/CTest and SDK staging.
+- [x] x64 Debug configure/build/CTest and SDK staging.
+- [x] x64 Release configure/build/CTest and SDK staging.
+- [x] All four jobs ran on the exact PR head above.
+- [x] No failed jobs; release publication was skipped by its tag-push guard.
 
-Primary workflow: `.github/workflows/ci.yml`. It is manual-dispatch
-capable and has no PR/schedule trigger. Select the PR branch and dispatch once
-for the full Windows x86/x64 Debug/Release matrix, quality gates, and SDK
-packaging. Expected evidence: successful required jobs on the exact commit SHA.
-The release job is tag-only; dispatching on this branch must not publish.
+Run #44561390158 completed successfully. All eight active jobs passed; the release job was skipped as expected. SDK artifacts were produced for all four configurations:
+- `Tessera-SDK-x86-debug`
+- `Tessera-SDK-x86-release`
+- `Tessera-SDK-x64-debug`
+- `Tessera-SDK-x64-release`
 
-## B. x64 unwind runtime correctness — all tests below
+## B. Native x64 unwind and lifecycle regression suite
 
-Run the complete `[hook][native][unwind]` test group, not just the new cases.
-Also run the `[hook][native][lifecycle][module]` group for real DLL unload ordering.
+- [x] Full CTest suite passed in the exact-head Windows matrix.
+- [x] Regression tests for PUSH_NONVOL, multi-slot ALLOC_LARGE, SAVE_NONVOL, far SAVE_NONVOL, far SAVE_XMM128, PUSH_MACHFRAME, SET_FPREG, and SAVE_XMM128.
+- [x] Malformed/unsupported metadata rejection: handler/chained records, unsupported version/opcode, unmappable instruction-interior offsets, ENDBR boundary, source-function bounds, and unreadable extra slots.
+- [x] Unregister-failure retry regression.
+- [x] DLL fixture / admission-gate / active-detour drain / detach / FreeLibrary ordering regression test ran as part of CTest.
+- [ ] Independently inspect the detailed per-test logs and verify every test name/result beyond the aggregate CTest evidence.
 
-- [ ] Existing `UWOP_ALLOC_SMALL` SEH test: exception raised inside relocated
-  prologue is dispatched and unwound successfully.
-- [ ] `UWOP_PUSH_NONVOL`: two pushed nonvolatile registers are both restored
-  when unwinding through the trampoline.
-- [ ] `UWOP_ALLOC_LARGE` with OpInfo=1: three-slot metadata is copied and
-  `RtlVirtualUnwind` restores RSP to the caller frame.
-- [ ] `UWOP_SAVE_NONVOL`: two-slot metadata restores the saved GPR value.
-- [ ] `UWOP_SAVE_NONVOL_FAR`: three-slot metadata restores a saved GPR at a
-  far stack offset.
-- [ ] `UWOP_SAVE_XMM128_FAR`: three-slot metadata restores the saved XMM value
-  at a far stack offset.
-- [ ] `UWOP_PUSH_MACHFRAME`: OpInfo=0 and OpInfo=1 reconstruct the simulated
-  machine frame correctly.
-- [ ] `UWOP_ALLOC_LARGE` with OpInfo=0 plus `UWOP_SET_FPREG` and
-  `UWOP_PUSH_NONVOL`: frame-pointer based unwind restores RBP and RSP.
-- [ ] `UWOP_SAVE_XMM128`: the saved nonvolatile XMM register is restored.
-- [ ] Handler and chained records are rejected before target bytes change.
-- [ ] An unwind CodeOffset inside a relocated instruction is rejected before
-  target bytes change.
-- [ ] An unwind CodeOffset equal to the preserved ENDBR64 prefix length is
-  rejected; ENDBR cannot complete a stack-changing unwind operation.
-- [ ] Version-2 unwind metadata and reserved version-1 opcodes fail closed
-  before target bytes change (covered in the malformed-metadata regression case).
-- [ ] A stolen patch that crosses the source function end is rejected before
-  target bytes change.
-- [ ] A truncated/unreadable extra unwind-code slot is rejected without an
-  access violation and without changing target bytes.
-- [ ] Unregister failure reinstates the patch and retains a retryable token;
-  a subsequent retry removes the table and releases resources.
+## C. Sustained sanitizer fuzz
 
-Relevant regression tests (exact names):
-- `Native x64 trampoline unwinds multiple pushed nonvolatile registers`
-- `Native x64 trampoline maps multi-slot UWOP_ALLOC_LARGE for virtual unwind`
-- `Native x64 trampoline maps multi-slot UWOP_SAVE_NONVOL for virtual unwind`
-- `Native x64 trampoline maps far UWOP_SAVE_NONVOL and UWOP_ALLOC_LARGE`
-- `Native x64 trampoline maps far UWOP_SAVE_XMM128 and UWOP_ALLOC_LARGE`
-- `Native x64 trampoline maps UWOP_PUSH_MACHFRAME with and without error code`
-- `Native x64 unwind rejects unsupported, malformed, and prefix-boundary source metadata` (EHANDLER, CHAININFO, instruction-interior offset, ENDBR boundary, version 2, reserved opcode)
-- `Native x64 trampoline maps ALLOC_LARGE and SET_FPREG together`
-- `Native x64 trampoline restores a saved nonvolatile XMM register`
-- `Native x64 unwind rejects a stolen patch that crosses the source function end`
-- `Native x64 unwind rejects an unreadable extra unwind-code slot without faulting`
-- `Native x64 trampoline remaps unwind offsets and unwinds an exception in relocated prologue`
+- [x] Deterministic fuzz/smoke target passed in CI quality gate.
+- [ ] Current-head Windows x64 Clang libFuzzer + ASan/UBSan bounded 300-second campaign.
+- [ ] Inspect uploaded corpus/crash artifact and retain any new reproducer as a regression seed.
 
-## C. Coverage-guided fuzz — required on the latest head
+The sustained campaign is separate and manual-only in `.github/workflows/native-hook-fuzz.yml`. The previous five-minute campaign was on an earlier SHA and does not validate this head.
 
-- [ ] Windows x64 clang-cl toolchain verification succeeds.
-- [ ] Instrumented production objects and native-hook fuzzer build with
-  libFuzzer + ASan + UBSan.
-- [ ] Bounded campaign completes its full configured five minutes with exit
-  code 0 and no ASan/UBSan finding, crash, timeout, or OOM.
-- [ ] Final statistics are present in the job log.
-- [ ] Corpus/crash artifact uploads successfully; inspect the artifact and
-  retain any new reproducer as a checked-in regression seed.
+## D. Full quality gates
 
-Run `.github/workflows/native-hook-fuzz.yml` manually from the Actions UI
-with the PR branch selected and `campaign_seconds=300` after allowance is
-available. The workflow has no push, PR, or schedule trigger.
-Expected evidence: successful “Run bounded coverage-guided campaign” and
-“Upload fuzz corpus and crash artifacts” steps for the exact commit SHA.
+- [x] `/GR-` no-RTTI build, tests, fuzz smoke, benchmark smoke, and SDK install/package check.
+- [x] Live Microsoft Detours integration x86.
+- [x] Live Microsoft Detours integration x64.
+- [x] MSVC `/analyze` build and tests.
+- [x] SDK packaging/staging matrix.
+- [x] Confirmed release publication skipped; no release was created.
 
-## D. Full quality gate — run after PR Smoke is green
+Evidence: CI run #44561390158, exact validated head.
 
-- [ ] Full x86/x64 Debug/Release CTest and SDK packaging matrix passes.
-- [ ] `/GR-` no-RTTI build, all tests, fuzz smoke, benchmark smoke, and
-  single-library SDK install check pass.
-- [ ] Live Microsoft Detours integration passes on x86 and x64.
-- [ ] MSVC `/analyze` build and CTest pass.
-- [ ] No unintended release/publish job is started from this branch.
+## E. Host lifecycle acceptance
 
-Workflow: `.github/workflows/ci.yml` (source-path-filtered main push or manual
-only; scheduled runs are disabled). Inspect every job and do not publish a release.
+- [x] Test fixture demonstrates admission gate blocks stop while an active detour callback is held.
+- [x] Test fixture drains callback, detaches hook, unloads detour DLL, and calls original target afterward.
+- [ ] Independent real-application host integration: prove the host gates all direct target calls, callback entries, and raw/escaped trampoline pointers; this is outside what the fixture can establish.
+- [ ] Document and enforce that `Hook` destruction/move is externally synchronized and explicit `remove()` is checked before unloading callback code.
+- [ ] Host thread-creation policy: a Toolhelp snapshot is not a thread-creation barrier; admission gate/quiescence is required.
 
-## E. Host-lifecycle acceptance — review/test before closing Issue #6
-
-- [ ] Application admission gate blocks new target calls before install and
-  before detach.
-- [ ] The host drains direct target calls, active detour callbacks, and every
-  raw/escaped trampoline call, not only calls made through `Hook::acquire()`.
-- [ ] Detach succeeds before hook state or the detour module is destroyed.
-- [ ] `Native hook host admission drains active detours before unloading the detour module`
-  passes on x86 and x64. The regression test is implemented; Windows execution
-  is pending. It loads a real DLL detour, holds a callback active,
-  proves the host admission gate cannot close early, drains the call, removes
-  the hook, calls `FreeLibrary`, and verifies the original target still runs.
-- [ ] Concurrent operations on the same `Hook` object are externally
-  synchronized; no claim is made that the wrapper is itself thread-safe.
+The fixture test passed on the validated CI head. This does not replace integration with the actual host application's call paths.
 
 ## F. Failure-path audit
 
-- [ ] Source `RUNTIME_FUNCTION` and `UNWIND_INFO` reads are bounded to
-  committed readable memory.
-- [ ] Unwind slot parsing/serialization uses bounded byte spans; no one-element
-  trailing array is indexed beyond its declared extent.
-- [ ] Source function bounds are checked before the target is patched.
-- [x] Allocation failure path statically audited: temporary state remains in
-  a `unique_ptr`; allocation/relocation failures occur before target writes,
-  and a partially built trampoline is freed by state destruction.
-- [x] `RtlAddFunctionTable` failure path statically audited: the registered
-  flag is set only after success; failure returns before thread suspension or
-  target patching, and the unpublished allocation is freed by state destruction.
-- [ ] `RtlDeleteFunctionTable` failure remains retryable and does not free
-  memory still registered with Windows. Regression test exists:
-  `Native x64 unwind unregister failure restores the patch and keeps the token retryable`.
-- [ ] Patch-write failure rollback preserves original bytes and page protection;
-  uncertain rollback remains fail-fast. Deterministic `FakePatchWriteOps`
-  tests cover protection failure, flush rollback, fatal rollback, and success.
+- [x] Static ownership/control-flow review: unpublished state is owned by `unique_ptr`; failures before patch publication release temporary resources.
+- [x] `RtlAddFunctionTable` failure path is before target patching and only marks registration after success.
+- [x] Patch transaction rollback tests, including protection failure, flush rollback, fatal rollback, and success, passed in CI.
+- [x] Unregister-failure retry test passed in CI.
+- [ ] Independent final audit of every failure edge, including registry ownership, target bytes, page protection, unwind registration, token validity, and retryability.
+- [ ] Deterministic Windows API failure injection for allocation, registration, protection, and cache flush; current static review/test seams do not inject every system API failure.
 
-## Continuation checkpoint — 2026-11-19
+## G. Workflow and quota policy
 
-- [x] Refreshed repository, branch, PR #7, and Issue #6 state.
-- [x] Reviewed the PR diff and the native backend / HookCore ownership,
-  unwind-registration, detach-retry, and lease-boundary paths at source level.
-      This is a static review, not Windows runtime proof; the independent final
-      failure-path audit remains open.
-- [x] Restricted SDK bundle assembly and release publication to an actual
-  `push` of a `v*` tag. Manual validation runs must skip this job.
-- [x] Preserved a separate, explicit checklist for Windows x86/x64, fuzz,
-  Detours, `/GR-`, `/analyze`, SDK package, host-unload, and failure-path
-  acceptance.
-- [ ] Do not merge or close Issue #6 until the remaining checklist sections
-      have exact-current-head evidence or a documented technical resolution.
+- [x] CI validation is manual-only for the PR branch; no PR/schedule triggers.
+- [x] Fuzz workflow is manual-only with bounded campaign choices.
+- [x] `pr-smoke.yml` preserved but manual-only (`workflow_dispatch`).
+- [x] Release job guarded to a version-tag push.
+- [x] No merge, release, or tag action performed.
+- [x] Avoid redundant Actions runs: current-head Windows matrix and quality gates are green; do not rerun them without a specific code change or need.
 
-## Current execution state
+## Current conclusion
 
-- Actions audit snapshot (2026-11-19): the previously inspected PR head
-  `a7a83f8485a4da27c83b49627554467ad9eedf93` had no workflow runs or status
-  contexts attached to that exact SHA. Older PR-triggered runs were skipped or
-  failed on earlier SHAs and are not evidence for the current head.
-- The CI workflow's `publish-sdk-bundle` job is now guarded by both
-  `github.event_name == 'push'` and a `refs/tags/v*` ref. Manual dispatches,
-  including dispatches against a tag, must not assemble or publish release
-  artifacts. Keep the release gate tag-push-only.
+The current-head Windows CI matrix and quality gates are **PASS**. Issue #6 and PR #7 are **not ready to close/merge** because the sustained current-head sanitizer campaign, independent final failure-path review, and real host integration acceptance remain outstanding. PR #7 remains draft and Issue #6 remains open.
 
+## Next work
 
-- Real shared-library fixture and DLL unload-order test are now part of the
-  Windows test executable; the x86 export fallback and DLL basename checks
-  were source-reviewed. This test is added, not yet runtime-validated.
-- `UnwindCode[1]` trailing-array indexing was removed from production and test
-  metadata representations; slots are now copied through bounded byte spans.
-  Current-head compilation and runtime checks are still pending.
-
-- Last known green PR Smoke: run #96 on commit
-  `ad8a378d994522d7bebabde5a70d9330298fac33`.
-- Last known green five-minute fuzz campaign: run #8 on commit
-  `ad8a378d994522d7bebabde5a70d9330298fac33`, with uploaded artifact
-  `native-hook-libfuzzer-8`.
-- Additional unwind tests and source-metadata bounds checks were added after
-  that green commit. They are **not yet validated** on the current head.
-- Actions validation is deferred because the repository's available Actions
-  allowance is exhausted. Do not infer success from queued, skipped, cancelled,
-  or runner-less workflow records.
-
-After Actions allowance is restored, dispatch `ci.yml` once with the PR branch
-selected for full validation. Dispatch `native-hook-fuzz.yml` only if the
-five-minute sanitizer campaign is still required. Both are manual-only; commits
-do not start jobs. Avoid duplicate dispatches.
-Current PR head and checklist progress must be refreshed when Actions becomes
-available. Keep Issue #6 open until sections A–F have evidence or a remaining
-item is explicitly resolved with a documented technical justification.
-
-
-## Portable test preparation — 2026-11-19
-
-- [x] Added `verify/portable/Tessera_Portable_Validation.ipynb` for Google Colab. It clones this branch and runs the existing Windows-backend mock harness with GCC, Clang, and GCC ASan/UBSan.
-- [x] Added `docs/portable-validation.md` documenting scope, commands, and what remains Windows-only.
-- [ ] Execute the notebook against the current head and save fresh logs. Notebook prepared only; it has **not** been run in this environment.
-- [ ] Review Colab outputs for all 20 current mock assertions and investigate any failure.
-- [ ] Do not treat portable mock results as evidence for native x64 unwind registration, real executable-memory patching, loader/DLL lifetime, or MSVC behavior.
-
-
-## Actions run #8 triage — 2026-11-19
-
-- [x] Inspected run [44545841377](https://github.com/Jue-dev/Tessera/actions/runs/44545841377), triggered manually at commit `26a7b55ea2601a9cc7cbd8bb6bfedd7f70c734d2`.
-- [x] Root cause: test-only constant `kTestUnwindOpPushNonVol` was referenced in three x64 unwind fixtures but not declared. MSVC C2065 stopped x64 Debug/Release, `/analyze`, `/GR-`, and Detours x64 builds. x86 Debug/Release and Detours x86 passed.
-- [x] Added `constexpr UCHAR kTestUnwindOpPushNonVol = 0u` (`UWOP_PUSH_NONVOL`) beside the other local unwind opcode constants.
-- [ ] Re-run CI on the fix commit `ad3338edd7a4cb7e0e03b9a02110b28b16fce674`; the fix is source-reviewed but not yet compiler/runtime validated.
-- [ ] Review newly exposed failures after compilation proceeds beyond this blocker.
-
-
-## Actions run #9 triage — 2026-11-19
-
-- [x] Inspected run [44547235720](https://github.com/Jue-dev/Tessera/actions/runs/44547235720) and job [135640968636](https://github.com/Jue-dev/Tessera/actions/runs/44547235720/job/135640968636). The requested **Live Microsoft Detours Hook (x86)** job passed all steps, including Detours build and live integration.
-- [x] x86 Debug and Release passed CTest and SDK staging/upload in this run.
-- [x] Identified x64 Debug/Release and x64 Detours failures: the six failures all surfaced in `tessera_test_patch_hook` x64 unwind tests (one install rejection and five virtual-unwind state mismatches). These require fixture/implementation diagnosis; they are not CI infrastructure failures.
-- [x] Identified MSVC `/analyze` blocker C6320 in `invoke_breakpoint_trampoline`: a constant `EXCEPTION_EXECUTE_HANDLER` filter could swallow unrelated exceptions.
-- [x] Corrected the `UWOP_ALLOC_LARGE (OpInfo=0)` fixture's slot layout: its 16-bit payload belongs in slot 1; `UWOP_SET_FPREG` and `UWOP_PUSH_NONVOL` now follow in slots 2 and 3.
-- [x] Narrowed the SEH filter to handle only `EXCEPTION_BREAKPOINT`; all unrelated exceptions continue searching.
-- [ ] Re-run x64 Debug/Release, x64 Detours, `/analyze`, and `/GR-` on the exact fix head. No Actions rerun was launched after these edits.
-- [ ] Investigate remaining five x64 virtual-unwind failures. They are not considered fixed by the fixture or SEH-filter edits.
-- [ ] Inspect current run #9's full source SHA and refresh this checkpoint against the PR head before any merge decision.
-
-
-
-## Actions run #10 triage — 2026-11-19
-
-- [x] Inspected run [44549196007](https://github.com/Jue-dev/Tessera/actions/runs/44549196007) at head `71a3b3e0b5894c4ce86fa31914be3b79833c8029`.
-- [x] x86 Debug, x86 Release, and live Detours x86 passed. x64 Debug/Release, live Detours x64, MSVC /analyze test stage, and /GR- test stage fail on the same six x64 virtual-unwind assertions; builds complete successfully.
-- [x] Static diagnosis: the generated trampoline ended with an unconditional `E9 rel32` tail jump. Windows x64 recognizes such jumps as epilog markers; the trampoline tail is not a real epilog because the relocated source prologue's stack/register state is still active. This can bypass the trampoline's unwind operations when the control PC lands on that tail.
-- [x] Changed the x64 tail to two complementary flag-preserving conditional branches (`JE continuation; JNE continuation`). Exactly one branch is taken for every flag state, and conditional branches are not x64 epilog markers. x86 retains its original five-byte relative jump.
-- [ ] Validate the x64 tail encoding and all six unwind regressions on Windows CI. This change is committed but not runtime-validated; do not merge based on static diagnosis alone.
-- [ ] Re-run the x64 matrix, Detours x64, /analyze, and /GR- only when Actions allowance is available; then triage any new failures.
+1. Perform the independent final source/failure-path audit.
+2. Update implementation documentation and PR status text to reflect this exact-head green CI evidence (PR body editing is not available through the currently connected GitHub actions).
+3. When Actions quota is available and a campaign is still warranted, run the current-head five-minute fuzz campaign once and inspect artifacts.
+4. Obtain real host admission/drain/unload acceptance.
+5. Produce a final evidence-based report. Do not merge or close Issue #6 without explicit authorization.
