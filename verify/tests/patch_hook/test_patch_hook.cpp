@@ -4028,7 +4028,7 @@ TEST_CASE("Native hook host admission drains active detours before unloading the
     // gate cannot be acquired, so neither detach nor FreeLibrary is permitted.
     std::unique_lock stop_admission(admission_gate, std::defer_lock);
     REQUIRE_FALSE(stop_admission.try_lock());
-    REQUIRE(::GetModuleHandleA(TESSERA_HOOK_MODULE_FIXTURE_PATH) == module.module);
+    REQUIRE(::GetModuleHandleA("tessera_hook_module_fixture.dll") == module.module);
 
     REQUIRE(::SetEvent(release_event.handle));
     caller.worker.join();
@@ -4042,7 +4042,7 @@ TEST_CASE("Native hook host admission drains active detours before unloading the
     REQUIRE_FALSE(hook->installed());
     module.safe_to_unload = true;
     REQUIRE(module.unload());
-    REQUIRE(::GetModuleHandleA(TESSERA_HOOK_MODULE_FIXTURE_PATH) == nullptr);
+    REQUIRE(::GetModuleHandleA("tessera_hook_module_fixture.dll") == nullptr);
 
     // The original target remains callable after its detour module is gone.
     REQUIRE(target_entry(5) == 103);
