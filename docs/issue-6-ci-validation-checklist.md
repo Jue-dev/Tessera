@@ -89,8 +89,7 @@ The current-head Windows CI matrix and quality gates are **PASS**. Issue #6 and 
 
 ## Next work
 
-1. Perform the independent final source/failure-path audit.
-2. Update implementation documentation and PR status text to reflect this exact-head green CI evidence (PR body editing is not available through the currently connected GitHub actions).
-3. When Actions quota is available and a campaign is still warranted, run the current-head five-minute fuzz campaign once and inspect artifacts.
-4. Obtain real host admission/drain/unload acceptance.
-5. Produce a final evidence-based report. Do not merge or close Issue #6 without explicit authorization.
+1. Obtain an independent reviewer audit of the failure paths; current assistant source review is not a substitute.
+2. Run the current-head five-minute fuzz campaign once and inspect artifacts. Workflow dispatch is not exposed through the current GitHub connection, so this must be initiated from the Actions UI.
+3. Obtain real host admission/drain/unload acceptance in the consuming application.
+4. Produce a final evidence-based report. Do not merge or close Issue #6 without explicit authorization.
