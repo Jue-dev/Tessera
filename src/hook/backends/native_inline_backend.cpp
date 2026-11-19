@@ -497,6 +497,373 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
     return true;
 }
 
+
+#if defined(TESSERA_HOOK_X64)
+
+[[nodiscard]] constexpr bool is_nonvolatile_gpr(unsigned int reg) noexcept {
+    return reg == 3u || reg == 5u || reg == 6u || reg == 7u ||
+           (reg >= 12u && reg <= 15u);
+}
+
+[[nodiscard]] constexpr bool is_volatile_gpr(unsigned int reg) noexcept {
+    return reg == 0u || reg == 1u || reg == 2u ||
+           (reg >= 8u && reg <= 11u);
+}
+
+// A target without a registered RUNTIME_FUNCTION is only accepted as a leaf
+// when every stolen instruction is in this deliberately small, auditable
+// stack-neutral subset. Unknown encodings fail closed instead of receiving
+// synthetic leaf unwind semantics.
+[[nodiscard]] bool is_leaf_safe_instruction(
+    const std::byte* code,
+    const DecodedInstruction& instruction) noexcept {
+    std::size_t cursor = 0;
+    std::uint8_t rex = 0;
+    while (cursor < instruction.length) {
+        const auto value = std::to_integer<std::uint8_t>(code[cursor]);
+        if (value >= 0x40u && value <= 0x4Fu) {
+            rex = value;
+            ++cursor;
+            continue;
+        }
+        if (value == 0x66u || value == 0x67u ||
+            value == 0x2Eu || value == 0x36u ||
+            value == 0x3Eu || value == 0x26u ||
+            value == 0x64u || value == 0x65u) {
+            ++cursor;
+            continue;
+        }
+        if (value == 0xF0u || value == 0xF2u || value == 0xF3u) {
+            return false;
+        }
+        break;
+    }
+    if (cursor >= instruction.length) {
+        return false;
+    }
+
+    const auto opcode = std::to_integer<std::uint8_t>(code[cursor++]);
+    if (opcode == 0x90u || opcode == 0xCCu || opcode == 0xC3u) {
+        return true;
+    }
+    if (opcode == 0x0Fu) {
+        if (cursor >= instruction.length) {
+            return false;
+        }
+        const auto opcode2 = std::to_integer<std::uint8_t>(code[cursor++]);
+        if (opcode2 == 0x1Fu) {
+            return true; // Multi-byte NOP.
+        }
+        if (opcode2 >= 0x80u && opcode2 <= 0x8Fu) {
+            return true; // Near conditional branch.
+        }
+        return false;
+    }
+    if ((opcode >= 0x70u && opcode <= 0x7Fu) ||
+        (opcode >= 0xE0u && opcode <= 0xE3u) ||
+        opcode == 0xE9u || opcode == 0xEBu) {
+        return true;
+    }
+    if (opcode >= 0xB8u && opcode <= 0xBFu) {
+        const unsigned int reg =
+            static_cast<unsigned int>(opcode - 0xB8u) + ((rex & 0x01u) != 0u ? 8u : 0u);
+        return is_volatile_gpr(reg);
+    }
+    if (opcode == 0x0Cu) {
+        return true; // OR AL, imm8.
+    }
+
+    // Only register-destination forms are accepted below. Memory writes,
+    // stack operations, calls, and writes to nonvolatile registers are not
+    // leaf-compatible.
+    if (cursor >= instruction.length) {
+        return false;
+    }
+    const auto modrm = std::to_integer<std::uint8_t>(code[cursor]);
+    const unsigned int mod = (modrm >> 6u) & 0x03u;
+    const unsigned int reg_field =
+        ((modrm >> 3u) & 0x07u) + ((rex & 0x04u) != 0u ? 8u : 0u);
+    const unsigned int rm_field =
+        (modrm & 0x07u) + ((rex & 0x01u) != 0u ? 8u : 0u);
+
+    if (opcode == 0x8Du || opcode == 0x8Bu || opcode == 0x33u) {
+        return is_volatile_gpr(reg_field); // LEA / MOV / XOR destination is ModRM.reg.
+    }
+    if (opcode == 0x89u || opcode == 0x31u) {
+        return mod == 0x03u && is_volatile_gpr(rm_field);
+    }
+    if (opcode == 0x85u || opcode == 0x84u) {
+        return true; // TEST does not write a general-purpose register.
+    }
+    if (opcode == 0xFFu && (instruction.modrm_reg == 4u || instruction.modrm_reg == 5u)) {
+        return true; // Indirect tail jump, not CALL.
+    }
+    return false;
+}
+
+[[nodiscard]] bool is_leaf_safe_block(
+    const std::byte* original_code,
+    const DecodedBlock& block) noexcept {
+    for (std::size_t index = 0; index < block.instruction_count; ++index) {
+        const auto& instruction = block.instructions[index];
+        if (!is_leaf_safe_instruction(original_code + instruction.offset, instruction)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool map_unwind_code_offset(
+    std::uint8_t source_offset,
+    std::size_t entry_prefix_size,
+    const DecodedBlock& block,
+    std::uint8_t& trampoline_offset) noexcept {
+    if (source_offset <= entry_prefix_size) {
+        return false;
+    }
+    const std::size_t patch_offset =
+        static_cast<std::size_t>(source_offset) - entry_prefix_size;
+    if (patch_offset > block.length) {
+        return false;
+    }
+
+    if (patch_offset == 0u) {
+        trampoline_offset = static_cast<std::uint8_t>(kTrampolineEntryPrefixSize);
+        return true;
+    }
+    for (std::size_t index = 0; index < block.instruction_count; ++index) {
+        const auto& instruction = block.instructions[index];
+        if (instruction.offset + instruction.length == patch_offset) {
+            const std::size_t mapped =
+                kTrampolineEntryPrefixSize + instruction.trampoline_offset +
+                instruction.relocated_length;
+            if (mapped > (std::numeric_limits<std::uint8_t>::max)()) {
+                return false;
+            }
+            trampoline_offset = static_cast<std::uint8_t>(mapped);
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] bool unwind_slot_count(
+    const UNWIND_CODE& code,
+    std::size_t& slot_count) noexcept {
+    const unsigned int op = code.UnwindOp;
+    const unsigned int info = code.OpInfo;
+    switch (op) {
+        case UWOP_PUSH_NONVOL:
+            if (!is_nonvolatile_gpr(info)) return false;
+            slot_count = 1u;
+            return true;
+        case UWOP_ALLOC_LARGE:
+            if (info == 0u) slot_count = 2u;
+            else if (info == 1u) slot_count = 3u;
+            else return false;
+            return true;
+        case UWOP_ALLOC_SMALL:
+            slot_count = 1u;
+            return true;
+        case UWOP_SET_FPREG:
+            if (info != 0u) return false;
+            slot_count = 1u;
+            return true;
+        case UWOP_SAVE_NONVOL:
+            if (!is_nonvolatile_gpr(info)) return false;
+            slot_count = 2u;
+            return true;
+        case UWOP_SAVE_NONVOL_FAR:
+            if (!is_nonvolatile_gpr(info)) return false;
+            slot_count = 3u;
+            return true;
+        case UWOP_SAVE_XMM128:
+            if (info < 6u || info > 15u) return false;
+            slot_count = 2u;
+            return true;
+        case UWOP_SAVE_XMM128_FAR:
+            if (info < 6u || info > 15u) return false;
+            slot_count = 3u;
+            return true;
+        case UWOP_PUSH_MACHFRAME:
+            if (info > 1u) return false;
+            slot_count = 1u;
+            return true;
+        default:
+            // Version-2 epilog/spare operations and unknown encodings are not
+            // copied until their semantics can be represented exactly.
+            return false;
+    }
+}
+
+[[nodiscard]] Status prepare_trampoline_unwind(
+    NativeHookState& state,
+    std::size_t entry_prefix_size,
+    const DecodedBlock& block) noexcept {
+    auto* const allocation = static_cast<std::byte*>(state.allocation);
+    auto* const unwind_info = reinterpret_cast<UNWIND_INFO*>(
+        allocation + kTrampolineUnwindInfoOffset);
+    std::memset(unwind_info, 0, kMaximumUnwindInfoBytes);
+
+    DWORD64 image_base = 0;
+    const DWORD64 target_address =
+        static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(state.target));
+    PRUNTIME_FUNCTION source_function =
+        ::RtlLookupFunctionEntry(target_address, &image_base, nullptr);
+
+    if (source_function == nullptr) {
+        if (!is_leaf_safe_block(state.original_bytes.data(), block)) {
+            return fail(ErrorCode::UnsupportedInstruction,
+                        "NativeInlineHook::unwind",
+                        0,
+                        "No source unwind record exists and the stolen instructions are not provably leaf-safe");
+        }
+        unwind_info->Version = 1u;
+        unwind_info->Flags = 0u;
+        unwind_info->SizeOfProlog = 0u;
+        unwind_info->CountOfCodes = 0u;
+        unwind_info->FrameRegister = 0u;
+        unwind_info->FrameOffset = 0u;
+    } else {
+        if (image_base > (std::numeric_limits<DWORD64>::max)() - source_function->BeginAddress ||
+            image_base > (std::numeric_limits<DWORD64>::max)() - source_function->EndAddress ||
+            image_base > (std::numeric_limits<DWORD64>::max)() - source_function->UnwindData) {
+            return fail(ErrorCode::UnsupportedInstruction,
+                        "NativeInlineHook::unwind",
+                        0,
+                        "The source runtime-function record overflows its image base");
+        }
+        const DWORD64 source_begin = image_base + source_function->BeginAddress;
+        const DWORD64 source_end = image_base + source_function->EndAddress;
+        if (target_address != source_begin || source_end <= source_begin ||
+            source_function->UnwindData == 0u) {
+            return fail(ErrorCode::UnsupportedInstruction,
+                        "NativeInlineHook::unwind",
+                        0,
+                        "Only hooks at the beginning of a registered function are supported");
+        }
+
+        const auto* const source_info =
+            reinterpret_cast<const UNWIND_INFO*>(image_base + source_function->UnwindData);
+        if (source_info->Version != 1u || source_info->Flags != 0u) {
+            return fail(ErrorCode::UnsupportedInstruction,
+                        "NativeInlineHook::unwind",
+                        0,
+                        "Only version-1 unwind records without handlers or chained records are supported");
+        }
+
+        const std::size_t source_patch_end = entry_prefix_size + block.length;
+        std::size_t input_slot = 0u;
+        std::size_t output_slot = 0u;
+        std::uint8_t previous_code_offset = (std::numeric_limits<std::uint8_t>::max)();
+        bool copied_frame_setup = false;
+        while (input_slot < source_info->CountOfCodes) {
+            const UNWIND_CODE& source_code = source_info->UnwindCode[input_slot];
+            std::size_t slots = 0u;
+            if (!unwind_slot_count(source_code, slots) ||
+                slots > static_cast<std::size_t>(source_info->CountOfCodes) - input_slot ||
+                source_code.CodeOffset > previous_code_offset ||
+                source_code.CodeOffset > source_info->SizeOfProlog) {
+                return fail(ErrorCode::UnsupportedInstruction,
+                            "NativeInlineHook::unwind",
+                            0,
+                            "The source unwind-code stream is malformed or uses an unsupported opcode");
+            }
+            previous_code_offset = source_code.CodeOffset;
+
+            if (source_code.CodeOffset <= source_patch_end) {
+                std::uint8_t mapped_offset = 0u;
+                if (!map_unwind_code_offset(source_code.CodeOffset,
+                                            entry_prefix_size,
+                                            block,
+                                            mapped_offset) ||
+                    output_slot + slots > 255u) {
+                    return fail(ErrorCode::UnsupportedInstruction,
+                                "NativeInlineHook::unwind",
+                                0,
+                                "A source unwind operation does not map to a relocated instruction boundary");
+                }
+                std::memcpy(&unwind_info->UnwindCode[output_slot],
+                            &source_info->UnwindCode[input_slot],
+                            slots * sizeof(UNWIND_CODE));
+                unwind_info->UnwindCode[output_slot].CodeOffset = mapped_offset;
+                if (source_code.UnwindOp == UWOP_SET_FPREG) {
+                    copied_frame_setup = true;
+                }
+                output_slot += slots;
+            }
+            input_slot += slots;
+        }
+
+        std::uint8_t mapped_prolog_size = 0u;
+        if (source_info->SizeOfProlog <= entry_prefix_size) {
+            mapped_prolog_size = source_info->SizeOfProlog;
+        } else if (source_info->SizeOfProlog <= source_patch_end) {
+            if (!map_unwind_code_offset(source_info->SizeOfProlog,
+                                        entry_prefix_size,
+                                        block,
+                                        mapped_prolog_size)) {
+                return fail(ErrorCode::UnsupportedInstruction,
+                            "NativeInlineHook::unwind",
+                            0,
+                            "The end of the source prologue does not map to a relocated instruction boundary");
+            }
+        } else {
+            const std::size_t relocated_end =
+                kTrampolineEntryPrefixSize + block.trampoline_length;
+            if (relocated_end > (std::numeric_limits<std::uint8_t>::max)()) {
+                return fail(ErrorCode::UnsupportedInstruction, "NativeInlineHook::unwind");
+            }
+            mapped_prolog_size = static_cast<std::uint8_t>(relocated_end);
+        }
+
+        if (copied_frame_setup) {
+            if (!is_nonvolatile_gpr(source_info->FrameRegister)) {
+                return fail(ErrorCode::UnsupportedInstruction,
+                            "NativeInlineHook::unwind",
+                            0,
+                            "The source frame-register description is invalid");
+            }
+            unwind_info->FrameRegister = source_info->FrameRegister;
+            unwind_info->FrameOffset = source_info->FrameOffset;
+        }
+
+        unwind_info->Version = 1u;
+        unwind_info->Flags = 0u;
+        unwind_info->SizeOfProlog = mapped_prolog_size;
+        unwind_info->CountOfCodes = static_cast<UCHAR>(output_slot);
+    }
+
+    state.unwind_function.BeginAddress = 0u;
+    state.unwind_function.EndAddress = static_cast<DWORD>(
+        kTrampolineEntryPrefixSize + block.trampoline_length + kReturnJumpSize);
+    state.unwind_function.UnwindData = static_cast<DWORD>(kTrampolineUnwindInfoOffset);
+    return ok();
+}
+
+[[nodiscard]] Status register_trampoline_unwind(
+    NativeHookState& state,
+    std::size_t entry_prefix_size,
+    const DecodedBlock& block) noexcept {
+    const auto prepared = prepare_trampoline_unwind(state, entry_prefix_size, block);
+    if (!prepared) {
+        return prepared;
+    }
+    if (!::RtlAddFunctionTable(
+            &state.unwind_function,
+            1u,
+            static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(state.allocation)))) {
+        return fail(ErrorCode::IoError,
+                    "RtlAddFunctionTable",
+                    ::GetLastError(),
+                    "Windows rejected the generated trampoline runtime-function record");
+    }
+    state.unwind_registered = true;
+    return ok();
+}
+
+#endif // TESSERA_HOOK_X64
+
 [[nodiscard]] Status relocate_instructions(const std::byte* original_code,
                                            std::uintptr_t original_address,
                                            std::byte* trampoline,
