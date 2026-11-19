@@ -109,9 +109,10 @@ weekly runs are disabled). Inspect every job and do not publish a release.
 - [ ] The host drains direct target calls, active detour callbacks, and every
   raw/escaped trampoline call, not only calls made through `Hook::acquire()`.
 - [ ] Detach succeeds before hook state or the detour module is destroyed.
-- [ ] A test or documented integration harness verifies the ordering
-  stop-admission → drain → remove → unload.
-  Regression test: `Native hook host admission drains active detours before unloading the detour module`.
+- [ ] `Native hook host admission drains active detours before unloading the detour module`
+  passes on x86 and x64. It loads a real DLL detour, holds a callback active,
+  proves the host admission gate cannot close early, drains the call, removes
+  the hook, calls `FreeLibrary`, and verifies the original target still runs.
 - [ ] Concurrent operations on the same `Hook` object are externally
   synchronized; no claim is made that the wrapper is itself thread-safe.
 
@@ -132,6 +133,10 @@ weekly runs are disabled). Inspect every job and do not publish a release.
   uncertain rollback remains fail-fast.
 
 ## Current execution state
+
+- Real shared-library fixture and DLL unload-order test are now part of the
+  Windows test executable; the x86 export fallback and DLL basename checks
+  were source-reviewed. This test is added, not yet runtime-validated.
 
 - Last known green PR Smoke: run #96 on commit
   `ad8a378d994522d7bebabde5a70d9330298fac33`.

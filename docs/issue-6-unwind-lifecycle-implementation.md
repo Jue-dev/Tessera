@@ -144,12 +144,16 @@ protocol.
 
 The latest source additions include strict ENDBR `CodeOffset` rejection, a
 six-case malformed-metadata regression test, and a real DLL unload-order test.
-Static audit of temporary allocation ownership and `RtlAddFunctionTable`
-failure cleanup is documented.
+The DLL fixture is built as a separate CMake shared-library target and the test
+checks active callback drain, successful detach, `FreeLibrary`, and continued
+operation of the original target. Static ownership audits for allocation and
+`RtlAddFunctionTable` failure cleanup are documented.
 No Windows validation has been run on the current head because the Actions
-quota is unavailable. Next work is a final source-level review of the DLL fixture/CMake integration
-and checking the current-head commit; when Actions is available, run the
-dedicated four-way matrix once, then the five-minute fuzz campaign separately. Do not mark CI checkboxes as passed before those runs.
+quota is unavailable. Source-level review of the DLL fixture, CMake path quoting, x86 decorated export
+fallback, unload checks, and function-pointer conversion is complete. The next
+step is not another code edit: run the exact-head four-way Windows matrix once
+when Actions allowance is restored, then dispatch the five-minute Clang fuzz
+campaign separately. Do not mark CI checkboxes as passed before those runs.
 
 ## Definition of done
 
