@@ -137,7 +137,7 @@ jobs:
       - name: Run x64 coverage-guided ASan/UBSan campaign
         shell: pwsh
         env:
-          CAMPAIGN_SECONDS: ${{ inputs.campaign_seconds || '300' }}
+          CAMPAIGN_SECONDS: \${{ inputs.campaign_seconds || '300' }}
         run: |
           $ErrorActionPreference = "Stop"
           $seedSource = Join-Path $env:GITHUB_WORKSPACE "verify/fuzz/corpus/native_hook"
@@ -162,17 +162,41 @@ jobs:
           if (-not (Test-Path $asanDll)) { throw "Missing x64 ASan runtime DLL: $asanDll" }
           Copy-Item $asanDll (Split-Path $target -Parent) -Force
 
-          $artifactPrefix = "$crashes/"
-          & $target $corpus "-max_total_time=$env:CAMPAIGN_SECONDS" "-timeout=10" "-max_len=96" "-rss_limit_mb=4096" "-seed=20261119" "-print_final_stats=1" "-artifact_prefix=$artifactPrefix" 2>&1 |
-            Tee-Object -FilePath (Join-Path $artifactRoot "campaign.log")
-          $fuzzExitCode = $LASTEXITCODE
-          if ($fuzzExitCode -ne 0) { throw "x64 coverage-guided fuzzing failed ($fuzzExitCode)" }
+          $stdoutPath = Join-Path $artifactRoot "campaign.stdout.log"
+          $stderrPath = Join-Path $artifactRoot "campaign.stderr.log"
+          $campaignLogPath = Join-Path $artifactRoot "campaign.log"
+          $arguments = @(
+            $corpus,
+            "-max_total_time=$env:CAMPAIGN_SECONDS",
+            "-timeout=10",
+            "-max_len=96",
+            "-rss_limit_mb=4096",
+            "-seed=20261119",
+            "-print_final_stats=1",
+            "-artifact_prefix=$crashes/"
+          )
 
-          $campaignLog = Get-Content (Join-Path $artifactRoot "campaign.log") -Raw
+          # libFuzzer's normal INFO/progress output goes to stderr. Capture both
+          # streams as artifacts to avoid GitHub Actions marking routine INFO red.
+          $process = Start-Process -FilePath $target -ArgumentList $arguments -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+          if ($process.ExitCode -ne 0) { throw "x64 coverage-guided fuzzing failed ($($process.ExitCode))" }
+
+          $stdout = if (Test-Path $stdoutPath) { [System.IO.File]::ReadAllText($stdoutPath) } else { "" }
+          $stderr = if (Test-Path $stderrPath) { [System.IO.File]::ReadAllText($stderrPath) } else { "" }
+          [System.IO.File]::WriteAllText($campaignLogPath, $stdout + [Environment]::NewLine + $stderr)
+          $campaignLog = Get-Content $campaignLogPath -Raw
           if ($campaignLog -notmatch "stat::number_of_executed_units:\s*[1-9][0-9]*") {
             throw "libFuzzer did not report any executed input units; refusing a false-positive pass."
           }
-          Write-Host "x64 campaign processed $($seedFiles.Count) checked-in seed files for $env:CAMPAIGN_SECONDS seconds."
+          $summary = [regex]::Match($campaignLog, "(?m)^Done\s+([0-9,]+)\s+runs\s+in\s+([0-9]+)\s+second")
+          if (-not $summary.Success) { throw "x64 libFuzzer campaign summary is missing." }
+          $runs = [UInt64](($summary.Groups[1].Value -replace ",", ""))
+          $seconds = [UInt32]$summary.Groups[2].Value
+          $minimumSeconds = [Math]::Max(1, [Int32]$env:CAMPAIGN_SECONDS - 5)
+          if ($runs -lt 100000 -or $seconds -lt $minimumSeconds) {
+            throw "x64 campaign under-ran: runs=$runs, seconds=$seconds."
+          }
+          Write-Host "x64 campaign completed $runs runs in $seconds seconds."
 
       - name: Upload x64 fuzz corpus and crash artifacts
         if: always()
