@@ -46,6 +46,8 @@ correct implementation and Windows tests.
 
 ### M2 — Call admission and drain
 
+**Partial implementation:** `Hook::acquire()` now returns a non-copyable, non-movable scoped callable lease. Its `get()` exposes the current callable only while the lease is alive; lifecycle operations take the exclusive lock and wait for the lease. A deterministic test exercises explicit lease acquisition and remove/drain ordering. This is not a complete host admission barrier and cannot track pointers that escape the scope.
+
 - Add an explicit RAII lease API for calls routed through Tessera. A lease
   exposes the callable pointer while retaining the lifecycle lock until its
   scope ends.
