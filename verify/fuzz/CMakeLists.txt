@@ -31,6 +31,50 @@ if(TESSERA_ENABLE_LIBFUZZER)
     # and /WX turns that warning into a hard build failure.
     if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
         set(TESSERA_FUZZ_FRAME_POINTER_OPTION /Oy-)
+
+        # CMake's MSVC-style linker rule invokes lld-link directly for clang-cl.
+        # That bypasses clang-cl's sanitizer runtime injection, so provide the
+        # compiler-rt search path and the same whole-archive runtimes explicitly.
+        execute_process(
+            COMMAND "${CMAKE_CXX_COMPILER}" -print-resource-dir
+            RESULT_VARIABLE TESSERA_CLANG_RESOURCE_RESULT
+            OUTPUT_VARIABLE TESSERA_CLANG_RESOURCE_DIR
+            ERROR_VARIABLE TESSERA_CLANG_RESOURCE_ERROR
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        if(NOT TESSERA_CLANG_RESOURCE_RESULT EQUAL 0 OR
+           TESSERA_CLANG_RESOURCE_DIR STREQUAL "")
+            message(FATAL_ERROR
+                "Unable to locate the clang-cl compiler-rt resource directory: "
+                "${TESSERA_CLANG_RESOURCE_ERROR}")
+        endif()
+
+        set(TESSERA_CLANG_WINDOWS_RUNTIME_DIR
+            "${TESSERA_CLANG_RESOURCE_DIR}/lib/windows")
+        if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+            set(TESSERA_CLANG_RUNTIME_ARCH x86_64)
+        else()
+            set(TESSERA_CLANG_RUNTIME_ARCH i386)
+        endif()
+
+        set(TESSERA_CLANG_FUZZER_RUNTIME
+            "${TESSERA_CLANG_WINDOWS_RUNTIME_DIR}/clang_rt.fuzzer-${TESSERA_CLANG_RUNTIME_ARCH}.lib")
+        set(TESSERA_CLANG_ASAN_RUNTIME
+            "${TESSERA_CLANG_WINDOWS_RUNTIME_DIR}/clang_rt.asan_dynamic-${TESSERA_CLANG_RUNTIME_ARCH}.lib")
+        set(TESSERA_CLANG_ASAN_STATIC_THUNK
+            "${TESSERA_CLANG_WINDOWS_RUNTIME_DIR}/clang_rt.asan_static_runtime_thunk-${TESSERA_CLANG_RUNTIME_ARCH}.lib")
+        set(TESSERA_CLANG_ASAN_RUNTIME_DLL
+            "${TESSERA_CLANG_WINDOWS_RUNTIME_DIR}/clang_rt.asan_dynamic-${TESSERA_CLANG_RUNTIME_ARCH}.dll")
+
+        foreach(runtime_file IN ITEMS
+                "${TESSERA_CLANG_FUZZER_RUNTIME}"
+                "${TESSERA_CLANG_ASAN_RUNTIME}"
+                "${TESSERA_CLANG_ASAN_STATIC_THUNK}"
+                "${TESSERA_CLANG_ASAN_RUNTIME_DLL}")
+            if(NOT EXISTS "${runtime_file}")
+                message(FATAL_ERROR "Required clang-cl sanitizer runtime is missing: ${runtime_file}")
+            endif()
+        endforeach()
     else()
         set(TESSERA_FUZZ_FRAME_POINTER_OPTION -fno-omit-frame-pointer)
     endif()
@@ -42,10 +86,14 @@ if(TESSERA_ENABLE_LIBFUZZER)
             -fsanitize=fuzzer-no-link,address,undefined
             ${TESSERA_FUZZ_FRAME_POINTER_OPTION}
         )
-        # Tests/examples that also consume these modules need the sanitizer runtimes.
-        target_link_options(${module_target} INTERFACE -fsanitize=address,undefined)
+        # Direct lld-link has no clang driver to translate these options.
+        if(NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+            target_link_options(${module_target} INTERFACE -fsanitize=address,undefined)
+        endif()
     endforeach()
-    target_link_options(tessera_static INTERFACE -fsanitize=address,undefined)
+    if(NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+        target_link_options(tessera_static INTERFACE -fsanitize=address,undefined)
+    endif()
 
     set(TESSERA_FUZZ_TARGETS
         tessera_fuzz_pattern
@@ -62,10 +110,19 @@ if(TESSERA_ENABLE_LIBFUZZER)
             -fsanitize=fuzzer-no-link,address,undefined
             ${TESSERA_FUZZ_FRAME_POINTER_OPTION}
         )
-        target_link_options(${fuzz_target} PRIVATE -fsanitize=fuzzer,address,undefined)
-        if(MSVC)
-            # LLVM's Windows libFuzzer does not support incremental linking.
-            target_link_options(${fuzz_target} PRIVATE /INCREMENTAL:NO)
+        if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+            # UBSan auto-link directives need the compiler-rt library path.
+            # libFuzzer and ASan use whole-archive runtimes on Windows.
+            target_link_options(${fuzz_target} PRIVATE
+                "/LIBPATH:${TESSERA_CLANG_WINDOWS_RUNTIME_DIR}"
+                "/WHOLEARCHIVE:${TESSERA_CLANG_FUZZER_RUNTIME}"
+                "/WHOLEARCHIVE:${TESSERA_CLANG_ASAN_STATIC_THUNK}"
+                "/INCREMENTAL:NO"
+            )
+            target_link_libraries(${fuzz_target} PRIVATE
+                "${TESSERA_CLANG_ASAN_RUNTIME}")
+        else()
+            target_link_options(${fuzz_target} PRIVATE -fsanitize=fuzzer,address,undefined)
         endif()
     endforeach()
 endif()
