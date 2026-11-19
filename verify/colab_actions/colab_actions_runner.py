@@ -73,7 +73,9 @@ class ColabActionsRunner:
             pathlib.Path(askpass).write_text('#!/bin/sh\ncase "$1" in\n *sername*) echo x-access-token ;;\n *assword*) printf "%s" "$COLAB_GIT_TOKEN" ;;\n *) echo x-access-token ;;\nesac\n', encoding="utf-8")
             os.chmod(askpass, 0o700); env["GIT_ASKPASS"] = askpass; env["COLAB_GIT_TOKEN"] = self.token
         cmd = ["git", "clone", "--no-tags"] + (["--depth", str(depth)] if depth else [])
-        if ref and not re.fullmatch(r"[0-9a-fA-F]{7,40}", ref): cmd += ["--branch", ref]
+        branch_or_tag = ref.removeprefix("refs/heads/").removeprefix("refs/tags/")
+        if branch_or_tag and not re.fullmatch(r"[0-9a-fA-F]{7,40}", branch_or_tag):
+            cmd += ["--branch", branch_or_tag]
         cmd += [url, str(dest)]
         try:
             self.emit("Cloning " + full + " (" + (ref or "default") + ")")
