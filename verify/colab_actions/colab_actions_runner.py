@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Colab-side GitHub Actions compatibility runner; not a security sandbox."""
 from __future__ import annotations
-import ast, glob, itertools, json, os, pathlib, re, shutil, subprocess, sys, tempfile, threading, time, zipfile
+import ast, fnmatch, glob, itertools, json, os, pathlib, re, shutil, subprocess, sys, tempfile, threading, time, zipfile
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 import yaml
@@ -222,23 +222,59 @@ class ColabActionsRunner:
             try: pathlib.Path(env.get(key, "")).unlink(missing_ok=True)
             except Exception: pass
     def run_command(self, name, command, shell, cwd, env, timeout):
-        started = time.monotonic(); shell = shell.lower()
-        if shell in {"pwsh", "powershell", "powershell.exe"}: return StepResult(name, "UNSUPPORTED", 0, None, "PowerShell is not available in standard Colab Linux.")
-        if shell.startswith("bash"): args, script, suffix = [shutil.which("bash") or "bash", "--noprofile", "--norc", "-e", "-o", "pipefail"], "set -euo pipefail\n" + command, ".sh"
-        elif shell.startswith("sh"): args, script, suffix = [shutil.which("sh") or "sh", "-e"], "set -e\n" + command, ".sh"
-        elif shell in {"python", "python3"}: args, script, suffix = [sys.executable], command, ".py"
-        else: return StepResult(name, "UNSUPPORTED", 0, None, "Unsupported shell: " + shell)
-        fd, path = tempfile.mkstemp(prefix="colab-actions-step-", suffix=suffix); os.close(fd)
+        started = time.monotonic()
+        shell = shell.lower()
+        if shell in {"pwsh", "powershell", "powershell.exe"}:
+            return StepResult(name, "UNSUPPORTED", 0, None, "PowerShell is not available in standard Colab Linux.")
+        if shell.startswith("bash"):
+            args = [shutil.which("bash") or "bash", "--noprofile", "--norc", "-e", "-o", "pipefail"]
+            script, suffix = "set -euo pipefail\n" + command, ".sh"
+        elif shell.startswith("sh"):
+            args = [shutil.which("sh") or "sh", "-e"]
+            script, suffix = "set -e\n" + command, ".sh"
+        elif shell in {"python", "python3"}:
+            args = [sys.executable]
+            script, suffix = command, ".py"
+        else:
+            return StepResult(name, "UNSUPPORTED", 0, None, "Unsupported shell: " + shell)
+        fd, path = tempfile.mkstemp(prefix="colab-actions-step-", suffix=suffix)
+        os.close(fd)
         try:
             pathlib.Path(path).write_text(script, encoding="utf-8")
-            proc = subprocess.run(args + [path], cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", timeout=timeout)
-            output = (proc.stdout or "")[-250000:]
-            if output: self.emit(output)
-            return StepResult(name, "PASS" if proc.returncode == 0 else "FAIL", time.monotonic()-started, proc.returncode, output)
-        except subprocess.TimeoutExpired as exc:
-            out = exc.stdout or ""; out = out.decode(errors="replace") if isinstance(out, bytes) else out
-            return StepResult(name, "TIMEOUT", time.monotonic()-started, None, str(out)[-100000:])
-        finally: pathlib.Path(path).unlink(missing_ok=True)
+            proc = subprocess.Popen(args + [path], cwd=cwd, env=env,
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    text=True, errors="replace", bufsize=1)
+            deadline = time.monotonic() + max(1, int(timeout))
+            output = ""
+            while True:
+                if self.cancel_event.is_set():
+                    proc.terminate()
+                    try:
+                        output, _ = proc.communicate(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        output, _ = proc.communicate()
+                    return StepResult(name, "CANCELLED", time.monotonic() - started,
+                                      proc.returncode, (output or "")[-100000:])
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    proc.kill()
+                    output, _ = proc.communicate()
+                    return StepResult(name, "TIMEOUT", time.monotonic() - started,
+                                      proc.returncode, (output or "")[-100000:])
+                try:
+                    output, _ = proc.communicate(timeout=min(1.0, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+            output = (output or "")[-250000:]
+            if output:
+                self.emit(output)
+            return StepResult(name, "PASS" if proc.returncode == 0 else "FAIL",
+                              time.monotonic() - started, proc.returncode, output)
+        finally:
+            pathlib.Path(path).unlink(missing_ok=True)
+
     def upload_artifact(self, step, cwd):
         cfg = mp(step.get("with")); name = s(cfg.get("name")) or "artifact"
         files = sorted({p for pat in s(cfg.get("path")).splitlines() if pat.strip() for p in glob.glob(str(cwd / pat.strip()), recursive=True)})
@@ -332,6 +368,30 @@ class ColabActionsRunner:
         on = self.workflow.get("on", self.workflow.get(True, {})); event_cfg = mp(on).get(event_name)
         if event_name not in self.declared_events(): self.warnings.append("Selected event is not declared in this workflow.")
         if mp(event_cfg).get("paths") or mp(event_cfg).get("paths-ignore"): self.warnings.append("Path filters not evaluated; changed-file metadata is unavailable.")
+        trigger_reason = ""
+        if event_name not in self.declared_events():
+            trigger_reason = "Selected event is not declared by this workflow."
+        elif event_name == "push" and isinstance(event_cfg, dict):
+            ref_name = ref_parts(self.event_ref)[1]
+            is_tag = self.event_ref.startswith("refs/tags/")
+            branch_patterns = seq(event_cfg.get("branches"))
+            tag_patterns = seq(event_cfg.get("tags"))
+            if branch_patterns and (is_tag or not any(fnmatch.fnmatchcase(ref_name, s(p)) for p in branch_patterns)):
+                trigger_reason = "Push branch does not match this workflow's branches filter."
+            if tag_patterns and (not is_tag or not any(fnmatch.fnmatchcase(ref_name, s(p)) for p in tag_patterns)):
+                trigger_reason = "Push tag does not match this workflow's tags filter."
+            if seq(event_cfg.get("branches-ignore")) and any(fnmatch.fnmatchcase(ref_name, s(p)) for p in seq(event_cfg.get("branches-ignore"))):
+                trigger_reason = "Push branch is excluded by branches-ignore."
+            if seq(event_cfg.get("tags-ignore")) and any(fnmatch.fnmatchcase(ref_name, s(p)) for p in seq(event_cfg.get("tags-ignore"))):
+                trigger_reason = "Push tag is excluded by tags-ignore."
+            if event_cfg.get("paths") or event_cfg.get("paths-ignore"):
+                trigger_reason = "This push workflow has path filters; changed files are not supplied by the Colab UI."
+        if trigger_reason:
+            for jid, raw_job in mp(self.workflow.get("jobs")).items():
+                self.job_results.append(JobResult(jid, s(mp(raw_job).get("name")) or jid, "SKIP", [], trigger_reason))
+            self._report_data = self.build_report()
+            self.emit("Workflow not started: " + trigger_reason)
+            return self._report_data
         self.emit("Workflow: " + (s(self.workflow.get("name")) or workflow_path))
         self.emit("Event: " + event_name + " | Ref: " + self.event_ref)
         jobs = mp(self.workflow.get("jobs")); pending = list(jobs); completed = {}
@@ -373,7 +433,7 @@ class ColabActionsRunner:
                             if r.status == "UNSUPPORTED":
                                 if truth(step.get("continue-on-error")): self.warnings.append("Unsupported step ignored: " + r.name)
                                 else: unsupported = True
-                        if (failed or unsupported) and not truth(step.get("continue-on-error")): break
+                        if self.cancel_event.is_set() or ((failed or unsupported) and not truth(step.get("continue-on-error"))): break
                     statuses.append("FAIL" if failed else ("PARTIAL" if unsupported else ("CANCELLED" if self.cancel_event.is_set() else "PASS")))
                 self.step_timeout = original_timeout
                 state = "FAIL" if "FAIL" in statuses else ("CANCELLED" if "CANCELLED" in statuses else ("PARTIAL" if "PARTIAL" in statuses else "PASS"))
