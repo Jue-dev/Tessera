@@ -785,6 +785,59 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
     }
 }
 
+[[nodiscard]] bool is_readable_memory_range(
+    const void* address,
+    std::size_t size) noexcept {
+    if (address == nullptr || size == 0u) {
+        return false;
+    }
+
+    constexpr std::uintptr_t kMaximumAddress =
+        (std::numeric_limits<std::uintptr_t>::max)();
+    const std::uintptr_t begin = reinterpret_cast<std::uintptr_t>(address);
+    if (size > kMaximumAddress - begin) {
+        return false;
+    }
+    const std::uintptr_t end = begin + static_cast<std::uintptr_t>(size);
+
+    std::uintptr_t cursor = begin;
+    while (cursor < end) {
+        MEMORY_BASIC_INFORMATION region{};
+        if (::VirtualQuery(reinterpret_cast<const void*>(cursor),
+                           &region,
+                           sizeof(region)) != sizeof(region) ||
+            region.State != MEM_COMMIT ||
+            (region.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0u) {
+            return false;
+        }
+
+        switch (region.Protect & 0xFFu) {
+            case PAGE_READONLY:
+            case PAGE_READWRITE:
+            case PAGE_WRITECOPY:
+            case PAGE_EXECUTE_READ:
+            case PAGE_EXECUTE_READWRITE:
+            case PAGE_EXECUTE_WRITECOPY:
+                break;
+            default:
+                return false;
+        }
+
+        const std::uintptr_t region_begin =
+            reinterpret_cast<std::uintptr_t>(region.BaseAddress);
+        if (region.RegionSize > kMaximumAddress - region_begin) {
+            return false;
+        }
+        const std::uintptr_t region_end =
+            region_begin + static_cast<std::uintptr_t>(region.RegionSize);
+        if (region_end <= cursor) {
+            return false;
+        }
+        cursor = (std::min)(end, region_end);
+    }
+    return true;
+}
+
 [[nodiscard]] Status prepare_trampoline_unwind(
     NativeHookState& state,
     std::size_t entry_prefix_size,
@@ -812,6 +865,12 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
         unwind_info->CountOfCodes = 0u;
         unwind_info->FrameRegisterAndOffset = 0u;
     } else {
+        if (!is_readable_memory_range(source_function, sizeof(*source_function))) {
+            return fail(ErrorCode::UnsupportedInstruction,
+                        "NativeInlineHook::unwind",
+                        0,
+                        "The source runtime-function record is not fully readable");
+        }
         if (image_base > (std::numeric_limits<DWORD64>::max)() - source_function->BeginAddress ||
             image_base > (std::numeric_limits<DWORD64>::max)() - source_function->EndAddress ||
             image_base > (std::numeric_limits<DWORD64>::max)() - source_function->UnwindData) {
@@ -830,8 +889,29 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
                         "Only hooks at the beginning of a registered function are supported");
         }
 
+        const DWORD64 source_function_size = source_end - source_begin;
+        const DWORD64 source_unwind_address = image_base + source_function->UnwindData;
+        if ((source_unwind_address & 0x03u) != 0u ||
+            !is_readable_memory_range(
+                reinterpret_cast<const void*>(static_cast<std::uintptr_t>(source_unwind_address)),
+                offsetof(NativeUnwindInfo, UnwindCode))) {
+            return fail(ErrorCode::UnsupportedInstruction,
+                        "NativeInlineHook::unwind",
+                        0,
+                        "The source unwind-info header is unaligned or not fully readable");
+        }
         const auto* const source_info =
-            reinterpret_cast<const NativeUnwindInfo*>(image_base + source_function->UnwindData);
+            reinterpret_cast<const NativeUnwindInfo*>(
+                static_cast<std::uintptr_t>(source_unwind_address));
+        const std::size_t source_unwind_size =
+            offsetof(NativeUnwindInfo, UnwindCode) +
+            static_cast<std::size_t>(source_info->CountOfCodes) * sizeof(NativeUnwindCode);
+        if (!is_readable_memory_range(source_info, source_unwind_size)) {
+            return fail(ErrorCode::UnsupportedInstruction,
+                        "NativeInlineHook::unwind",
+                        0,
+                        "The source unwind-code array extends outside readable committed memory");
+        }
         if ((source_info->VersionAndFlags & 0x07u) != 1u ||
             (source_info->VersionAndFlags >> 3u) != 0u) {
             return fail(ErrorCode::UnsupportedInstruction,
@@ -841,6 +921,13 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
         }
 
         const std::size_t source_patch_end = entry_prefix_size + block.length;
+        if (source_patch_end > source_function_size ||
+            source_info->SizeOfProlog > source_function_size) {
+            return fail(ErrorCode::UnsupportedInstruction,
+                        "NativeInlineHook::unwind",
+                        0,
+                        "The stolen prologue extends beyond the registered source function");
+        }
         std::size_t input_slot = 0u;
         std::size_t output_slot = 0u;
         std::uint8_t previous_code_offset = (std::numeric_limits<std::uint8_t>::max)();
