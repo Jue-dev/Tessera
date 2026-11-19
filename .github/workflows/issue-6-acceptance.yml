@@ -1,25 +1,8 @@
 name: Issue #6 Native Hook Acceptance
 
 on:
-  # One deliberate matrix run when the PR is explicitly marked ready.
-  # No synchronize/opened/reopened trigger: ordinary commit iterations are free.
-  pull_request:
-    branches: [ "main" ]
-    types: [ ready_for_review ]
-    paths:
-      - ".github/workflows/issue-6-acceptance.yml"
-      - ".github/actions/**"
-      - "CMakeLists.txt"
-      - "CMakePresets.json"
-      - "cmake/**"
-      - "include/tessera/hook/**"
-      - "src/hook/**"
-      - "verify/tests/**"
-      - "verify/fuzz/**"
-      - "verify/windows/**"
-      - "src/platform/windows/thread_backend.*"
-      - "vcpkg.json"
-      - "vcpkg-configuration.json"
+  # Validation is explicitly launched from the Actions UI. This workflow never
+  # runs on PR open, ready-for-review, synchronize, push, or schedule events.
   workflow_dispatch:
     inputs:
       run_sustained_fuzz:
