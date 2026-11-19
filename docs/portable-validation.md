@@ -18,15 +18,14 @@ The console supports portable JSON configuration profiles:
 - **Load profile** imports a saved `.json` file.
 - **Export profile** saves the current repository, settings, setup commands and
   tests so they can be loaded in another project/session.
-- **Restore defaults** returns to the profile embedded in this notebook.
+- **Restore defaults** clears all project, setup and test fields.
 - Profiles include the Colab Secret name only. They never export the actual
   GitHub token or other credential values.
 
 The notebook starts with a blank configuration. To load Tessera's profile, use the GitHub profile source fields with repository `Jue-dev/Tessera`, path `verify/portable/profiles/tessera.portable-validation.json`, and ref `issue-6/unwind-lifecycle`, or import the JSON manually. The profile is
 also available directly at
 [`tessera.portable-validation.json`](../verify/portable/profiles/tessera.portable-validation.json).
-To use another project, import its profile or modify the repository, setup and
-test rows, then export a new profile for reuse.
+For any project, adjust the source fields or manually import a profile. The GitHub profile fetch supports public repositories without a token and private repositories when a suitable token is available as a Colab Secret.
 
 The interface is a responsive dark web console with:
 - Repository/ref, project name, Colab Secret name, Git username, clone depth
