@@ -247,6 +247,35 @@ public:
     [[nodiscard]] bool installed() const noexcept { return core_.installed(); }
     [[nodiscard]] Address target() const noexcept { return core_.target(); }
 
+    // Explicit call lease for code that needs to retain a callable across a
+    // multi-step operation. The lease is non-copyable and non-movable so its
+    // thread-local nesting frame remains valid. It must not be used to export
+    // the pointer beyond the lease lifetime; direct target entries and escaped
+    // pointers remain outside Tessera's call tracking.
+    class ScopedCallable {
+    public:
+        ScopedCallable(const ScopedCallable&) = delete;
+        ScopedCallable& operator=(const ScopedCallable&) = delete;
+        ScopedCallable(ScopedCallable&&) = delete;
+        ScopedCallable& operator=(ScopedCallable&&) = delete;
+
+        [[nodiscard]] Fn get() const noexcept {
+            return reinterpret_cast<Fn>(reinterpret_cast<std::uintptr_t>(lease_.get()));
+        }
+
+    private:
+        friend class Hook;
+        explicit ScopedCallable(const detail::HookCore& core)
+            : lease_(core.acquire_callable()) {}
+        detail::HookCore::CallableLease lease_;
+    };
+
+    // Acquires the lifecycle lease before returning the current callable.
+    // remove(), install(), and release() wait until this scope ends.
+    [[nodiscard]] ScopedCallable acquire() const {
+        return ScopedCallable{core_};
+    }
+
     // Returns a non-owning raw function pointer (the trampoline while installed).
     // It does not pin trampoline memory or participate in call tracking. The
     // caller must quiesce all uses before remove(), destruction, or release of
