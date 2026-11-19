@@ -41,8 +41,18 @@ constexpr std::size_t kMaximumReadBytes = 96;
 constexpr std::size_t kTrampolineCodeCapacity = 256;
 constexpr std::size_t kTrampolineRelayOffset = kTrampolineCodeCapacity;
 constexpr std::size_t kAbsoluteJumpSize = 14;
+#if defined(TESSERA_HOOK_X64)
+constexpr std::size_t kTrampolineUnwindInfoOffset =
+    (kTrampolineRelayOffset + kAbsoluteJumpSize + 3u) & ~std::size_t{3u};
+constexpr std::size_t kMaximumUnwindInfoBytes =
+    (offsetof(UNWIND_INFO, UnwindCode) +
+     255u * sizeof(UNWIND_CODE) + 3u) & ~std::size_t{3u};
+constexpr std::size_t kTrampolineAllocationSize =
+    kTrampolineUnwindInfoOffset + kMaximumUnwindInfoBytes;
+#else
 constexpr std::size_t kTrampolineAllocationSize =
     kTrampolineCodeCapacity + kAbsoluteJumpSize;
+#endif
 constexpr std::size_t kEntryJumpSize = 5;
 constexpr std::size_t kReturnJumpSize = 5;
 constexpr std::size_t kTrampolineEntryPrefixSize = 4;
@@ -117,8 +127,20 @@ struct NativeHookState {
     std::array<std::byte, 4> entry_prefix_bytes{};
     std::array<std::byte, kMaximumPatchBytes> original_bytes{};
     std::array<std::byte, kMaximumPatchBytes> patch_bytes{};
+#if defined(TESSERA_HOOK_X64)
+    RUNTIME_FUNCTION unwind_function{};
+    bool unwind_registered = false;
+    bool target_detached = false;
+#endif
 
     ~NativeHookState() noexcept {
+#if defined(TESSERA_HOOK_X64)
+        // Never release either the dynamic function-table entry or its code/data
+        // while the OS can still consult it during stack walking.
+        if (unwind_registered && !::RtlDeleteFunctionTable(&unwind_function)) {
+            std::terminate();
+        }
+#endif
         if (allocation != nullptr) {
             (void)::VirtualFree(allocation, 0, MEM_RELEASE);
         }
