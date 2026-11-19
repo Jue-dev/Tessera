@@ -950,6 +950,253 @@ TEST_CASE("Native x64 unwind rejects an unreadable extra unwind-code slot withou
 }
 
 #if defined(_M_X64) || defined(__x86_64__)
+TEST_CASE("Native x64 trampoline maps ALLOC_LARGE and SET_FPREG together",
+          "[hook][native][unwind][integration]") {
+    using namespace tessera;
+
+    ExecutableRegionGuard region{
+        ::VirtualAlloc(nullptr, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE)};
+    REQUIRE(region.address != nullptr);
+    auto* code = static_cast<std::byte*>(region.address);
+    std::memset(code, 0x90, 4096);
+
+    constexpr std::size_t target_offset = 64u;
+    const std::array<std::byte, 15> prologue{
+        std::byte{0xF3}, std::byte{0x0F}, std::byte{0x1E}, std::byte{0xFA}, // endbr64
+        std::byte{0x55},                                           // push rbp
+        std::byte{0x48}, std::byte{0x8B}, std::byte{0xEC},         // mov rbp, rsp
+        std::byte{0x48}, std::byte{0x81}, std::byte{0xEC},         // sub rsp, 0x100
+        std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x00}};
+    std::memcpy(code + target_offset, prologue.data(), prologue.size());
+
+    constexpr std::size_t source_unwind_offset = 256u;
+    auto* source_info =
+        reinterpret_cast<TestUnwindInfo*>(code + source_unwind_offset);
+    std::memset(source_info, 0, 16u);
+    source_info->version_and_flags = 1u;
+    source_info->size_of_prolog = static_cast<UCHAR>(prologue.size());
+    source_info->count_of_codes = 4u;
+    source_info->frame_register_and_offset = 0x05u; // RBP, zero frame offset
+    source_info->unwind_code[0] = {
+        15u, static_cast<UCHAR>(1u)}; // UWOP_ALLOC_LARGE, OpInfo=0
+    source_info->unwind_code[1] = {
+        8u, static_cast<UCHAR>(3u)}; // UWOP_SET_FPREG
+    source_info->unwind_code[2] = {
+        5u, static_cast<UCHAR>(kTestUnwindOpPushNonVol | (5u << 4u))}; // push rbp
+    const USHORT allocation_in_eight_byte_units = 0x20u;
+    std::memcpy(reinterpret_cast<std::byte*>(source_info) +
+                    offsetof(TestUnwindInfo, unwind_code) +
+                    3u * sizeof(TestUnwindCode),
+                &allocation_in_eight_byte_units,
+                sizeof(allocation_in_eight_byte_units));
+
+    struct SourceFunctionTableGuard {
+        RUNTIME_FUNCTION entry{};
+        bool registered = false;
+        ~SourceFunctionTableGuard() noexcept {
+            if (registered && !::RtlDeleteFunctionTable(&entry)) {
+                std::terminate();
+            }
+        }
+    } source_table;
+    source_table.entry.BeginAddress = static_cast<DWORD>(target_offset);
+    source_table.entry.EndAddress = static_cast<DWORD>(target_offset + 64u);
+    source_table.entry.UnwindData = static_cast<DWORD>(source_unwind_offset);
+    REQUIRE(::RtlAddFunctionTable(
+        &source_table.entry,
+        1u,
+        static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(region.address))));
+    source_table.registered = true;
+
+    DWORD old_protection = 0;
+    REQUIRE(::VirtualProtect(region.address, 4096, PAGE_EXECUTE_READ, &old_protection));
+
+    HookBackend& backend = native_inline_hook_backend();
+    auto hook = Hook<NativeHookFn>::create(
+        Address{static_cast<std::uint64_t>(
+            reinterpret_cast<std::uintptr_t>(code + target_offset))},
+        &native_hook_detour,
+        &backend);
+    REQUIRE(hook.has_value());
+    HookOptions options{};
+    options.threads = ThreadPolicy::None;
+    REQUIRE(hook->install(options).has_value());
+
+    const NativeHookFn trampoline = hook->original();
+    REQUIRE(trampoline != nullptr);
+    DWORD64 image_base = 0;
+    PRUNTIME_FUNCTION trampoline_function = ::RtlLookupFunctionEntry(
+        static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(trampoline)),
+        &image_base,
+        nullptr);
+    REQUIRE(trampoline_function != nullptr);
+
+    alignas(16) std::array<std::byte, 512> fake_stack{};
+    const auto entry_stack_pointer =
+        reinterpret_cast<std::uintptr_t>(fake_stack.data()) + 344u;
+    const auto saved_frame_pointer = static_cast<DWORD64>(0x1122334455667788ull);
+    const DWORD64 return_address =
+        static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(&native_hook_detour));
+    std::memcpy(reinterpret_cast<void*>(entry_stack_pointer - sizeof(DWORD64)),
+                &saved_frame_pointer,
+                sizeof(saved_frame_pointer));
+    std::memcpy(reinterpret_cast<void*>(entry_stack_pointer),
+                &return_address,
+                sizeof(return_address));
+
+    CONTEXT context{};
+    context.ContextFlags = CONTEXT_FULL;
+    context.Rip = static_cast<DWORD64>(
+        reinterpret_cast<std::uintptr_t>(trampoline) +
+        kTestTrampolineEntryPrefixSize + (prologue.size() - kTestTrampolineEntryPrefixSize));
+    context.Rsp = static_cast<DWORD64>(entry_stack_pointer - sizeof(DWORD64) - 0x100u);
+    context.Rbp = static_cast<DWORD64>(entry_stack_pointer - sizeof(DWORD64));
+    PVOID handler_data = nullptr;
+    DWORD64 establisher_frame = 0;
+    (void)::RtlVirtualUnwind(
+        UNW_FLAG_NHANDLER,
+        image_base,
+        context.Rip,
+        trampoline_function,
+        &context,
+        &handler_data,
+        &establisher_frame,
+        nullptr);
+
+    REQUIRE(context.Rip == return_address);
+    REQUIRE(context.Rsp == entry_stack_pointer + sizeof(DWORD64));
+    REQUIRE(context.Rbp == saved_frame_pointer);
+    REQUIRE(hook->remove().has_value());
+}
+
+TEST_CASE("Native x64 trampoline restores a saved nonvolatile XMM register",
+          "[hook][native][unwind][integration]") {
+    using namespace tessera;
+
+    ExecutableRegionGuard region{
+        ::VirtualAlloc(nullptr, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE)};
+    REQUIRE(region.address != nullptr);
+    auto* code = static_cast<std::byte*>(region.address);
+    std::memset(code, 0x90, 4096);
+
+    constexpr std::size_t target_offset = 64u;
+    const std::array<std::byte, 14> function_code{
+        std::byte{0x48}, std::byte{0x83}, std::byte{0xEC}, std::byte{0x28}, // sub rsp, 0x28
+        std::byte{0x0F}, std::byte{0x29}, std::byte{0x74},
+        std::byte{0x24}, std::byte{0x10},                                // movaps [rsp+10], xmm6
+        std::byte{0x0F}, std::byte{0x28}, std::byte{0x74},
+        std::byte{0x24}, std::byte{0x10}};                               // movaps xmm6, [rsp+10]
+    std::memcpy(code + target_offset, function_code.data(), function_code.size());
+    code[target_offset + function_code.size() + 0u] = std::byte{0x48};
+    code[target_offset + function_code.size() + 1u] = std::byte{0x83};
+    code[target_offset + function_code.size() + 2u] = std::byte{0xC4};
+    code[target_offset + function_code.size() + 3u] = std::byte{0x28};
+    code[target_offset + function_code.size() + 4u] = std::byte{0xC3};
+
+    constexpr std::size_t source_unwind_offset = 256u;
+    auto* source_info =
+        reinterpret_cast<TestUnwindInfo*>(code + source_unwind_offset);
+    std::memset(source_info, 0, 16u);
+    source_info->version_and_flags = 1u;
+    source_info->size_of_prolog = 9u;
+    source_info->count_of_codes = 3u;
+    source_info->frame_register_and_offset = 0u;
+    source_info->unwind_code[0] = {
+        9u, static_cast<UCHAR>(8u | (6u << 4u))}; // UWOP_SAVE_XMM128 XMM6
+    const USHORT xmm_save_offset_in_sixteen_byte_units = 1u;
+    std::memcpy(reinterpret_cast<std::byte*>(source_info) +
+                    offsetof(TestUnwindInfo, unwind_code) + sizeof(TestUnwindCode),
+                &xmm_save_offset_in_sixteen_byte_units,
+                sizeof(xmm_save_offset_in_sixteen_byte_units));
+    source_info->unwind_code[2] = {
+        4u, static_cast<UCHAR>(kTestUnwindOpAllocSmall | (4u << 4u))};
+
+    struct SourceFunctionTableGuard {
+        RUNTIME_FUNCTION entry{};
+        bool registered = false;
+        ~SourceFunctionTableGuard() noexcept {
+            if (registered && !::RtlDeleteFunctionTable(&entry)) {
+                std::terminate();
+            }
+        }
+    } source_table;
+    source_table.entry.BeginAddress = static_cast<DWORD>(target_offset);
+    source_table.entry.EndAddress =
+        static_cast<DWORD>(target_offset + function_code.size() + 16u);
+    source_table.entry.UnwindData = static_cast<DWORD>(source_unwind_offset);
+    REQUIRE(::RtlAddFunctionTable(
+        &source_table.entry,
+        1u,
+        static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(region.address))));
+    source_table.registered = true;
+
+    DWORD old_protection = 0;
+    REQUIRE(::VirtualProtect(region.address, 4096, PAGE_EXECUTE_READ, &old_protection));
+
+    HookBackend& backend = native_inline_hook_backend();
+    auto hook = Hook<NativeHookFn>::create(
+        Address{static_cast<std::uint64_t>(
+            reinterpret_cast<std::uintptr_t>(code + target_offset))},
+        &native_hook_detour,
+        &backend);
+    REQUIRE(hook.has_value());
+    HookOptions options{};
+    options.threads = ThreadPolicy::None;
+    REQUIRE(hook->install(options).has_value());
+
+    const NativeHookFn trampoline = hook->original();
+    REQUIRE(trampoline != nullptr);
+    DWORD64 image_base = 0;
+    PRUNTIME_FUNCTION trampoline_function = ::RtlLookupFunctionEntry(
+        static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(trampoline)),
+        &image_base,
+        nullptr);
+    REQUIRE(trampoline_function != nullptr);
+
+    alignas(16) std::array<std::byte, 256> fake_stack{};
+    const auto entry_stack_pointer =
+        reinterpret_cast<std::uintptr_t>(fake_stack.data()) + 88u;
+    const auto current_stack_pointer = entry_stack_pointer - 0x28u;
+    const DWORD64 return_address =
+        static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(&native_hook_detour));
+    std::memcpy(reinterpret_cast<void*>(entry_stack_pointer),
+                &return_address,
+                sizeof(return_address));
+    std::array<std::byte, 16> expected_xmm6{};
+    for (std::size_t index = 0; index < expected_xmm6.size(); ++index) {
+        expected_xmm6[index] = static_cast<std::byte>(index + 0x40u);
+    }
+    std::memcpy(reinterpret_cast<void*>(current_stack_pointer + 0x10u),
+                expected_xmm6.data(),
+                expected_xmm6.size());
+
+    CONTEXT context{};
+    context.ContextFlags = CONTEXT_FULL;
+    context.Rip = static_cast<DWORD64>(
+        reinterpret_cast<std::uintptr_t>(trampoline) +
+        kTestTrampolineEntryPrefixSize + 9u);
+    context.Rsp = static_cast<DWORD64>(current_stack_pointer);
+    std::memset(&context.Xmm6, 0, sizeof(context.Xmm6));
+    PVOID handler_data = nullptr;
+    DWORD64 establisher_frame = 0;
+    (void)::RtlVirtualUnwind(
+        UNW_FLAG_NHANDLER,
+        image_base,
+        context.Rip,
+        trampoline_function,
+        &context,
+        &handler_data,
+        &establisher_frame,
+        nullptr);
+
+    REQUIRE(context.Rip == return_address);
+    REQUIRE(context.Rsp == entry_stack_pointer + sizeof(DWORD64));
+    REQUIRE(std::memcmp(&context.Xmm6, expected_xmm6.data(),
+                        expected_xmm6.size()) == 0);
+    REQUIRE(hook->remove().has_value());
+}
+
+#if defined(_M_X64) || defined(__x86_64__)
 TEST_CASE("Native x64 trampoline remaps unwind offsets and unwinds an exception in relocated prologue",
           "[hook][native][unwind][integration]") {
     using namespace tessera;
