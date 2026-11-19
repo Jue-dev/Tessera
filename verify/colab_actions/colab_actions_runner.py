@@ -15,7 +15,7 @@ def mp(v): return v if isinstance(v, dict) else {}
 def seq(v): return v if isinstance(v, list) else []
 def load_yaml(p): return mp(yaml.load(p.read_text(encoding="utf-8"), Loader=yaml.BaseLoader))
 def safe_path(root, value):
-    raw = pathlib.PurePosixPath(str(value).replace("\\\\", "/"))
+    raw = pathlib.PurePosixPath(str(value).replace("\\", "/"))
     if raw.is_absolute() or ".." in raw.parts: raise ValueError("Path must stay inside the workspace.")
     base = pathlib.Path(root).resolve()
     result = (base / pathlib.Path(*raw.parts)).resolve()
@@ -95,7 +95,7 @@ class ColabActionsRunner:
     def discover_workflows(self):
         folder = self.workspace / ".github" / "workflows"
         if not folder.is_dir(): return []
-        return sorted(str(p.relative_to(self.workspace)).replace("\\\\", "/") for p in folder.rglob("*") if p.is_file() and p.suffix.lower() in {".yml", ".yaml"})
+        return sorted(str(p.relative_to(self.workspace)).replace("\\", "/") for p in folder.rglob("*") if p.is_file() and p.suffix.lower() in {".yml", ".yaml"})
     def read_workflow(self, relative):
         path = safe_path(self.workspace, relative)
         if path.suffix.lower() not in {".yml", ".yaml"} or ".github/workflows" not in str(path): raise ValueError("Select YAML inside .github/workflows.")
@@ -152,31 +152,31 @@ class ColabActionsRunner:
         def replace(m):
             expr = m.group(1).strip()
             if "secrets." in expr: raise ValueError("secrets.* is blocked; Colab runner never injects secrets into workflow commands.")
-            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*", expr): return s(self.lookup(expr, ctx))
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*", expr): return s(self.lookup(expr, ctx))
             if expr in {"true", "false", "null"}: return {"true": "true", "false": "false", "null": ""}[expr]
             raise ValueError("Unsupported GitHub expression: " + expr)
-        return re.sub(r"\\$\\{\\{\\s*(.*?)\\s*\\}\\}", replace, raw)
+        return re.sub(r"\$\{\{\s*(.*?)\s*\}\}", replace, raw)
     def evaluate_condition(self, condition, ctx, previous_failed=False):
         expr = s(condition)
         if not expr: return True
-        expr = re.sub(r"^\\$\\{\\{\\s*|\\s*\\}\\}$", "", expr).strip()
+        expr = re.sub(r"^\$\{\{\s*|\s*\}\}$", "", expr).strip()
         if "secrets." in expr: return False
         expr = expr.replace("&&", " and ").replace("||", " or ")
         expr = re.sub(r"(?<![=!<>])!(?!=)", " not ", expr)
         for fn, result in (("always", True), ("success", not previous_failed), ("failure", previous_failed), ("cancelled", False)):
-            expr = re.sub(r"\\b" + fn + r"\\s*\\(\\s*\\)", str(result), expr)
+            expr = re.sub(r"\b" + fn + r"\s*\(\s*\)", str(result), expr)
         for fn in ("startsWith", "contains"):
-            pattern = re.compile(r"\\b" + fn + r"\\(([^()]*)\\)")
+            pattern = re.compile(r"\b" + fn + r"\(([^()]*)\)")
             while True:
                 m = pattern.search(expr)
                 if not m: break
                 args = [x.strip().strip("'\\\"") for x in m.group(1).split(",", 1)]
                 if len(args) != 2: return False
-                left = s(self.lookup(args[0], ctx)) if re.fullmatch(r"[A-Za-z_][\\w.]*", args[0]) else args[0]
-                right = s(self.lookup(args[1], ctx)) if re.fullmatch(r"[A-Za-z_][\\w.]*", args[1]) else args[1]
+                left = s(self.lookup(args[0], ctx)) if re.fullmatch(r"[A-Za-z_][\w.]*", args[0]) else args[0]
+                right = s(self.lookup(args[1], ctx)) if re.fullmatch(r"[A-Za-z_][\w.]*", args[1]) else args[1]
                 result = right.startswith(left) if fn == "startsWith" else left in right
                 expr = expr[:m.start()] + str(result) + expr[m.end():]
-        expr = re.sub(r"\\b(?:github|runner|matrix|inputs|env|job|needs|steps)\\.[A-Za-z_][A-Za-z0-9_.]*", lambda m: repr(self.lookup(m.group(0), ctx)), expr)
+        expr = re.sub(r"\b(?:github|runner|matrix|inputs|env|job|needs|steps)\.[A-Za-z_][A-Za-z0-9_.]*", lambda m: repr(self.lookup(m.group(0), ctx)), expr)
         try:
             tree = ast.parse(expr, mode="eval")
             allowed = (ast.Expression, ast.BoolOp, ast.And, ast.Or, ast.UnaryOp, ast.Not, ast.Compare, ast.Eq, ast.NotEq, ast.In, ast.NotIn, ast.Constant, ast.Load)
@@ -274,7 +274,7 @@ class ColabActionsRunner:
         for child_raw in seq(runs.get("steps")):
             child = dict(mp(child_raw)); child_env = {}
             for key, val in mp(child.get("env")).items():
-                child_env[key] = re.sub(r"\\$\\{\\{\\s*inputs\\.([A-Za-z0-9_-]+)\\s*\\}\\}", lambda m: s(local_inputs.get(m.group(1), "")), s(val))
+                child_env[key] = re.sub(r"\$\{\{\s*inputs\.([A-Za-z0-9_-]+)\s*\}\}", lambda m: s(local_inputs.get(m.group(1), "")), s(val))
             child["env"] = child_env
             result = self.run_step(child, ctx, cwd, env_base, depth+1)
             if result[0].status not in {"PASS", "SKIP"} and not truth(child.get("continue-on-error")): return result
