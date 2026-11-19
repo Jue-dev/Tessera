@@ -42,7 +42,9 @@ Patch& Patch::operator=(Patch&& other) noexcept {
 }
 
 Patch::~Patch() noexcept {
-    finish_in_destructor();
+    // The helper reports restoration failures through the diagnostic observer.
+    // Its Status is intentionally not propagated from a noexcept destructor.
+    (void)finish_in_destructor();
 }
 
 Status Patch::finish_in_destructor() noexcept {
