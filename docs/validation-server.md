@@ -11,7 +11,7 @@ separate browser tab; the interface is not embedded in a notebook iframe.
 - Import a versioned JSON profile with **Load profile**.
 - Export the current repository, runtime, setup and test settings with
   **Export profile** to reuse them in another Colab session or project.
-- Restore the notebook's included defaults with **Restore defaults**.
+- Clear the configuration with **Restore defaults**. The notebook starts blank.
 - Profiles include the Colab Secret *name*, never the secret/token value.
   Store credentials in Colab Secrets and review imported shell commands before
   running them.
