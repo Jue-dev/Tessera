@@ -69,6 +69,22 @@ using NativeHookFn = int(__cdecl*)(int);
 using NativeHookFastFn = std::uintptr_t(__fastcall*)(std::uintptr_t);
 
 #if defined(_M_X64) || defined(__x86_64__)
+struct TestUnwindCode {
+    UCHAR code_offset = 0;
+    UCHAR operation = 0;
+};
+
+struct TestUnwindInfo {
+    UCHAR version_and_flags = 0;
+    UCHAR size_of_prolog = 0;
+    UCHAR count_of_codes = 0;
+    UCHAR frame_register_and_offset = 0;
+    TestUnwindCode unwind_code[1]{};
+};
+
+constexpr UCHAR kTestUnwindOpAllocSmall = 2u;
+static_assert(offsetof(TestUnwindInfo, unwind_code) == 4u);
+static_assert(sizeof(TestUnwindCode) == 2u);
 DWORD __cdecl invoke_breakpoint_trampoline(NativeHookFn trampoline) noexcept {
     __try {
         (void)trampoline(0);
@@ -819,17 +835,17 @@ TEST_CASE("Native x64 trampoline remaps unwind offsets and unwinds an exception 
 
     constexpr std::size_t source_unwind_offset = 256u;
     auto* source_info =
-        reinterpret_cast<UNWIND_INFO*>(code + source_unwind_offset);
+        reinterpret_cast<TestUnwindInfo*>(code + source_unwind_offset);
     std::memset(source_info, 0, 16u);
-    source_info->Version = 1u;
-    source_info->Flags = 0u;
-    source_info->SizeOfProlog = 4u;
-    source_info->CountOfCodes = 1u;
-    source_info->FrameRegister = 0u;
-    source_info->FrameOffset = 0u;
-    source_info->UnwindCode[0].CodeOffset = 4u;
-    source_info->UnwindCode[0].UnwindOp = UWOP_ALLOC_SMALL;
-    source_info->UnwindCode[0].OpInfo = 4u; // (0x28 - 8) / 8.
+    source_info->version_and_flags = 1u;
+    // The test record carries no handler or chained-unwind flags.
+    source_info->size_of_prolog = 4u;
+    source_info->count_of_codes = 1u;
+    source_info->frame_register_and_offset = 0u;
+    
+    source_info->unwind_code[0].code_offset = 4u;
+    source_info->unwind_code[0].operation = kTestUnwindOpAllocSmall | (4u << 4u);
+    // Operation info 4 means (0x28 - 8) / 8.
 
     struct SourceFunctionTableGuard {
         RUNTIME_FUNCTION entry{};
@@ -872,14 +888,14 @@ TEST_CASE("Native x64 trampoline remaps unwind offsets and unwinds an exception 
         &trampoline_image_base,
         nullptr);
     REQUIRE(trampoline_function != nullptr);
-    const auto* trampoline_info = reinterpret_cast<const UNWIND_INFO*>(
+    const auto* trampoline_info = reinterpret_cast<const TestUnwindInfo*>(
         trampoline_image_base + trampoline_function->UnwindData);
-    REQUIRE(trampoline_info->Version == 1u);
-    REQUIRE(trampoline_info->CountOfCodes == 1u);
-    REQUIRE(trampoline_info->SizeOfProlog == 8u);
-    REQUIRE(trampoline_info->UnwindCode[0].CodeOffset == 8u);
-    REQUIRE(trampoline_info->UnwindCode[0].UnwindOp == UWOP_ALLOC_SMALL);
-    REQUIRE(trampoline_info->UnwindCode[0].OpInfo == 4u);
+    REQUIRE((trampoline_info->version_and_flags & 0x07u) == 1u);
+    REQUIRE(trampoline_info->count_of_codes == 1u);
+    REQUIRE(trampoline_info->size_of_prolog == 8u);
+    REQUIRE(trampoline_info->unwind_code[0].code_offset == 8u);
+    REQUIRE((trampoline_info->unwind_code[0].operation & 0x0Fu) == kTestUnwindOpAllocSmall);
+    REQUIRE((trampoline_info->unwind_code[0].operation >> 4u) == 4u);
 
     // The OS exception dispatcher must find the generated RUNTIME_FUNCTION,
     // apply the translated ALLOC_SMALL unwind code, and reach this handler.
