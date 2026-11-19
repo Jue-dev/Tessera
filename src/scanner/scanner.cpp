@@ -33,8 +33,13 @@ Result<ScanStats> for_each_readable_chunk(const Process& process,
     }
 
     const std::uint64_t max_app = process.info().max_application_address;
+    auto max_app_exclusive = checked_add<std::uint64_t>(max_app, 1u);
+    if (!max_app_exclusive) {
+        return fail(ErrorCode::OutOfRange, "Scanner::scan", 0,
+                    "Maximum application address cannot be represented as an exclusive limit");
+    }
     const std::uint64_t scan_begin = range.begin().value();
-    const std::uint64_t scan_end = (std::min)(range_end_res->value(), max_app);
+    const std::uint64_t scan_end = (std::min)(range_end_res->value(), *max_app_exclusive);
     if (scan_begin >= scan_end) {
         return ScanStats{};
     }
@@ -60,11 +65,12 @@ Result<ScanStats> for_each_readable_chunk(const Process& process,
             }
             auto q = backend.query(Address{cur});
             if (!q) {
-                break;
+                return std::unexpected(q.error());
             }
             auto r_end_res = checked_add<std::uint64_t>(q->base.value(), q->size);
             if (!r_end_res || *r_end_res <= cur) {
-                break;
+                return fail(ErrorCode::OutOfRange, "Scanner::scan", 0,
+                            "Memory-region query returned an invalid or non-progressing range");
             }
             const std::uint64_t r_end = *r_end_res;
             const std::uint64_t clipped_begin = (std::max)(cur, q->base.value());
@@ -77,14 +83,25 @@ Result<ScanStats> for_each_readable_chunk(const Process& process,
                 } else {
                     runs.push_back(ContiguousRun{clipped_begin, clipped_end});
                 }
-                total_run_bytes += (clipped_end - clipped_begin);
+                auto total = checked_add<std::uint64_t>(
+                    total_run_bytes, clipped_end - clipped_begin);
+                if (!total) {
+                    return fail(ErrorCode::OutOfRange, "Scanner::scan",
+                                0, "Total readable scan length overflowed");
+                }
+                total_run_bytes = *total;
             } else {
                 ++stats.regions_skipped;
             }
             cur = r_end;
         }
 
-        std::vector<std::byte> buffer(chunk_sz + overlap);
+        auto buffer_size = checked_add<std::size_t>(chunk_sz, overlap);
+        if (!buffer_size) {
+            return fail(ErrorCode::OutOfRange, "Scanner::scan", 0,
+                        "Chunk size plus pattern overlap overflowed");
+        }
+        std::vector<std::byte> buffer(*buffer_size);
         bool keep_going = true;
 
         for (const auto& run : runs) {
@@ -100,7 +117,7 @@ Result<ScanStats> for_each_readable_chunk(const Process& process,
 
                 const std::uint64_t rem = run.end - pos;
                 const auto want = static_cast<std::size_t>(
-                    (std::min)(static_cast<std::uint64_t>(chunk_sz + overlap), rem));
+                    (std::min)(static_cast<std::uint64_t>(*buffer_size), rem));
                 const bool is_last_in_run = (want == rem);
 
                 auto got_res = backend.read(Address{pos}, std::span<std::byte>(buffer.data(), want));
@@ -200,8 +217,7 @@ Result<ScanResult> Scanner::scan(AddressRange range,
                         .total_bytes = total_bytes,
                         .hits_found = result.hits.size(),
                     };
-                    const_cast<std::move_only_function<void(const ScanProgress&)>&>(
-                        options.on_progress)(prog);
+                    options.on_progress(prog);
                 }
                 return continue_scan;
             });

@@ -19,13 +19,18 @@ Result<std::vector<MemoryRegionInfo>> enumerate_regions(const Process& process,
                                                         RegionFilter filter) {
     const std::uint64_t max_addr = process.info().max_application_address;
     std::uint64_t cur = bounds.empty() ? 0ULL : bounds.begin().value();
-    std::uint64_t limit = max_addr;
+    auto max_exclusive = checked_add<std::uint64_t>(max_addr, 1u);
+    if (!max_exclusive) {
+        return fail(ErrorCode::OutOfRange, "enumerate_regions", 0,
+                    "Maximum application address cannot be represented as an exclusive limit");
+    }
+    std::uint64_t limit = *max_exclusive;
     if (!bounds.empty()) {
         auto end_res = bounds.end();
         if (!end_res) {
             return std::unexpected(end_res.error());
         }
-        limit = (std::min)(end_res->value(), max_addr);
+        limit = (std::min)(end_res->value(), *max_exclusive);
     }
 
     const IMemoryBackend& backend = memory_backend(process);
@@ -34,12 +39,13 @@ Result<std::vector<MemoryRegionInfo>> enumerate_regions(const Process& process,
         while (cur < limit) {
             auto reg_res = backend.query(Address{cur});
             if (!reg_res) {
-                break;
+                return std::unexpected(reg_res.error());
             }
             const MemoryRegionInfo& reg = *reg_res;
             auto reg_end = checked_add<std::uint64_t>(reg.base.value(), reg.size);
             if (!reg_end || *reg_end <= cur) {
-                break; // Ensure strict forward progress and guard against overflow
+                return fail(ErrorCode::OutOfRange, "enumerate_regions", 0,
+                            "Memory-region query returned an invalid or non-progressing range");
             }
             if (matches_region_filter(reg, filter)) {
                 regions.push_back(reg);

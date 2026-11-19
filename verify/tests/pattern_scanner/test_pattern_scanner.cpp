@@ -160,3 +160,23 @@ TEST_CASE("Scanner chunk overlap, contiguous region merging, bad page skip, and 
     REQUIRE_FALSE(bad_ptr_xref.has_value());
     REQUIRE(bad_ptr_xref.error().code == ErrorCode::OutOfRange);
 }
+
+TEST_CASE("Scanner reports query failures and rejects chunk overlap overflow", "[scanner][safety]") {
+    using namespace tessera;
+    using namespace tessera::literals;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
+    Scanner scanner{process};
+    const Pattern pattern = "AA BB"_sig;
+
+    auto query_failure = scanner.scan(AddressRange{Address{0x700000}, 0x1000}, pattern);
+    REQUIRE_FALSE(query_failure.has_value());
+
+    ScanOptions oversized{};
+    oversized.chunk_size = (std::numeric_limits<std::size_t>::max)();
+    auto overflow = scanner.scan(AddressRange{Address{0x700000}, 0x1000}, pattern, oversized);
+    REQUIRE_FALSE(overflow.has_value());
+    REQUIRE(overflow.error().code == ErrorCode::OutOfRange);
+}
