@@ -4426,3 +4426,63 @@ TEST_CASE("Native patch transaction retries rollback flush and protection restor
     REQUIRE_FALSE(ops.copied_without_write_access);
     REQUIRE((ops.events == std::vector<char>{'P', 'C', 'f', 'C', 'f', 'F', 'p', 'P'}));
 }
+
+TEST_CASE("Patch restore refuses to overwrite bytes changed by another writer", "[patch][safety]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    auto& region = backend->map_region(Address{0x600000}, 0x1000, MemoryProtection::ReadWrite);
+    const std::array<std::byte, 4> original{
+        std::byte{0x10}, std::byte{0x20}, std::byte{0x30}, std::byte{0x40}};
+    backend->poke_bytes(Address{0x600100}, original);
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
+    auto patch_result = Patch::nop(ProcessAddress{process, Address{0x600100}}, 4);
+    REQUIRE(patch_result.has_value());
+    auto patch = std::move(*patch_result);
+    REQUIRE(patch.apply().has_value());
+
+    const std::array<std::byte, 4> external{
+        std::byte{0xAA}, std::byte{0xBB}, std::byte{0xCC}, std::byte{0xDD}};
+    backend->poke_bytes(Address{0x600100}, external);
+
+    auto restore = patch.restore();
+    REQUIRE_FALSE(restore.has_value());
+    REQUIRE(restore.error().code == ErrorCode::Conflict);
+    REQUIRE(patch.state() == PatchState::Applied);
+    REQUIRE(*backend->peek_byte(Address{0x600100}) == std::byte{0xAA});
+    (void)region;
+}
+
+TEST_CASE("PatchTransaction does not roll back patches applied before the transaction", "[patch][transaction]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    backend->map_region(Address{0x610000}, 0x1000, MemoryProtection::ReadWrite);
+    const std::array<std::byte, 4> original{
+        std::byte{0x10}, std::byte{0x20}, std::byte{0x30}, std::byte{0x40}};
+    backend->poke_bytes(Address{0x610100}, original);
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
+
+    auto first_result = Patch::nop(ProcessAddress{process, Address{0x610100}}, 4);
+    REQUIRE(first_result.has_value());
+    Patch first = std::move(*first_result);
+    REQUIRE(first.apply().has_value());
+    REQUIRE(first.state() == PatchState::Applied);
+
+    PatchTransaction transaction{};
+    transaction.add(std::move(first));
+    auto second_result = Patch::nop(ProcessAddress{process, Address{0x999000}}, 4);
+    REQUIRE(second_result.has_value());
+    transaction.add(std::move(*second_result));
+
+    const auto report = transaction.apply();
+    REQUIRE_FALSE(report.succeeded);
+    REQUIRE_FALSE(report.rolled_back);
+    REQUIRE(report.steps[0].state == PatchState::Applied);
+    REQUIRE(*backend->peek_byte(Address{0x610100}) == std::byte{0x90});
+
+    REQUIRE(transaction.restore_all().has_value());
+    REQUIRE(*backend->peek_byte(Address{0x610100}) == std::byte{0x10});
+}

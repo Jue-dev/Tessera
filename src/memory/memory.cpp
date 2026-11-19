@@ -461,21 +461,36 @@ Result<WriteReport> MemoryWriter::write_with_report(Address address,
                 slice.slice_begin,
                 std::span<const std::byte>(backup_bytes.data() + rb_offset, to_restore));
             if (slice.needs_protect_change) {
-                (void)backend.protect(slice.slice_begin, to_restore, restore_prot);
+                auto restore_result = backend.protect(slice.slice_begin, to_restore, restore_prot);
+                if (!restore_result && !report.rollback_error) {
+                    report.rollback_error = make_error(
+                        ErrorCode::ProtectionRestoreFailed,
+                        restore_result.error().operation,
+                        restore_result.error().native,
+                        "Failed to restore page protection during rollback");
+                }
             }
             if (!w || *w != to_restore) {
-                report.rollback_error =
-                    w ? make_error(ErrorCode::PartialTransfer, "RollbackWrite") : w.error();
+                if (!report.rollback_error) {
+                    report.rollback_error =
+                        w ? make_error(ErrorCode::PartialTransfer, "RollbackWrite") : w.error();
+                }
                 break;
             }
             rb_offset += to_restore;
         }
+        report.rolled_back = !report.rollback_error.has_value() &&
+                            rb_offset == report.bytes_written;
     }
 
-    // Step 4: Flush instruction cache
+    // Step 4: Flush instruction cache. A failed flush is a safety failure,
+    // even when the bytes were written successfully.
     if (options.flush_icache && report.bytes_written > 0) {
-        (void)backend.flush_instruction_cache(
+        auto flush_status = backend.flush_instruction_cache(
             AddressRange{address, static_cast<std::uint64_t>(report.bytes_written)});
+        if (!flush_status) {
+            report.icache_flush_error = flush_status.error();
+        }
     }
 
     return report;
@@ -490,6 +505,15 @@ Status MemoryWriter::write(Address address,
     }
     if (rep->write_error) {
         return std::unexpected(*rep->write_error);
+    }
+    if (rep->rollback_error) {
+        return std::unexpected(*rep->rollback_error);
+    }
+    if (rep->protection_restore_warning) {
+        return std::unexpected(*rep->protection_restore_warning);
+    }
+    if (rep->icache_flush_error) {
+        return std::unexpected(*rep->icache_flush_error);
     }
     return ok();
 }

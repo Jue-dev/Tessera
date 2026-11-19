@@ -111,7 +111,7 @@ TEST_CASE("FakeMemoryBackend reader, writer, rollback, and protection warnings",
     auto warn_rep = writer.write_with_report(
         Address{0x10000}, std::span<const std::byte>(cross_data.data(), 4));
     REQUIRE(warn_rep.has_value());
-    REQUIRE(warn_rep->succeeded());
+    REQUIRE_FALSE(warn_rep->succeeded());
     REQUIRE(warn_rep->protection_restore_warning.has_value());
     REQUIRE(warn_rep->protection_restore_warning->code == ErrorCode::ProtectionRestoreFailed);
 }
