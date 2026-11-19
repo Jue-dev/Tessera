@@ -66,6 +66,15 @@ int __cdecl blocking_trampoline_function(int value) {
 using NativeHookFn = int(__cdecl*)(int);
 using NativeHookFastFn = std::uintptr_t(__fastcall*)(std::uintptr_t);
 tessera::Hook<NativeHookFn>* g_recursive_lease_hook = nullptr;
+std::atomic<bool> g_remove_from_lease_rejected{false};
+
+int __cdecl remove_from_callable_lease_trampoline(int value) {
+    const auto result = g_recursive_lease_hook->remove();
+    g_remove_from_lease_rejected.store(
+        !result.has_value() && result.error().code == tessera::ErrorCode::Conflict,
+        std::memory_order_release);
+    return value + 7;
+}
 
 int __cdecl recursive_trampoline_function(int value) {
     if (value <= 0) {
@@ -446,6 +455,28 @@ TEST_CASE("Hook callable leases support same-thread recursive original calls",
     g_recursive_lease_hook = nullptr;
 
     REQUIRE(result == 10);
+    REQUIRE(hook->remove().has_value());
+}
+
+TEST_CASE("Hook lifecycle changes inside a leased call fail without deadlocking",
+          "[hook][lifecycle][threads]") {
+    using namespace tessera;
+
+    g_remove_from_lease_rejected.store(false, std::memory_order_release);
+    MockHookBackend backend{};
+    backend.trampoline = reinterpret_cast<void*>(&remove_from_callable_lease_trampoline);
+    auto hook = Hook<NativeHookFn>::create(
+        &sample_target_function, &sample_detour_function, &backend);
+    REQUIRE(hook.has_value());
+    REQUIRE(hook->install().has_value());
+
+    g_recursive_lease_hook = &*hook;
+    const int result = (*hook)(5);
+    g_recursive_lease_hook = nullptr;
+
+    REQUIRE(result == 12);
+    REQUIRE(g_remove_from_lease_rejected.load(std::memory_order_acquire));
+    REQUIRE(hook->installed());
     REQUIRE(hook->remove().has_value());
 }
 
