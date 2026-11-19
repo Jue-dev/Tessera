@@ -60,7 +60,7 @@ if(TESSERA_ENABLE_LIBFUZZER)
         target_compile_definitions(${fuzz_target} PRIVATE TESSERA_LIBFUZZER=1)
         target_compile_options(${fuzz_target} PRIVATE
             -fsanitize=fuzzer-no-link,address,undefined
-            -fno-omit-frame-pointer
+            ${TESSERA_FUZZ_FRAME_POINTER_OPTION}
         )
         target_link_options(${fuzz_target} PRIVATE -fsanitize=fuzzer,address,undefined)
         if(MSVC)
