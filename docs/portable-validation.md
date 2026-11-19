@@ -5,63 +5,68 @@ environment. It is supplemental and does **not** emulate Windows, the Windows
 loader, unwind registration, executable memory, or native inline-hook runtime
 behavior.
 
-## Google Colab — native form notebook
+## Google Colab — reusable Project Test Console
 
 Open
 [Tessera_Portable_Validation.ipynb](../verify/portable/Tessera_Portable_Validation.ipynb)
-in Google Colab. The notebook has two cells: a short guide and one runner cell.
-All settings use Google Colab's native `#@param` form controls; it does not
-depend on ipywidgets or a separate HTML/web UI.
+in Google Colab. Settings use native Colab form controls, grouped into six
+sections; there is no custom web UI or ipywidgets dependency.
 
-The initial form values target the current `issue-6/unwind-lifecycle` branch
-and Tessera's portable mock harness. For another project, change the repository
-URL, ref, and test commands in the form.
+### Configuration sections
 
-1. For a private GitHub repository, add a Colab Secret named `GH_TOKEN` and
-   enable notebook access. A fine-grained token with repository
-   `Contents: Read-only` is sufficient for cloning. Public repositories do
-   not need a token.
-2. Adjust the form fields above the runner cell. Optional setup commands and
-   up to five test commands can be entered without editing the Python code.
-3. Run the cell. The report is printed directly in the cell output and is also
-   saved as `/content/PROJECT_VALIDATION_REPORT.txt`.
-4. Copy the report text from the Colab output and paste it into the issue or
-   conversation being investigated.
+1. **Project** — profile, repository URL, branch/ref.
+2. **Git access** — Colab Secret name, username, clone depth, clone timeout.
+3. **Runtime** — test timeout, optional Clang/libc++ installation, continue-on-failure, workspace retention.
+4. **Setup** — up to three shell setup commands.
+5. **Test matrix** — up to five named test commands with optional required executable declarations.
+6. **Reuse / saved settings** — optional Drive JSON load/save.
+
+For private GitHub repositories, add a Colab Secret (default `GH_TOKEN`) and
+enable notebook access. Fine-grained token repository permission
+`Contents: Read-only` is sufficient for cloning. Public repositories do not
+need a token.
+
+### Saved settings
+
+Enable **Use Drive settings** to mount Google Drive. The settings JSON path
+defaults to `/content/drive/MyDrive/ProjectTestConsole/settings.json`.
+Enable **Load saved settings** to use a saved configuration, and
+**Save settings after run** to persist the current values. Do not store tokens
+in the settings file; authentication is read separately from Colab Secrets.
 
 ### Test command format
 
-Each test field uses this format:
+Each test field uses:
 
 ```text
-Test name :: shell command
-Compiler test :: CXX=clang++ ./test.sh :: needs=clang++
+Test name :: shell command :: needs=program
 ```
 
-The optional `needs=` section checks that required executables exist. Missing
-executables are marked `SKIP`, not test failures. Clang installation is
-enabled by default only when a configured test requires `clang++` and it is
-not installed; this can be disabled in the form. Three optional setup command
-fields run before tests.
+The `needs=` suffix is optional. If a required executable is missing, that
+test is marked `SKIP`. Clang and libc++ installation are opt-in form settings.
+Setup and test commands execute in the Colab shell; run only trusted commands.
 
-The runner records repository, ref, exact commit SHA, platform, duration,
-commands, exit codes, captured output, and an issue pool. Tokens are used only
-for cloning, removed from the clone environment before test commands run, and
-redacted from captured clone output. User-configured setup and test commands
-execute as shell commands in Colab; run only commands and repositories you
-trust.
+### Report
+
+The runner prints a compact summary (overall status, PASS/FAIL/SKIP counts,
+repository, ref, commit, duration) followed by the complete copyable report.
+The report is also saved to `/content/PROJECT_VALIDATION_REPORT.txt`.
+Package-install output is truncated to keep reports manageable. The report
+includes test output, exit codes, durations, environment and Issue Pool.
 
 ## Current Tessera portable test profile
 
-The default test fields run:
+The default profile runs:
 
 1. GCC strict mock build and test:
    `bash verify/windows_mock/run_windows_mock_tests.sh`
-2. Clang strict mock build and test:
-   `CXX=clang++ bash verify/windows_mock/run_windows_mock_tests.sh`
-3. GCC AddressSanitizer + UndefinedBehaviorSanitizer build and test.
+2. Clang strict mock using libc++:
+   `EXTRA_CXXFLAGS='-stdlib=libc++' CXX=clang++ bash verify/windows_mock/run_windows_mock_tests.sh`
+3. GCC AddressSanitizer + UndefinedBehaviorSanitizer.
 
-The Clang test declares `needs=clang++`; if the compiler is missing, the
-notebook installs it by default before running the test (unless disabled).
+The Clang profile uses libc++ to provide C++23 `std::expected` support for
+toolchains whose default libstdc++ headers do not expose it. Installation can be
+enabled in the form settings.
 
 A result of `PASS` means all configured tests ran and passed.
 `PARTIAL` means no test failed, but at least one test was skipped.
@@ -73,7 +78,7 @@ From the repository root:
 
 ```bash
 bash verify/windows_mock/run_windows_mock_tests.sh
-CXX=clang++ bash verify/windows_mock/run_windows_mock_tests.sh
+CXX=clang++ EXTRA_CXXFLAGS='-stdlib=libc++' bash verify/windows_mock/run_windows_mock_tests.sh
 EXTRA_CXXFLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' \
 ASAN_OPTIONS='detect_leaks=1:halt_on_error=1' \
 UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1' \
