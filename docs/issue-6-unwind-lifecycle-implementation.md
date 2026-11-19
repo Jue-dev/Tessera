@@ -8,17 +8,18 @@ current-head evidence.
 
 ## CI / Actions usage policy
 
-Actions validation is **manual-only** for Issue #6. The single
-`.github/workflows/issue-6-acceptance.yml` workflow runs the four-way Windows
-matrix and deterministic x64 Release fuzz smoke when explicitly dispatched.
-The five-minute Clang libFuzzer + ASan/UBSan campaign is an optional input to
-that same workflow. PR opened/ready/synchronize/reopened, branch push, and
-schedule events do not start validation.
+Actions validation is manual-only for this PR. The existing
+`.github/workflows/ci.yml` is the full matrix/quality gate and has no PR or
+schedule trigger; it can be manually dispatched with the PR branch selected.
+The focused `.github/workflows/native-hook-fuzz.yml` is also manual-only,
+configurable (60/300/900 seconds), and has no schedule. PR open/ready/
+synchronize/reopened and branch-push events do not start jobs. The redundant
+PR-smoke workflow was removed.
 
-Duplicate `pr-smoke.yml` and `native-hook-fuzz.yml` workflows were removed.
-The full SDK/quality workflow `.github/workflows/ci.yml` runs on relevant
-main-branch source pushes or manual dispatch; scheduled runs are disabled and
-release publication remains tag-only.
+The main CI workflow runs on relevant main-branch source pushes or manual
+dispatch; scheduled runs are disabled and release publication remains tag-only.
+The focused fuzzer has a manual dispatch only and uploads its corpus/crash
+artifacts.
 
 This reduces duplicate jobs and accidental quota consumption. Keep the PR
 draft while implementation is in progress. Do not treat skipped, unstarted,
