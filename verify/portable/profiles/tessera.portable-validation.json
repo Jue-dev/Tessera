@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "profile_name": "Tessera portable validation",
+  "project_name": "Tessera",
+  "repo": "https://github.com/Jue-dev/Tessera.git",
+  "ref": "issue-6/unwind-lifecycle",
+  "secret_name": "GH_TOKEN",
+  "git_user": "x-access-token",
+  "depth": 1,
+  "clone_timeout": 240,
+  "test_timeout": 900,
+  "keep_workspace": false,
+  "continue_on_error": true,
+  "setup": [],
+  "tests": [
+    {
+      "name": "GCC strict mock",
+      "command": "bash verify/windows_mock/run_windows_mock_tests.sh",
+      "needs": ""
+    },
+    {
+      "name": "Clang strict mock",
+      "command": "EXTRA_CXXFLAGS='-stdlib=libc++' CXX=clang++ bash verify/windows_mock/run_windows_mock_tests.sh",
+      "needs": "clang++"
+    },
+    {
+      "name": "GCC ASan + UBSan",
+      "command": "EXTRA_CXXFLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' ASAN_OPTIONS='detect_leaks=1:halt_on_error=1' UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1' bash verify/windows_mock/run_windows_mock_tests.sh",
+      "needs": ""
+    }
+  ]
+}
