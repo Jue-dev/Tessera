@@ -79,6 +79,7 @@ jobs:
           clang-cl "--target=$target" -v
 
       - name: Inspect Clang sanitizer runtime libraries
+        if: matrix.arch == 'x64'
         shell: pwsh
         env:
           FUZZ_ARCH: ${{ matrix.arch }}
@@ -101,7 +102,8 @@ jobs:
             Write-Host "Found: $name"
           }
 
-      - name: Configure instrumented native-hook fuzzer
+      - name: Configure instrumented native-hook fuzzer (x64)
+        if: matrix.arch == 'x64'
         shell: pwsh
         env:
           FUZZ_ARCH: ${{ matrix.arch }}
@@ -127,10 +129,23 @@ jobs:
           & cmake @cmakeArgs
           if ($LASTEXITCODE -ne 0) { throw "CMake configure failed for $env:FUZZ_ARCH ($LASTEXITCODE)" }
 
-      - name: Build instrumented native-hook fuzzer
+      - name: Configure x86 native-hook randomized stress harness
+        if: matrix.arch == 'x86'
+        shell: pwsh
+        run: |
+          cmake -S . -B build-native-hook-fuzz -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_FUZZ=ON -DTESSERA_STATIC_RUNTIME=ON -DTESSERA_ENABLE_LIBFUZZER=OFF
+          if ($LASTEXITCODE -ne 0) { throw "x86 stress harness configure failed ($LASTEXITCODE)" }
+
+      - name: Build instrumented native-hook fuzzer (x64)
+        if: matrix.arch == 'x64'
         run: cmake --build build-native-hook-fuzz --target tessera_fuzz_native_hook --parallel
 
-      - name: Run coverage-guided campaign
+      - name: Build x86 randomized native-hook stress harness
+        if: matrix.arch == 'x86'
+        run: cmake --build build-native-hook-fuzz --target tessera_fuzz_native_hook --parallel
+
+      - name: Run coverage-guided campaign (x64)
+        if: matrix.arch == 'x64'
         shell: pwsh
         env:
           FUZZ_ARCH: ${{ matrix.arch }}
@@ -152,6 +167,15 @@ jobs:
           Copy-Item $asanDll (Split-Path $target -Parent) -Force
           & $target $corpus "-max_total_time=$env:CAMPAIGN_SECONDS" "-timeout=10" "-max_len=96" "-rss_limit_mb=4096" "-seed=20261119" "-print_final_stats=1" "-artifact_prefix=$crashes\"
           if ($LASTEXITCODE -ne 0) { throw "Coverage-guided native-hook fuzzing failed for $env:FUZZ_ARCH ($LASTEXITCODE)" }
+
+      - name: Run deterministic randomized x86 stress corpus
+        if: matrix.arch == 'x86'
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz\verify\fuzz\tessera_fuzz_native_hook.exe"
+          if (-not (Test-Path $target)) { throw "Missing x86 native-hook stress target: $target" }
+          & $target
+          if ($LASTEXITCODE -ne 0) { throw "x86 native-hook randomized stress failed ($LASTEXITCODE)" }
 
       - name: Upload architecture-specific fuzz corpus and crash artifacts
         if: always()
