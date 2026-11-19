@@ -27,7 +27,7 @@ also available directly at
 [`tessera.portable-validation.json`](../verify/portable/profiles/tessera.portable-validation.json).
 For any project, adjust the source fields or manually import a profile. The GitHub profile fetch supports public repositories without a token and private repositories when a suitable token is available as a Colab Secret.
 
-The interface is a responsive dark web console with:
+The GitHub token-backed repository discovery can list accessible repositories and branches, populate the repository URL/project name, and allow branch selection. Tokens are read server-side from Colab Secrets and never sent to browser JavaScript.\n\nThe interface is a responsive dark web console with:
 - Repository/ref, project name, Colab Secret name, Git username, clone depth
   and timeout settings.
 - Dynamically add/remove setup commands and test definitions.
@@ -88,3 +88,8 @@ bash verify/windows_mock/run_windows_mock_tests.sh
 
 These remain pending until a Windows runner produces results for the exact PR
 head. Portable Linux results are not evidence for these Windows-native gates.
+
+
+## GitHub Actions automation
+
+Run the **Project Validation** workflow from the Actions tab using **Run workflow**. Select a profile JSON path; repository and ref inputs can override profile values. The workflow checks out the target repository, executes setup commands and configured tests in order, honors executable requirements, timeout and continue-on-error settings, publishes a job summary, and uploads `PROJECT_VALIDATION_REPORT.txt` as an artifact. For private target repositories, configure the repository secret `VALIDATION_GH_TOKEN` with read access; otherwise the workflow uses the repository's `GITHUB_TOKEN`.
