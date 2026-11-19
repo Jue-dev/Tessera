@@ -263,10 +263,10 @@ jobs:
           if ($stressExitCode -ne 0) { throw "x86 native-hook stress executable failed ($stressExitCode)" }
 
           $stressLog = Get-Content (Join-Path $artifactRoot "stress.log") -Raw
-          if ($stressLog -notmatch "native-hook-stress-summary: inputs=4106 successful_lifecycles=([1-9][0-9]*)") {
-            throw "x86 stress corpus did not confirm all 4,106 inputs and a successful attach/detach lifecycle."
+          if ($stressLog -notmatch "native-hook-stress-summary: inputs=65546 successful_lifecycles=([1-9][0-9]*) elapsed_ms=([1-9][0-9]*) inputs_per_second=([1-9][0-9]*)") {
+            throw "x86 stress corpus did not confirm all 65,546 inputs and a successful attach/detach lifecycle."
           }
-          Write-Host "x86 stress corpus verified: 4,106 inputs and at least one completed attach/detach lifecycle."
+          Write-Host "x86 stress corpus verified: 65,546 inputs and at least one completed attach/detach lifecycle."
 
       - name: Upload x86 stress logs and artifacts
         if: always()

@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -96,6 +97,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
 
 #if !defined(TESSERA_LIBFUZZER)
 int main() {
+    const auto stress_started = std::chrono::steady_clock::now();
+
     // Keep a known-good seed first so standalone CI smoke mode proves that the
     // native backend can still complete at least one real lifecycle.
     constexpr std::array<std::uint8_t, 6> simple_prologue{
@@ -157,7 +160,7 @@ int main() {
         return random_state;
     };
 
-    constexpr std::size_t kRandomSampleCount = 4096;
+    constexpr std::size_t kRandomSampleCount = 65536;
     std::array<std::uint8_t, kFuzzRegionSize> random_input{};
     for (std::size_t sample = 0; sample < kRandomSampleCount; ++sample) {
         const std::size_t length =
@@ -168,10 +171,17 @@ int main() {
         (void)LLVMFuzzerTestOneInput(random_input.data(), length);
     }
 
+    const auto elapsed = std::chrono::steady_clock::now() - stress_started;
+    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+    const auto inputs_per_second = elapsed_ms > 0
+        ? (g_total_inputs * 1000u) / static_cast<std::uint64_t>(elapsed_ms)
+        : 0u;
     std::printf(
-        "native-hook-stress-summary: inputs=%llu successful_lifecycles=%llu\n",
+        "native-hook-stress-summary: inputs=%llu successful_lifecycles=%llu elapsed_ms=%lld inputs_per_second=%llu\\n",
         static_cast<unsigned long long>(g_total_inputs),
-        static_cast<unsigned long long>(g_successful_lifecycles));
+        static_cast<unsigned long long>(g_successful_lifecycles),
+        static_cast<long long>(elapsed_ms),
+        static_cast<unsigned long long>(inputs_per_second));
 
     return 0;
 }
