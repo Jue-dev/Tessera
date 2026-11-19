@@ -50,15 +50,14 @@ struct NativeUnwindCode {
     UCHAR Operation = 0; // low nibble: operation; high nibble: operation info.
 };
 
-struct NativeUnwindInfo {
+struct NativeUnwindInfoHeader {
     UCHAR VersionAndFlags = 0; // low 3 bits: version; high 5 bits: flags.
     UCHAR SizeOfProlog = 0;
     UCHAR CountOfCodes = 0;
     UCHAR FrameRegisterAndOffset = 0; // low 4 bits: register; high 4 bits: offset.
-    NativeUnwindCode UnwindCode[1]{};
 };
 
-static_assert(offsetof(NativeUnwindInfo, UnwindCode) == 4u);
+static_assert(sizeof(NativeUnwindInfoHeader) == 4u);
 static_assert(sizeof(NativeUnwindCode) == 2u);
 
 constexpr unsigned int kUnwindOpPushNonVol = 0u;
@@ -74,7 +73,7 @@ constexpr unsigned int kUnwindOpPushMachFrame = 10u;
 constexpr std::size_t kTrampolineUnwindInfoOffset =
     (kTrampolineRelayOffset + kAbsoluteJumpSize + 3u) & ~std::size_t{3u};
 constexpr std::size_t kMaximumUnwindInfoBytes =
-    (offsetof(NativeUnwindInfo, UnwindCode) +
+    (sizeof(NativeUnwindInfoHeader) +
      255u * sizeof(NativeUnwindCode) + 3u) & ~std::size_t{3u};
 constexpr std::size_t kTrampolineAllocationSize =
     kTrampolineUnwindInfoOffset + kMaximumUnwindInfoBytes;
@@ -840,9 +839,10 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
     std::size_t entry_prefix_size,
     const DecodedBlock& block) noexcept {
     auto* const allocation = static_cast<std::byte*>(state.allocation);
-    auto* const unwind_info = reinterpret_cast<NativeUnwindInfo*>(
-        allocation + kTrampolineUnwindInfoOffset);
-    std::memset(unwind_info, 0, kMaximumUnwindInfoBytes);
+    std::byte* const unwind_info_bytes =
+        allocation + kTrampolineUnwindInfoOffset;
+    std::memset(unwind_info_bytes, 0, kMaximumUnwindInfoBytes);
+    NativeUnwindInfoHeader unwind_info{};
 
     DWORD64 image_base = 0;
     const DWORD64 target_address =
@@ -857,10 +857,10 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
                         0,
                         "No source unwind record exists and the stolen instructions are not provably leaf-safe");
         }
-        unwind_info->VersionAndFlags = 1u;
-        unwind_info->SizeOfProlog = 0u;
-        unwind_info->CountOfCodes = 0u;
-        unwind_info->FrameRegisterAndOffset = 0u;
+        unwind_info.VersionAndFlags = 1u;
+        unwind_info.SizeOfProlog = 0u;
+        unwind_info.CountOfCodes = 0u;
+        unwind_info.FrameRegisterAndOffset = 0u;
     } else {
         if (!is_readable_memory_range(source_function, sizeof(*source_function))) {
             return fail(ErrorCode::UnsupportedInstruction,
@@ -891,26 +891,32 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
         if ((source_unwind_address & 0x03u) != 0u ||
             !is_readable_memory_range(
                 reinterpret_cast<const void*>(static_cast<std::uintptr_t>(source_unwind_address)),
-                offsetof(NativeUnwindInfo, UnwindCode))) {
+                sizeof(NativeUnwindInfoHeader))) {
             return fail(ErrorCode::UnsupportedInstruction,
                         "NativeInlineHook::unwind",
                         0,
                         "The source unwind-info header is unaligned or not fully readable");
         }
-        const auto* const source_info =
-            reinterpret_cast<const NativeUnwindInfo*>(
+
+        const auto* const source_info_bytes =
+            reinterpret_cast<const std::byte*>(
                 static_cast<std::uintptr_t>(source_unwind_address));
+        NativeUnwindInfoHeader source_info{};
+        std::memcpy(&source_info, source_info_bytes, sizeof(source_info));
         const std::size_t source_unwind_size =
-            offsetof(NativeUnwindInfo, UnwindCode) +
-            static_cast<std::size_t>(source_info->CountOfCodes) * sizeof(NativeUnwindCode);
-        if (!is_readable_memory_range(source_info, source_unwind_size)) {
+            sizeof(NativeUnwindInfoHeader) +
+            static_cast<std::size_t>(source_info.CountOfCodes) * sizeof(NativeUnwindCode);
+        if (!is_readable_memory_range(source_info_bytes, source_unwind_size)) {
             return fail(ErrorCode::UnsupportedInstruction,
                         "NativeInlineHook::unwind",
                         0,
                         "The source unwind-code array extends outside readable committed memory");
         }
-        if ((source_info->VersionAndFlags & 0x07u) != 1u ||
-            (source_info->VersionAndFlags >> 3u) != 0u) {
+        const std::byte* const source_code_bytes =
+            source_info_bytes + sizeof(NativeUnwindInfoHeader);
+
+        if ((source_info.VersionAndFlags & 0x07u) != 1u ||
+            (source_info.VersionAndFlags >> 3u) != 0u) {
             return fail(ErrorCode::UnsupportedInstruction,
                         "NativeInlineHook::unwind",
                         0,
@@ -919,25 +925,29 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
 
         const std::size_t source_patch_end = entry_prefix_size + block.length;
         if (source_patch_end > source_function_size ||
-            source_info->SizeOfProlog > source_function_size) {
+            source_info.SizeOfProlog > source_function_size) {
             return fail(ErrorCode::UnsupportedInstruction,
                         "NativeInlineHook::unwind",
                         0,
                         "The stolen prologue extends beyond the registered source function");
         }
+
         std::size_t input_slot = 0u;
         std::size_t output_slot = 0u;
         std::uint8_t previous_code_offset = (std::numeric_limits<std::uint8_t>::max)();
         bool source_frame_setup = false;
         bool copied_frame_setup = false;
-        while (input_slot < source_info->CountOfCodes) {
-            const NativeUnwindCode& source_code = source_info->UnwindCode[input_slot];
+        while (input_slot < source_info.CountOfCodes) {
+            NativeUnwindCode source_code{};
+            std::memcpy(&source_code,
+                        source_code_bytes + input_slot * sizeof(NativeUnwindCode),
+                        sizeof(source_code));
             std::size_t slots = 0u;
             if (source_code.CodeOffset == 0u ||
                 !unwind_slot_count(source_code, slots) ||
-                slots > static_cast<std::size_t>(source_info->CountOfCodes) - input_slot ||
+                slots > static_cast<std::size_t>(source_info.CountOfCodes) - input_slot ||
                 source_code.CodeOffset > previous_code_offset ||
-                source_code.CodeOffset > source_info->SizeOfProlog) {
+                source_code.CodeOffset > source_info.SizeOfProlog) {
                 return fail(ErrorCode::UnsupportedInstruction,
                             "NativeInlineHook::unwind",
                             0,
@@ -958,10 +968,18 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
                                 0,
                                 "A source unwind operation does not map to a relocated instruction boundary");
                 }
-                std::memcpy(&unwind_info->UnwindCode[output_slot],
-                            &source_info->UnwindCode[input_slot],
+
+                std::byte* const destination_code =
+                    unwind_info_bytes + sizeof(NativeUnwindInfoHeader) +
+                    output_slot * sizeof(NativeUnwindCode);
+                const std::byte* const source_code_slots =
+                    source_code_bytes + input_slot * sizeof(NativeUnwindCode);
+                std::memcpy(destination_code,
+                            source_code_slots,
                             slots * sizeof(NativeUnwindCode));
-                unwind_info->UnwindCode[output_slot].CodeOffset = mapped_offset;
+                NativeUnwindCode mapped_code = source_code;
+                mapped_code.CodeOffset = mapped_offset;
+                std::memcpy(destination_code, &mapped_code, sizeof(mapped_code));
                 if ((source_code.Operation & 0x0Fu) == kUnwindOpSetFpReg) {
                     copied_frame_setup = true;
                 }
@@ -971,10 +989,10 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
         }
 
         std::uint8_t mapped_prolog_size = 0u;
-        if (source_info->SizeOfProlog <= entry_prefix_size) {
-            mapped_prolog_size = source_info->SizeOfProlog;
-        } else if (source_info->SizeOfProlog <= source_patch_end) {
-            if (!map_unwind_code_offset(source_info->SizeOfProlog,
+        if (source_info.SizeOfProlog <= entry_prefix_size) {
+            mapped_prolog_size = source_info.SizeOfProlog;
+        } else if (source_info.SizeOfProlog <= source_patch_end) {
+            if (!map_unwind_code_offset(source_info.SizeOfProlog,
                                         entry_prefix_size,
                                         block,
                                         mapped_prolog_size)) {
@@ -993,9 +1011,9 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
         }
 
         const unsigned int source_frame_register =
-            source_info->FrameRegisterAndOffset & 0x0Fu;
+            source_info.FrameRegisterAndOffset & 0x0Fu;
         const unsigned int source_frame_offset =
-            source_info->FrameRegisterAndOffset >> 4u;
+            source_info.FrameRegisterAndOffset >> 4u;
         if (((source_frame_register != 0u) != source_frame_setup) ||
             (source_frame_register == 0u && source_frame_offset != 0u)) {
             return fail(ErrorCode::UnsupportedInstruction,
@@ -1010,13 +1028,15 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
                             0,
                             "The source frame-register description is invalid");
             }
-            unwind_info->FrameRegisterAndOffset = source_info->FrameRegisterAndOffset;
+            unwind_info.FrameRegisterAndOffset = source_info.FrameRegisterAndOffset;
         }
 
-        unwind_info->VersionAndFlags = 1u;
-        unwind_info->SizeOfProlog = mapped_prolog_size;
-        unwind_info->CountOfCodes = static_cast<UCHAR>(output_slot);
+        unwind_info.VersionAndFlags = 1u;
+        unwind_info.SizeOfProlog = mapped_prolog_size;
+        unwind_info.CountOfCodes = static_cast<UCHAR>(output_slot);
     }
+
+    std::memcpy(unwind_info_bytes, &unwind_info, sizeof(unwind_info));
 
     state.unwind_function.BeginAddress = 0u;
     state.unwind_function.EndAddress = static_cast<DWORD>(
