@@ -3962,15 +3962,25 @@ TEST_CASE("Native hook host admission drains active detours before unloading the
 #endif
         return symbol;
     };
+    const auto resolve_export = [&find_export]<typename Fn>(
+                                    HMODULE handle,
+                                    const char* name) noexcept -> Fn {
+        const FARPROC symbol = find_export(handle, name);
+        Fn function = nullptr;
+        static_assert(sizeof(function) == sizeof(symbol),
+                      "Windows function pointers and FARPROC must have equal size");
+        std::memcpy(&function, &symbol, sizeof(function));
+        return function;
+    };
 
     using ConfigureFn = void(__cdecl*)(NativeHookFn, HANDLE, HANDLE);
     using ActiveCallsFn = LONG(__cdecl*)();
-    const auto configure = reinterpret_cast<ConfigureFn>(
-        find_export(module.module, "tessera_fixture_configure"));
-    const auto active_calls = reinterpret_cast<ActiveCallsFn>(
-        find_export(module.module, "tessera_fixture_active_calls"));
-    const auto detour = reinterpret_cast<NativeHookFn>(
-        find_export(module.module, "tessera_fixture_detour"));
+    const auto configure = resolve_export.template operator()<ConfigureFn>(
+        module.module, "tessera_fixture_configure");
+    const auto active_calls = resolve_export.template operator()<ActiveCallsFn>(
+        module.module, "tessera_fixture_active_calls");
+    const auto detour = resolve_export.template operator()<NativeHookFn>(
+        module.module, "tessera_fixture_detour");
     REQUIRE(configure != nullptr);
     REQUIRE(active_calls != nullptr);
     REQUIRE(detour != nullptr);
