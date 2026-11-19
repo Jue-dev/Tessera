@@ -401,16 +401,22 @@ class ColabActionsRunner:
             is_tag = self.event_ref.startswith("refs/tags/")
             branch_patterns = seq(event_cfg.get("branches"))
             tag_patterns = seq(event_cfg.get("tags"))
-            if branch_patterns and (is_tag or not any(fnmatch.fnmatchcase(ref_name, s(p)) for p in branch_patterns)):
-                trigger_reason = "Push branch does not match this workflow's branches filter."
-            if tag_patterns and (not is_tag or not any(fnmatch.fnmatchcase(ref_name, s(p)) for p in tag_patterns)):
-                trigger_reason = "Push tag does not match this workflow's tags filter."
-            if seq(event_cfg.get("branches-ignore")) and any(fnmatch.fnmatchcase(ref_name, s(p)) for p in seq(event_cfg.get("branches-ignore"))):
-                trigger_reason = "Push branch is excluded by branches-ignore."
-            if seq(event_cfg.get("tags-ignore")) and any(fnmatch.fnmatchcase(ref_name, s(p)) for p in seq(event_cfg.get("tags-ignore"))):
-                trigger_reason = "Push tag is excluded by tags-ignore."
-            if event_cfg.get("paths") or event_cfg.get("paths-ignore"):
-                trigger_reason = "This push workflow has path filters; changed files are not supplied by the Colab UI."
+            if is_tag:
+                if branch_patterns and not tag_patterns:
+                    trigger_reason = "This workflow filters branch pushes and has no tag trigger."
+                elif tag_patterns and not any(fnmatch.fnmatchcase(ref_name, s(p)) for p in tag_patterns):
+                    trigger_reason = "Push tag does not match this workflow's tags filter."
+                if any(fnmatch.fnmatchcase(ref_name, s(p)) for p in seq(event_cfg.get("tags-ignore"))):
+                    trigger_reason = "Push tag is excluded by tags-ignore."
+            else:
+                if tag_patterns and not branch_patterns:
+                    trigger_reason = "This workflow filters tag pushes and has no branch trigger."
+                elif branch_patterns and not any(fnmatch.fnmatchcase(ref_name, s(p)) for p in branch_patterns):
+                    trigger_reason = "Push branch does not match this workflow's branches filter."
+                if any(fnmatch.fnmatchcase(ref_name, s(p)) for p in seq(event_cfg.get("branches-ignore"))):
+                    trigger_reason = "Push branch is excluded by branches-ignore."
+                if event_cfg.get("paths") or event_cfg.get("paths-ignore"):
+                    trigger_reason = "This branch push has path filters; changed-file metadata is not supplied by the Colab UI."
         if trigger_reason:
             for jid, raw_job in mp(self.workflow.get("jobs")).items():
                 self.job_results.append(JobResult(jid, s(mp(raw_job).get("name")) or jid, "SKIP", [], trigger_reason))
