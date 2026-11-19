@@ -12,7 +12,6 @@
 #include <initializer_list>
 #include <mutex>
 #include <shared_mutex>
-#include <string>
 #include <thread>
 #include <type_traits>
 #include <utility>
@@ -3952,9 +3951,13 @@ TEST_CASE("Native hook host admission drains active detours before unloading the
         FARPROC symbol = ::GetProcAddress(handle, name);
 #if defined(_M_IX86)
         if (symbol == nullptr) {
-            std::string decorated{"_"};
-            decorated += name;
-            symbol = ::GetProcAddress(handle, decorated.c_str());
+            std::array<char, 128> decorated{};
+            const std::size_t length = std::strlen(name);
+            if (length + 2u <= decorated.size()) {
+                decorated[0] = '_';
+                std::memcpy(decorated.data() + 1u, name, length + 1u);
+                symbol = ::GetProcAddress(handle, decorated.data());
+            }
         }
 #endif
         return symbol;

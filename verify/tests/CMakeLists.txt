@@ -174,7 +174,7 @@ set_target_properties(tessera_hook_module_fixture PROPERTIES
 )
 add_dependencies(tessera_test_patch_hook tessera_hook_module_fixture)
 target_compile_definitions(tessera_test_patch_hook PRIVATE
-    TESSERA_HOOK_MODULE_FIXTURE_PATH="$<TARGET_FILE:tessera_hook_module_fixture>"
+    TESSERA_HOOK_MODULE_FIXTURE_PATH=\\"$<TARGET_FILE:tessera_hook_module_fixture>\\"
 )
 
 tessera_add_test(tessera_test_infra

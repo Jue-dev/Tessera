@@ -40,7 +40,7 @@ Windows matrix. Do not treat skipped or unstarted checks as passing.
 | Windows x86/x64 Debug/Release on current head | [ ] Deferred | Actions quota unavailable; see the separate CI checklist |
 | Five-minute Clang libFuzzer + ASan/UBSan on current head | [ ] Deferred | Previous run passed on an earlier commit, not this head |
 | Full /GR-, Detours, /analyze, SDK packaging gates | [ ] Deferred | Must run after PR Smoke returns green |
-| Host admission/drain/module-unload acceptance | [x] Test added; CI pending | A real detour DLL is held active while the exclusive admission gate is blocked; test releases/drains the callback, removes the hook, unloads the DLL, then verifies the original target still runs |
+| Host admission/drain/module-unload acceptance | [x] Test added; CI pending | A real detour DLL is held active while the exclusive admission gate is blocked; test releases/drains the callback, removes the hook, unloads the DLL, then verifies the original target still runs. x86 export decoration is resolved explicitly |
 | Allocation and RtlAddFunctionTable failure injection | [x] Static failure-path audit | unique_ptr owns temporary state; registration flag is set only after RtlAddFunctionTable succeeds; all failures before target write unwind and release unpublished state |
 | Final independent audit | [ ] Remaining | Re-check bytes, page protections, token, registry, unwind registration, and lifetime on every failure edge |
 
