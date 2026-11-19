@@ -610,7 +610,8 @@ TEST_CASE("Hook lifecycle and Detours-off contract", "[hook]") {
     REQUIRE((*hk_default)(5) == 15);
     {
         auto callable = hk_default->acquire();
-        REQUIRE(callable.get() != nullptr);
+        REQUIRE(callable.get() == &sample_target_function);
+        REQUIRE(callable.target() == &sample_target_function);
         REQUIRE(callable.get()(5) == 15);
     }
 
@@ -635,6 +636,12 @@ TEST_CASE("Hook lifecycle and Detours-off contract", "[hook]") {
         REQUIRE(hk->installed());
         REQUIRE(mock_backend.attach_calls == 1);
         REQUIRE((*hk)(7) == 17);
+        {
+            auto callable = hk->acquire();
+            REQUIRE(callable.target() == &sample_target_function);
+            REQUIRE(callable.get() == reinterpret_cast<FnType>(&sample_trampoline_function));
+            REQUIRE(callable.get()(7) == 17);
+        }
 
         REQUIRE(hk->remove().has_value());
         REQUIRE_FALSE(hk->installed());
