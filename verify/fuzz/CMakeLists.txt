@@ -112,7 +112,7 @@ if(TESSERA_ENABLE_LIBFUZZER)
     foreach(fuzz_target IN LISTS TESSERA_FUZZ_TARGETS)
         target_compile_definitions(${fuzz_target} PRIVATE TESSERA_LIBFUZZER=1)
         if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-            target_compile_definitions(${fuzz_target} PRIVATE _DISABLE_STRING_ANNOTATION)
+            target_compile_definitions(${fuzz_target} PRIVATE _DISABLE_STRING_ANNOTATION _DISABLE_VECTOR_ANNOTATION)
         endif()
         target_compile_options(${fuzz_target} PRIVATE
             -fsanitize=fuzzer-no-link,address,undefined
