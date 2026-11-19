@@ -16,7 +16,7 @@ This record covers native x86/x64 inline-hook unwind and call-lifecycle safety. 
 
 The full `.github/workflows/ci.yml` matrix is configured in this branch for automatic relevant pull-request validation and relevant pushes to `main`, plus manual dispatch. Release publication remains version-tag-only. The focused native-hook fuzz workflow remains manual-only with bounded 60/300/900-second campaigns.
 
-The redundant PR-smoke workflow and obsolete source-archive import workflow were removed from this branch. The PR trigger is a branch change and has not yet been verified by an automatic run; the current base branch does not contain that trigger. The available GitHub connector can read workflow runs but cannot dispatch workflows.
+The redundant PR-smoke workflow and obsolete source-archive import workflow were removed from this branch. The PR event did trigger runs after branch changes, but five attempts failed/cancelled before runner allocation (runner ID 0; no steps/logs available). The cause is not diagnosable through the available connector. The current-head manual CI evidence remains green; automatic PR CI must be rechecked when runners are available.
 
 ## Current-head test evidence
 
