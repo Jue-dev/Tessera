@@ -26,12 +26,21 @@ if(TESSERA_ENABLE_LIBFUZZER)
         message(FATAL_ERROR "TESSERA_ENABLE_LIBFUZZER requires Clang with the LLVM libFuzzer runtime.")
     endif()
 
+    # Use the option spelling for the active Clang driver frontend. clang-cl
+    # treats the GNU -fno-omit-frame-pointer spelling as an ignored argument,
+    # and /WX turns that warning into a hard build failure.
+    if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+        set(TESSERA_FUZZ_FRAME_POINTER_OPTION /Oy-)
+    else()
+        set(TESSERA_FUZZ_FRAME_POINTER_OPTION -fno-omit-frame-pointer)
+    endif()
+
     # Instrument the production object-library code, not just the tiny fuzz entry points.
     get_property(TESSERA_FUZZ_MODULE_TARGETS GLOBAL PROPERTY TESSERA_MODULE_TARGETS)
     foreach(module_target IN LISTS TESSERA_FUZZ_MODULE_TARGETS)
         target_compile_options(${module_target} PRIVATE
             -fsanitize=fuzzer-no-link,address,undefined
-            -fno-omit-frame-pointer
+            ${TESSERA_FUZZ_FRAME_POINTER_OPTION}
         )
         # Tests/examples that also consume these modules need the sanitizer runtimes.
         target_link_options(${module_target} INTERFACE -fsanitize=address,undefined)
