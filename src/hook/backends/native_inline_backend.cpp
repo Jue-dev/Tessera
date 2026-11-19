@@ -546,6 +546,24 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
 [[nodiscard]] bool is_leaf_safe_instruction(
     const std::byte* code,
     const DecodedInstruction& instruction) noexcept {
+    // Explicit vector-instruction allowlist: VZEROUPPER and the VADDPS
+    // ZMM0,ZMM0,ZMM0 form touch only volatile vector state.
+    if (instruction.length == 3u &&
+        code[0] == std::byte{0xC5} &&
+        code[1] == std::byte{0xF8} &&
+        code[2] == std::byte{0x77}) {
+        return true;
+    }
+    if (instruction.length == 6u &&
+        code[0] == std::byte{0x62} &&
+        code[1] == std::byte{0xF1} &&
+        code[2] == std::byte{0x7C} &&
+        code[3] == std::byte{0x48} &&
+        code[4] == std::byte{0x58} &&
+        code[5] == std::byte{0xC0}) {
+        return true;
+    }
+
     std::size_t cursor = 0;
     std::uint8_t rex = 0;
     while (cursor < instruction.length) {
@@ -584,10 +602,21 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
         if (opcode2 == 0x1Fu) {
             return true; // Multi-byte NOP.
         }
+        if (opcode2 == 0x0Bu) {
+            return true; // UD2 traps without changing the stack or nonvolatile state.
+        }
         if (opcode2 >= 0x80u && opcode2 <= 0x8Fu) {
             return true; // Near conditional branch.
         }
         return false;
+    }
+    if (opcode == 0xE8u) {
+        // A real relative CALL is balanced when its callee returns. CALL $+5
+        // is rejected earlier because it exposes the original instruction PC.
+        const auto next_instruction =
+            reinterpret_cast<std::uintptr_t>(code) + instruction.length;
+        return instruction.has_relative_operand &&
+               instruction.relative_target != static_cast<std::int64_t>(next_instruction);
     }
     if ((opcode >= 0x70u && opcode <= 0x7Fu) ||
         (opcode >= 0xE0u && opcode <= 0xE3u) ||
