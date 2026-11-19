@@ -1,77 +1,174 @@
 #!/usr/bin/env python3
-"""Execute a schema-v1 project validation profile in a checked-out target."""
-import json, os, pathlib, shutil, subprocess, sys, time
+"""Execute a schema-v1 project validation profile in a checked-out target.
 
-profile_root = pathlib.Path(os.environ["PROFILE_SOURCE"]).resolve()
-profile_path = (profile_root / os.environ["PROFILE"]).resolve()
-if profile_root not in profile_path.parents: raise SystemExit("Profile path must stay within repository")
-target = pathlib.Path(os.environ["TARGET"]).resolve()
-report_path = pathlib.Path("PROJECT_VALIDATION_REPORT.txt")
-cfg = json.loads(profile_path.read_text(encoding="utf-8"))
-setup = cfg.get("setup", [])
-tests = cfg.get("tests", [])
-timeout = int(cfg.get("test_timeout", 900))
-if not 1 <= timeout <= 7200: raise SystemExit("test_timeout must be between 1 and 7200 seconds")
-if cfg.get("schema_version") != 1: raise SystemExit("Unsupported profile schema")
-if not isinstance(setup, list) or not isinstance(tests, list): raise SystemExit("Profile setup/tests must be arrays")
-continue_on_error = bool(cfg.get("continue_on_error", True))
-lines = [
+Profile commands are trusted shell input. Do not run profiles from untrusted
+repositories or pull requests in an environment containing credentials.
+"""
+from __future__ import annotations
+
+import json
+import os
+import pathlib
+import shlex
+import shutil
+import subprocess
+import sys
+import time
+from typing import Any
+
+PROFILE_ROOT = pathlib.Path(os.environ["PROFILE_SOURCE"]).resolve()
+PROFILE_PATH = (PROFILE_ROOT / os.environ["PROFILE"]).resolve()
+TARGET = pathlib.Path(os.environ["TARGET"]).resolve()
+REPORT_PATH = pathlib.Path("PROJECT_VALIDATION_REPORT.txt")
+SECRET_MARKERS = ("TOKEN", "PASSWORD", "SECRET", "CREDENTIAL", "AUTH", "COOKIE", "KEY")
+
+
+def ensure_inside(root: pathlib.Path, candidate: pathlib.Path, label: str) -> None:
+    if candidate == root or root in candidate.parents:
+        return
+    raise SystemExit(f"{label} must stay inside its configured root.")
+
+
+ensure_inside(PROFILE_ROOT, PROFILE_PATH, "Profile path")
+if not PROFILE_PATH.is_file():
+    raise SystemExit(f"Profile not found: {PROFILE_PATH}")
+if not TARGET.is_dir():
+    raise SystemExit(f"Target directory does not exist: {TARGET}")
+
+try:
+    CFG: dict[str, Any] = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError) as exc:
+    raise SystemExit(f"Could not load validation profile: {exc}") from exc
+
+if CFG.get("schema_version") != 1:
+    raise SystemExit("Unsupported profile schema_version; expected 1.")
+
+SETUP = CFG.get("setup", [])
+TESTS = CFG.get("tests", [])
+if not isinstance(SETUP, list) or not isinstance(TESTS, list):
+    raise SystemExit("Profile setup and tests must be arrays.")
+
+TIMEOUT = int(CFG.get("test_timeout", 900))
+if not 1 <= TIMEOUT <= 7200:
+    raise SystemExit("test_timeout must be between 1 and 7200 seconds.")
+
+CONTINUE_ON_ERROR = bool(CFG.get("continue_on_error", True))
+LINES = [
     "PROJECT VALIDATION REPORT",
-    f"Project: {cfg.get('project_name', 'Project')}",
-    f"Target: {target}",
-    f"Profile: {profile_path}",
+    f"Project: {CFG.get('project_name', 'Project')}",
+    f"Target: {TARGET}",
+    f"Profile: {PROFILE_PATH}",
     "",
 ]
-passed = failed = skipped = 0
+COUNTS = {"passed": 0, "failed": 0, "skipped": 0}
 
-def run(name, command, needs=""):
-    global passed, failed, skipped
-    if needs and shutil.which(needs) is None:
-        skipped += 1
-        lines.extend([f"SKIP: {name} (missing executable: {needs})", ""])
-        print(f"::notice::{name} skipped; missing {needs}")
+
+def sanitized_environment() -> dict[str, str]:
+    env = os.environ.copy()
+    for key in list(env):
+        if any(marker in key.upper() for marker in SECRET_MARKERS):
+            env.pop(key, None)
+    return env
+
+
+def parse_needs(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [part.strip() for part in str(value or "").split(",") if part.strip()]
+
+
+def run_step(name: str, command: str, needs: Any = "") -> bool:
+    requirements = parse_needs(needs)
+    missing = [tool for tool in requirements if shutil.which(tool) is None]
+    if missing:
+        COUNTS["skipped"] += 1
+        message = f"SKIP: {name} (missing executable(s): {', '.join(missing)})"
+        LINES.extend([message, ""])
+        print(f"::notice::{message}")
         return True
+
     print(f"::group::{name}")
-    started = time.time()
+    started = time.monotonic()
     try:
-        env = os.environ.copy()\n        for key in list(env):\n            if any(marker in key.upper() for marker in ("TOKEN", "PASSWORD", "SECRET", "CREDENTIAL", "AUTH")):\n                env.pop(key, None)\n        result = subprocess.run(command, shell=True, cwd=target, env=env, text=True,\n                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,\n                                timeout=timeout)
+        result = subprocess.run(
+            command,
+            shell=True,
+            executable="/bin/bash",
+            cwd=TARGET,
+            env=sanitized_environment(),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=TIMEOUT,
+            check=False,
+        )
         output = result.stdout or ""
         status = "PASS" if result.returncode == 0 else "FAIL"
-        if result.returncode == 0: passed += 1
-        else: failed += 1
-        lines.extend([f"{status}: {name}", f"Command: {command}",
-                      f"Exit code: {result.returncode}", f"Duration: {time.time()-started:.2f}s", output, ""])
-        print(output)
+        COUNTS["passed" if result.returncode == 0 else "failed"] += 1
+        LINES.extend([
+            f"{status}: {name}",
+            f"Command: {command}",
+            f"Exit code: {result.returncode}",
+            f"Duration: {time.monotonic() - started:.2f}s",
+            output,
+            "",
+        ])
+        if output:
+            print(output)
         print(f"::endgroup::")
         return result.returncode == 0
     except subprocess.TimeoutExpired as exc:
-        failed += 1
-        output = (exc.stdout or b"").decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-        lines.extend([f"FAIL: {name} (timeout)", f"Command: {command}", output, ""])
+        COUNTS["failed"] += 1
+        output = exc.stdout or ""
+        if isinstance(output, bytes):
+            output = output.decode(errors="replace")
+        LINES.extend([
+            f"FAIL: {name} (timeout after {TIMEOUT}s)",
+            f"Command: {command}",
+            str(output),
+            "",
+        ])
         print(output)
-        print(f"::error::{name} timed out after {timeout}s")
+        print(f"::error::{name} timed out after {TIMEOUT}s")
         print("::endgroup::")
         return False
 
-for i, command in enumerate(setup, 1):
-    if not run(f"Setup {i}", command) and not continue_on_error: break
-for test in tests:
+
+for index, command_value in enumerate(SETUP, start=1):
+    command = str(command_value).strip()
+    if not command:
+        COUNTS["skipped"] += 1
+        LINES.extend([f"SKIP: Setup {index} (empty command)", ""])
+        continue
+    ok = run_step(f"Setup {index}", command)
+    if not ok and not CONTINUE_ON_ERROR:
+        break
+
+for test in TESTS:
+    if not isinstance(test, dict):
+        COUNTS["skipped"] += 1
+        LINES.extend(["SKIP: Invalid test definition (expected object)", ""])
+        continue
     name = str(test.get("name", "Unnamed test"))
     command = str(test.get("command", "")).strip()
-    needs = str(test.get("needs", "")).strip()
     if not command:
-        skipped += 1
-        lines.extend([f"SKIP: {name} (empty command)", ""])
+        COUNTS["skipped"] += 1
+        LINES.extend([f"SKIP: {name} (empty command)", ""])
         continue
-    if failed and not continue_on_error:
-        skipped += 1
-        lines.extend([f"SKIP: {name} (previous failure)", ""])
+    if COUNTS["failed"] and not CONTINUE_ON_ERROR:
+        COUNTS["skipped"] += 1
+        LINES.extend([f"SKIP: {name} (previous failure)", ""])
         continue
-    run(name, command, needs)
-lines.extend(["", f"Summary: {passed} passed, {failed} failed, {skipped} skipped"])
-report_path.write_text("\n".join(lines), encoding="utf-8")
-print(f"Report written: {report_path.resolve()}")
-if failed:
+    run_step(name, command, test.get("needs", ""))
+
+LINES.extend([
+    "",
+    f"Summary: {COUNTS['passed']} passed, {COUNTS['failed']} failed, {COUNTS['skipped']} skipped",
+])
+REPORT_PATH.write_text("\n".join(LINES) + "\n", encoding="utf-8")
+print(f"Report written: {REPORT_PATH.resolve()}")
+
+if COUNTS["failed"]:
     sys.exit(1)
-if skipped:
-    print("::warning::Validation was partial because one or more tests were skipped")
+if COUNTS["skipped"]:
+    print("::warning::Validation was partial because one or more tests were skipped.")
