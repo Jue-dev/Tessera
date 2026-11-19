@@ -82,7 +82,15 @@ constexpr std::size_t kTrampolineAllocationSize =
     kTrampolineCodeCapacity + kAbsoluteJumpSize;
 #endif
 constexpr std::size_t kEntryJumpSize = 5;
+#if defined(TESSERA_HOOK_X64)
+// A plain tail JMP is recognized by the Windows x64 unwinder as an epilog.
+// The trampoline tail is not an epilog: the relocated source prolog's frame
+// remains active while control transfers to the original continuation.
+// Complementary Jcc instructions preserve flags and avoid epilog recognition.
+constexpr std::size_t kReturnJumpSize = 12;
+#else
 constexpr std::size_t kReturnJumpSize = 5;
+#endif
 constexpr std::size_t kTrampolineEntryPrefixSize = 4;
 #if defined(TESSERA_HOOK_X64)
 constexpr std::array<std::byte, kTrampolineEntryPrefixSize> kTrampolineLandingPad{
@@ -456,6 +464,39 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
     }
     const std::uint64_t address = static_cast<std::uint64_t>(target);
     std::memcpy(destination + 6, &address, sizeof(address));
+}
+
+[[nodiscard]] bool write_unwind_safe_tail(std::byte* destination,
+                                            std::uintptr_t instruction_address,
+                                            std::uintptr_t target) noexcept {
+#if defined(TESSERA_HOOK_X64)
+    // JE target; JNE target. Exactly one branch is taken for every flag state.
+    // Unlike an unconditional JMP, neither instruction is an x64 epilog marker,
+    // so RtlVirtualUnwind applies the trampoline's unwind metadata at this tail.
+    destination[0] = std::byte{0x0F};
+    destination[1] = std::byte{0x84};
+    destination[6] = std::byte{0x0F};
+    destination[7] = std::byte{0x85};
+    const std::int64_t first_displacement =
+        static_cast<std::int64_t>(target) -
+        static_cast<std::int64_t>(instruction_address + 6u);
+    const std::int64_t second_displacement =
+        static_cast<std::int64_t>(target) -
+        static_cast<std::int64_t>(instruction_address + 12u);
+    if (first_displacement < (std::numeric_limits<std::int32_t>::min)() ||
+        first_displacement > (std::numeric_limits<std::int32_t>::max)() ||
+        second_displacement < (std::numeric_limits<std::int32_t>::min)() ||
+        second_displacement > (std::numeric_limits<std::int32_t>::max)()) {
+        return false;
+    }
+    const auto first_relative = static_cast<std::int32_t>(first_displacement);
+    const auto second_relative = static_cast<std::int32_t>(second_displacement);
+    std::memcpy(destination + 2, &first_relative, sizeof(first_relative));
+    std::memcpy(destination + 8, &second_relative, sizeof(second_relative));
+    return true;
+#else
+    return write_relative_jump(destination, instruction_address, target);
+#endif
 }
 
 [[nodiscard]] bool write_relative_jump(std::byte* destination,
@@ -1642,9 +1683,9 @@ public:
 
         std::byte* const trampoline_return =
             trampoline_code + block.trampoline_length;
-        if (!write_relative_jump(trampoline_return,
-                                 reinterpret_cast<std::uintptr_t>(trampoline_return),
-                                 patch_address + block.length)) {
+        if (!write_unwind_safe_tail(trampoline_return,
+                                      reinterpret_cast<std::uintptr_t>(trampoline_return),
+                                      patch_address + block.length)) {
             return fail(ErrorCode::UnsupportedInstruction,
                         "NativeInlineHook::attach",
                         0,
