@@ -39,6 +39,13 @@ Result<std::vector<MemoryRegionInfo>> enumerate_regions(const Process& process,
         while (cur < limit) {
             auto reg_res = backend.query(Address{cur});
             if (!reg_res) {
+                // An unbounded walk ends naturally when the backend reaches the
+                // target's highest queryable address (VirtualQueryEx reports
+                // ERROR_INVALID_PARAMETER there). Explicit bounded queries must
+                // still surface an out-of-range request to the caller.
+                if (bounds.empty() && reg_res.error().code == ErrorCode::OutOfRange) {
+                    break;
+                }
                 return std::unexpected(reg_res.error());
             }
             const MemoryRegionInfo& reg = *reg_res;
