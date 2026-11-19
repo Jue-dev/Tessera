@@ -1,0 +1,78 @@
+name: Project Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: JSON validation profile path in this repository
+        required: true
+        default: verify/portable/profiles/tessera.portable-validation.json
+        type: string
+      repository:
+        description: Target repository owner/name (blank uses profile)
+        required: false
+        type: string
+      ref:
+        description: Target branch, tag, or commit (blank uses profile)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout profile source
+        uses: actions/checkout@v4
+      - name: Read profile and resolve target
+        id: config
+        env:
+          PROFILE: ${{ inputs.profile }}
+          TARGET_REPOSITORY: ${{ inputs.repository }}
+          TARGET_REF: ${{ inputs.ref }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          p=pathlib.Path(os.environ["PROFILE"])
+          if not p.is_file(): raise SystemExit(f"Profile not found: {p}")
+          cfg=json.loads(p.read_text())
+          if cfg.get("schema_version") != 1: raise SystemExit("Unsupported profile schema")
+          repo=os.environ.get("TARGET_REPOSITORY","").strip() or cfg.get("repo","")
+          ref=os.environ.get("TARGET_REF","").strip() or cfg.get("ref","")
+          if not repo: raise SystemExit("Target repository is required")
+          if not repo.startswith("https://github.com/"): raise SystemExit("Only GitHub HTTPS repositories are supported")
+          with open(os.environ["GITHUB_OUTPUT"],"a") as f:
+            f.write(f"repository={repo}\n")
+            f.write(f"ref={ref}\n")
+          PY
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.config.outputs.repository }}
+          ref: ${{ steps.config.outputs.ref }}
+          path: target
+          persist-credentials: false
+      - name: Run profile setup and tests
+        env:
+          PROFILE: ${{ inputs.profile }}
+          PROFILE_SOURCE: ${{ github.workspace }}
+          TARGET: ${{ github.workspace }}/target
+        run: python3 .github/scripts/project_validation_runner.py
+      - name: Upload validation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-validation-report
+          path: PROJECT_VALIDATION_REPORT.txt
+          if-no-files-found: warn
+      - name: Publish report summary
+        if: always()
+        run: |
+          if [ -f PROJECT_VALIDATION_REPORT.txt ]; then
+            cat PROJECT_VALIDATION_REPORT.txt >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Validation report was not generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
