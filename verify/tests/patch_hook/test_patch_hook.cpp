@@ -712,6 +712,15 @@ TEST_CASE("Native inline backend rejects invalid thread policies without changin
         }
     } guarded{backend, std::move(*attached)};
 
+#if defined(_M_X64) || defined(__x86_64__)
+    void* const registered_trampoline = guarded.token.trampoline;
+    DWORD64 registered_image_base = 0;
+    REQUIRE(::RtlLookupFunctionEntry(
+                static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(registered_trampoline)),
+                &registered_image_base,
+                nullptr) != nullptr);
+#endif
+
     guarded.token.threads = static_cast<ThreadPolicy>(0xFF);
     const auto invalid_detach = backend.detach(guarded.token);
     REQUIRE_FALSE(invalid_detach.has_value());
@@ -724,6 +733,35 @@ TEST_CASE("Native inline backend rejects invalid thread policies without changin
     REQUIRE(guarded.token.backend_data == nullptr);
     REQUIRE(code[64] == std::byte{0xB8});
     REQUIRE(code[69] == std::byte{0xC3});
+#if defined(_M_X64) || defined(__x86_64__)
+    DWORD64 removed_image_base = 0;
+    REQUIRE(::RtlLookupFunctionEntry(
+                static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(registered_trampoline)),
+                &removed_image_base,
+                nullptr) == nullptr);
+#endif
+
+#if defined(_M_X64) || defined(__x86_64__)
+    // A dynamically allocated function with a stack-changing prologue but no
+    // registered source unwind record must fail before its entry bytes change.
+    code[256] = std::byte{0x48}; // sub rsp, 0x28
+    code[257] = std::byte{0x83};
+    code[258] = std::byte{0xEC};
+    code[259] = std::byte{0x28};
+    code[260] = std::byte{0x90};
+    std::array<std::byte, 8> stack_prologue_before{};
+    std::memcpy(stack_prologue_before.data(), code + 256, stack_prologue_before.size());
+    auto unsupported_leaf = Hook<NativeHookFn>::create(
+        Address{static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(code + 256))},
+        &native_hook_detour,
+        &backend);
+    REQUIRE(unsupported_leaf.has_value());
+    const auto unsupported_leaf_status = unsupported_leaf->install(options);
+    REQUIRE_FALSE(unsupported_leaf_status.has_value());
+    REQUIRE(unsupported_leaf_status.error().code == ErrorCode::UnsupportedInstruction);
+    REQUIRE(std::memcmp(code + 256, stack_prologue_before.data(),
+                        stack_prologue_before.size()) == 0);
+#endif
 }
 
 TEST_CASE("Native inline backend relocates x64 RIP-relative code and restores the target", "[hook][native]") {
