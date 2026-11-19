@@ -263,10 +263,23 @@ jobs:
           if ($stressExitCode -ne 0) { throw "x86 native-hook stress executable failed ($stressExitCode)" }
 
           $stressLog = Get-Content (Join-Path $artifactRoot "stress.log") -Raw
-          if ($stressLog -notmatch "native-hook-stress-summary: inputs=65546 successful_lifecycles=([1-9][0-9]*) elapsed_ms=([1-9][0-9]*) inputs_per_second=([1-9][0-9]*)") {
-            throw "x86 stress corpus did not confirm all 65,546 inputs and a successful attach/detach lifecycle."
+          $summary = [regex]::Match(
+            $stressLog,
+            "native-hook-stress-summary: inputs=65546 successful_lifecycles=(\d+) elapsed_ms=(\d+) inputs_per_second=(\d+)"
+          )
+          if (-not $summary.Success) {
+            throw "x86 stress corpus did not report all 65,546 inputs, elapsed time, and throughput."
           }
-          Write-Host "x86 stress corpus verified: 65,546 inputs and at least one completed attach/detach lifecycle."
+          $successfulLifecycles = [UInt64]$summary.Groups[1].Value
+          $elapsedMilliseconds = [UInt64]$summary.Groups[2].Value
+          $inputsPerSecond = [UInt64]$summary.Groups[3].Value
+          if ($successfulLifecycles -lt 52437) {
+            throw "x86 stress corpus completed too few real attach/detach lifecycles: $successfulLifecycles / 65,546 (minimum 52,437)."
+          }
+          if ($elapsedMilliseconds -eq 0 -or $inputsPerSecond -eq 0) {
+            throw "x86 stress timing/throughput metrics are invalid."
+          }
+          Write-Host "x86 stress verified: 65,546 inputs; $successfulLifecycles successful lifecycles; ${elapsedMilliseconds}ms; $inputsPerSecond inputs/second."
 
       - name: Upload x86 stress logs and artifacts
         if: always()
