@@ -11,9 +11,14 @@ function(tessera_verify_cpp23_toolchain)
         message(FATAL_ERROR "Unsupported pointer size: ${CMAKE_SIZEOF_VOID_P}.")
     endif()
 
-    set(CMAKE_REQUIRED_FLAGS "")
-    if(MSVC)
+    # CheckCXXSourceCompiles does not inherit target compile_features. Explicitly
+    # select the language mode for the compiler used by this configure.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        set(CMAKE_REQUIRED_FLAGS "-std=c++23")
+    elseif(MSVC)
         set(CMAKE_REQUIRED_FLAGS "/std:c++latest /Zc:__cplusplus")
+    else()
+        set(CMAKE_REQUIRED_FLAGS "-std=c++23")
     endif()
 
     check_cxx_source_compiles("
@@ -32,14 +37,16 @@ function(tessera_verify_cpp23_toolchain)
         #endif
         int main() {
             std::expected<int, int> e = 42;
-            return e.value_or(0) == 42 ? 0 : 1;
+            std::move_only_function<int()> f = [] { return 42; };
+            return e.value_or(0) == 42 && f() == 42 && std::byteswap(0x01020304u) == 0x04030201u ? 0 : 1;
         }
     " TESSERA_HAS_CPP23_FEATURES)
 
     if(NOT TESSERA_HAS_CPP23_FEATURES)
         message(FATAL_ERROR
-            "Compiler does not support required C++23 features (std::expected, "
-            "std::move_only_function, std::byteswap). Requires MSVC 19.38+ or clang-cl 17+.")
+            "Compiler does not support required C++23 library features "
+            "(std::expected, std::move_only_function, std::byteswap). "
+            "Requires MSVC 19.38+ or clang-cl 17+ with a compatible standard library.")
     endif()
 endfunction()
 
