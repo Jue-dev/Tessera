@@ -62,7 +62,7 @@ class ColabActionsRunner:
         self.job_results = []; self.warnings = []; self.env_global = {}; self.step_outputs = {}; self.job_outputs = {}
         self._run_failed = False; self._report_data = {}
     def emit(self, m): self.log(str(m))
-    def clone_repository(self, repo, ref="main", depth=1, destination=None):
+    def clone_repository(self, repo, ref="", depth=1, destination=None):
         full = normalize_repo(repo); url = "https://github.com/" + full + ".git"
         dest = pathlib.Path(destination or self.workspace).resolve()
         if dest.exists(): shutil.rmtree(dest)
@@ -96,6 +96,13 @@ class ColabActionsRunner:
                 except OSError: pass
         self.workspace = dest; self.repo_full_name = full; self.artifact_dir = dest.parent / "colab-actions-artifacts"; self.artifact_dir.mkdir(parents=True, exist_ok=True)
         return dest
+    def default_branch(self):
+        try:
+            branch = subprocess.check_output(["git", "branch", "--show-current"], cwd=self.workspace,
+                                             text=True, stderr=subprocess.DEVNULL).strip()
+            return branch or "main"
+        except Exception:
+            return "main"
     def discover_workflows(self):
         folder = self.workspace / ".github" / "workflows"
         if not folder.is_dir(): return []
@@ -505,8 +512,8 @@ def launch_ui():
         in_colab = True
     except Exception: userdata, files, in_colab = None, None, False
     title = w.HTML("<h2>Colab Actions Workbench</h2><p>Workflow YAML dosyalarını keşfeder; desteklenen işleri Colab Linux üzerinde çalıştırır.</p>")
-    repo = w.Text(value="Jue-dev/Tessera", description="Repository", layout=w.Layout(width="75%"))
-    ref = w.Text(value="issue-6/unwind-lifecycle", description="Ref", layout=w.Layout(width="75%"))
+    repo = w.Text(value="", description="Repository", placeholder="owner/repository", layout=w.Layout(width="75%"))
+    ref = w.Text(value="", description="Branch / tag / SHA (blank = default branch)", placeholder="default branch", layout=w.Layout(width="75%"))
     secret = w.Text(value="GH_TOKEN", description="Colab Secret", layout=w.Layout(width="55%"))
     depth = w.IntSlider(value=1, min=0, max=50, description="Clone depth", continuous_update=False)
     timeout = w.IntSlider(value=1800, min=60, max=7200, step=60, description="Step timeout", continuous_update=False)
@@ -583,7 +590,7 @@ def launch_ui():
             say("Repository indiriliyor…"); token=get_token()
             workspace=pathlib.Path("/content/colab-actions-workspace")/re.sub(r"[^A-Za-z0-9_.-]+","-",repo.value)
             runner=ColabActionsRunner(workspace,token,timeout.value,lambda m:logs.append_stdout(str(m)+"\n"))
-            runner.clone_repository(repo.value,ref.value or "main",depth.value,workspace); files=runner.discover_workflows()
+            runner.clone_repository(repo.value,ref.value,depth.value,workspace);\n            if not ref.value: ref.value=runner.default_branch()\n            files=runner.discover_workflows()
             if not files: raise RuntimeError(".github/workflows altında YAML bulunamadı.")
             state["runner"],state["workspace"]=runner,workspace; workflow.options=files; workflow.value=files[0]
             analyze.disabled=False; run.disabled=False; selected_workflow({"new":files[0]})
@@ -617,7 +624,7 @@ def launch_ui():
         with logs: clear_output(); print("Colab workflow run started.")
         def worker():
             try:
-                report=runner.execute(workflow.value,event.value,values,ref.value or "main"); state["paths"]=runner.save_report()
+                report=runner.execute(workflow.value,event.value,values,ref.value or runner.default_branch()); state["paths"]=runner.save_report()
                 color="#2e9d63" if report["status"]=="PASS" else ("#d4a017" if report["status"]=="PARTIAL" else "#cc4444")
                 say("Bitti: "+report["status"],color)
                 with report_out:
