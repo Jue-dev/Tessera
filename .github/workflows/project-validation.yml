@@ -55,6 +55,7 @@ jobs:
           repository: ${{ steps.config.outputs.repository }}
           ref: ${{ steps.config.outputs.ref }}
           path: target
+          token: ${{ secrets.VALIDATION_GH_TOKEN || github.token }}
           persist-credentials: false
       - name: Run profile setup and tests
         env:
