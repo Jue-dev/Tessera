@@ -315,6 +315,12 @@ Result<HookCore> HookCore::create(Address target, void* detour, HookBackend* bac
 }
 
 Status HookCore::install(const HookOptions& options) noexcept {
+    if (CallableLease::is_active_on_current_thread(*this)) {
+        return fail(ErrorCode::Conflict,
+                    "Hook::install",
+                    0,
+                    "Hook lifecycle cannot change from inside a leased callable invocation");
+    }
     std::unique_lock lock(lifecycle_mutex_);
     if (installed_.load(std::memory_order_acquire)) {
         return ok();
@@ -361,6 +367,12 @@ Status HookCore::install(const HookOptions& options) noexcept {
 }
 
 Status HookCore::remove() noexcept {
+    if (CallableLease::is_active_on_current_thread(*this)) {
+        return fail(ErrorCode::Conflict,
+                    "Hook::remove",
+                    0,
+                    "A hook cannot be removed from inside its own leased callable invocation");
+    }
     std::unique_lock lock(lifecycle_mutex_);
     if (!installed_.load(std::memory_order_acquire)) {
         return ok();
@@ -390,6 +402,11 @@ Status HookCore::remove() noexcept {
 }
 
 void* HookCore::release() noexcept {
+    if (CallableLease::is_active_on_current_thread(*this)) {
+        // This API cannot report an error separately. Return null and retain
+        // ownership rather than self-deadlocking or abandoning live state.
+        return nullptr;
+    }
     std::unique_lock lock(lifecycle_mutex_);
     void* const current_fn = active_callable_;
     installed_.store(false, std::memory_order_release);
