@@ -333,8 +333,10 @@ class ColabActionsRunner:
     def run_step(self, step, ctx, cwd, env_base, depth=0):
         name = s(step.get("name")) or s(step.get("id")) or "Unnamed step"
         if self.cancel_event.is_set(): return [StepResult(name, "CANCELLED", 0, None, "Run cancelled.")]
-        if not self.evaluate_condition(step.get("if"), ctx, self._run_failed):
-            self.emit(name + ": skipped by if condition"); return [StepResult(name, "SKIP", 0, None, "if condition false.")]
+        step_condition = s(step.get("if"))
+        if (not step_condition and self._run_failed) or (step_condition and not self.evaluate_condition(step_condition, ctx, self._run_failed)):
+            self.emit(name + ": skipped by default success() / if condition")
+            return [StepResult(name, "SKIP", 0, None, "Default success() or explicit if condition evaluated to false.")]
         uses = s(step.get("uses"))
         if uses:
             low = uses.lower()
@@ -406,13 +408,16 @@ class ColabActionsRunner:
                 needs = [needs] if isinstance(needs, str) else seq(needs)
                 if any(dep not in completed for dep in needs): continue
                 pending.remove(jid); progressed = True
-                failed_deps = [dep for dep in needs if completed.get(dep) not in {"PASS", "PARTIAL"}]
+                failed_deps = [dep for dep in needs if completed.get(dep) != "PASS"]
                 ctx = self.context(job_id=jid)
-                if failed_deps and not self.evaluate_condition(job.get("if"), ctx, True):
-                    detail = "Dependency failed or was blocked: " + ", ".join(failed_deps)
+                job_condition = s(job.get("if"))
+                if failed_deps and not job_condition:
+                    detail = "Dependency failed or was not fully validated: " + ", ".join(failed_deps)
                     self.job_results.append(JobResult(jid, s(job.get("name")) or jid, "SKIP", [], detail)); completed[jid] = "SKIP"; continue
-                if not self.evaluate_condition(job.get("if"), ctx, self._run_failed):
-                    self.job_results.append(JobResult(jid, s(job.get("name")) or jid, "SKIP", [], "Job if condition false.")); completed[jid] = "SKIP"; continue
+                if not job_condition and self._run_failed:
+                    self.job_results.append(JobResult(jid, s(job.get("name")) or jid, "SKIP", [], "Default success() condition blocked this job after a previous failure.")); completed[jid] = "SKIP"; continue
+                if job_condition and not self.evaluate_condition(job_condition, ctx, self._run_failed):
+                    self.job_results.append(JobResult(jid, s(job.get("name")) or jid, "SKIP", [], "Job if condition evaluated to false.")); completed[jid] = "SKIP"; continue
                 platform, reason = self.platform_state(job.get("runs-on", ""))
                 if platform != "READY":
                     self.emit(jid + ": " + platform + " — " + reason)
@@ -432,12 +437,16 @@ class ColabActionsRunner:
                         all_steps.extend(asdict(x) for x in results)
                         for r in results:
                             if r.status in {"FAIL", "TIMEOUT"}:
-                                if truth(step.get("continue-on-error")): self.warnings.append("Step failure ignored by continue-on-error: " + r.name)
-                                else: failed = True; self._run_failed = True
+                                if truth(step.get("continue-on-error")):
+                                    self.warnings.append("Step failure ignored by continue-on-error: " + r.name)
+                                else:
+                                    failed = True; self._run_failed = True
                             if r.status == "UNSUPPORTED":
-                                if truth(step.get("continue-on-error")): self.warnings.append("Unsupported step ignored: " + r.name)
-                                else: unsupported = True
-                        if self.cancel_event.is_set() or ((failed or unsupported) and not truth(step.get("continue-on-error"))): break
+                                if truth(step.get("continue-on-error")):
+                                    self.warnings.append("Unsupported step ignored: " + r.name)
+                                else:
+                                    unsupported = True; self._run_failed = True
+                        if self.cancel_event.is_set(): break
                     statuses.append("FAIL" if failed else ("PARTIAL" if unsupported else ("CANCELLED" if self.cancel_event.is_set() else "PASS")))
                 self.step_timeout = original_timeout
                 state = "FAIL" if "FAIL" in statuses else ("CANCELLED" if "CANCELLED" in statuses else ("PARTIAL" if "PARTIAL" in statuses else "PASS"))
