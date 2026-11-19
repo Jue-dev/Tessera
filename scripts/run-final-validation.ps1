@@ -127,6 +127,7 @@ try {
         }
     } else {
         Write-Warning "Detours integration skipped. Supply -DetoursRoot to the Microsoft Detours v4.0.1 checkout."
+        $summary.Add([pscustomobject]@{ Stage = "detours-x86-x64"; Result = "SKIP"; Log = "DetoursRoot not supplied" })
     }
 
     if ($RunFuzz) {
@@ -151,6 +152,7 @@ try {
         }
     } else {
         Write-Warning "Sustained libFuzzer campaign skipped. Use -RunFuzz when ready."
+        $summary.Add([pscustomobject]@{ Stage = "native-hook-libfuzzer"; Result = "SKIP"; Log = "RunFuzz not supplied" })
     }
 } finally {
     Pop-Location
