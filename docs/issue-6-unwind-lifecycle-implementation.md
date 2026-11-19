@@ -55,16 +55,18 @@ correct implementation and Windows tests.
 
 ### M2 — Call admission and drain
 
-**Partial implementation:** `Hook::acquire()` returns a non-copyable,
-non-movable scoped callable lease. Its `get()` exposes the current callable
-while the lease is alive; lifecycle operations take the exclusive lock and wait
-for the lease. Deterministic tests cover explicit lease acquisition, compile-time
-non-copy/non-move constraints, and concurrent remove/drain ordering. An x64
-native-backend integration test also verifies that the generated runtime
-function remains registered while a real trampoline call is inside a blocking
-callee under the explicit lease, then disappears after the lease drains. This
-does not create a complete host admission barrier and cannot track pointers
-that escape the scope.
+**Runtime API and deterministic lifecycle coverage added; host-side admission remains required.**
+`Hook::acquire()` returns a non-copyable, non-movable, thread-affine scoped
+lease. `get()` returns the current original/trampoline callable, while
+`target()` returns the patched target entry so the caller can acquire the
+lease before entering the detour. The Hook must outlive the lease and the lease
+must be destroyed on its acquiring thread. Tests cover compile-time
+non-copy/non-move constraints, pre/post-install pointer identity, and
+concurrent remove/drain ordering through a real detour-entry → trampoline call.
+The x64 native-backend test verifies that the generated function table remains
+registered while that call is blocked, then disappears after the lease drains.
+This does not create a process-wide admission barrier and cannot track pointers
+that escape the scope or calls that do not acquire a lease first.
 
 Native detach also retains the function-table registration and allocation until
 the target patch is restored and the backend's thread-coordination check has
@@ -89,8 +91,14 @@ trampoline calls before removal or module unload.
 - Added an SEH exception test through a relocated stack-allocation prologue and
   a native-backend lease/lifetime test. Broader stack-walk coverage across each
   supported unwind opcode is still pending.
-- Verify metadata remains registered during active leased calls; this is now
-  covered by the native-backend lifecycle integration test.
+- Added failure-path tests that externally remove the dynamic function-table
+  registration to force a backend unregister failure, verify target patch
+  reinstatement and token retry, and reject EHANDLER, CHAININFO, and an unwind
+  CodeOffset inside an instruction.
+- The full Windows x86/x64 Debug/Release matrix and sustained coverage-guided
+  native-hook fuzz campaign are required gates; a previous CI iteration exposed
+  three legacy dynamic-code whitelist regressions, which are being corrected
+  without allowing stack-changing operations for functions lacking unwind data.
 - Run x86/x64 Debug and Release CI; run sustained fuzzing and preserve every
   finding as a corpus regression.
 - Exercise failure injection for allocation, registration, detach, and
