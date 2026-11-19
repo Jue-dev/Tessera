@@ -28,6 +28,9 @@ concurrency:
 
 jobs:
   native-hook-fuzz:
+    # Keep draft PR iterations from consuming Actions allowance. The workflow
+    # runs for PRs only after ready-for-review; scheduled/manual campaigns remain available.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     name: Windows x64 Clang libFuzzer + ASan/UBSan
     runs-on: windows-latest
     timeout-minutes: 20
