@@ -183,7 +183,7 @@ jobs:
           if-no-files-found: warn
 
   native-hook-fuzz-x86:
-    name: Windows x86 Coverage-Guided Native Hook Fuzz
+    name: Windows x86 MSVC Coverage-Guided Native Hook Fuzz
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
@@ -192,19 +192,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install LLVM 22 for C++23 and libFuzzer
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "22.1.8"
-          force-url: https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-win64.exe
-          directory: ${{ runner.temp }}/llvm22
-
       - name: Setup MSVC Developer Environment (x86)
         uses: ./.github/actions/setup-msvc
         with:
           arch: x86
 
-      - name: Verify Clang x86 toolchain and sanitizer runtimes
+      - name: Verify native MSVC x86 Fuzzer and AddressSanitizer
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -212,27 +205,40 @@ jobs:
             throw "Expected x86 MSVC target environment, got '$env:VSCMD_ARG_TGT_ARCH'."
           }
 
-          $clang = Get-Command clang-cl -ErrorAction Stop
-          Write-Host "Using clang-cl: $($clang.Source)"
-          clang-cl --version
-          if ($LASTEXITCODE -ne 0) { throw "clang-cl version check failed ($LASTEXITCODE)" }
-          clang-cl "--target=i686-pc-windows-msvc" -v
-          if ($LASTEXITCODE -ne 0) { throw "clang-cl x86 target check failed ($LASTEXITCODE)" }
-
-          $resource = (clang-cl -print-resource-dir).Trim()
-          if ($LASTEXITCODE -ne 0 -or -not $resource) { throw "Unable to locate Clang resource directory." }
-          $runtimeDir = Join-Path $resource "lib/windows"
-          $required = @(
-            "clang_rt.fuzzer-i386.lib",
-            "clang_rt.asan_dynamic-i386.lib",
-            "clang_rt.asan_static_runtime_thunk-i386.lib",
-            "clang_rt.asan_dynamic-i386.dll"
-          )
-          foreach ($name in $required) {
-            $path = Join-Path $runtimeDir $name
-            if (-not (Test-Path $path)) { throw "Missing required x86 Clang runtime: $path" }
-            Write-Host "Found: $name"
+          $probeSource = Join-Path $env:RUNNER_TEMP "tessera_msvc_x86_fuzzer_probe.cpp"
+          $probeExe = Join-Path $env:RUNNER_TEMP "tessera_msvc_x86_fuzzer_probe.exe"
+          @'
+          #include <cstddef>
+          #include <cstdint>
+          extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
+              volatile std::uint8_t value = size == 0 ? 0 : data[0];
+              (void)value;
+              return 0;
           }
+          '@ | Set-Content -Path $probeSource -Encoding ascii
+
+          cl /nologo /std:c++latest /Zc:__cplusplus /EHsc /MT /fsanitize=address /fsanitize=fuzzer $probeSource "/Fe:$probeExe"
+          if ($LASTEXITCODE -ne 0) { throw "MSVC x86 Fuzzer/ASan probe compile failed ($LASTEXITCODE)" }
+          if (-not (Test-Path $probeExe)) { throw "MSVC x86 Fuzzer probe executable was not produced." }
+
+          $probeOutput = & $probeExe "-runs=8" 2>&1
+          $probeExitCode = $LASTEXITCODE
+          $probeOutput | ForEach-Object { Write-Host $_ }
+          if ($probeExitCode -ne 0) { throw "MSVC x86 Fuzzer/ASan probe execution failed ($probeExitCode)" }
+          $probeText = [string]::Join([Environment]::NewLine, @($probeOutput))
+          if ($probeText -notmatch "Done\s+8\s+runs") {
+            throw "MSVC x86 Fuzzer probe did not complete the requested eight executions."
+          }
+
+          $asanName = "clang_rt.asan_dynamic-i386.dll"
+          $searchRoots = @($env:VCToolsInstallDir, $env:VCToolsRedistDir) | Where-Object { $_ -and (Test-Path $_) }
+          $asanDll = $null
+          foreach ($root in $searchRoots) {
+            $match = Get-ChildItem -Path $root -Filter $asanName -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($match) { $asanDll = $match.FullName; break }
+          }
+          if (-not $asanDll) { throw "MSVC x86 AddressSanitizer runtime DLL '$asanName' was not found." }
+          Write-Host "Verified MSVC x86 Fuzzer and ASan runtime: $asanDll"
 
       - name: Configure instrumented native-hook fuzzer (x86)
         shell: pwsh
@@ -241,16 +247,15 @@ jobs:
           $cmakeArgs = @(
             "-S", ".", "-B", "build-native-hook-fuzz", "-G", "Ninja",
             "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
-            "-DCMAKE_C_COMPILER=clang-cl",
-            "-DCMAKE_CXX_COMPILER=clang-cl",
-            "-DCMAKE_C_COMPILER_TARGET=i686-pc-windows-msvc",
-            "-DCMAKE_CXX_COMPILER_TARGET=i686-pc-windows-msvc",
+            "-DCMAKE_C_COMPILER=cl",
+            "-DCMAKE_CXX_COMPILER=cl",
             "-DCMAKE_CXX_STANDARD=23",
             "-DTESSERA_BUILD_TESTS=OFF",
             "-DTESSERA_BUILD_EXAMPLES=OFF",
             "-DTESSERA_BUILD_FUZZ=ON",
             "-DTESSERA_STATIC_RUNTIME=ON",
-            "-DTESSERA_ENABLE_LIBFUZZER=ON"
+            "-DTESSERA_ENABLE_ASAN=ON",
+            "-DTESSERA_ENABLE_MSVC_FUZZER=ON"
           )
           & cmake @cmakeArgs
           $configureExitCode = $LASTEXITCODE
@@ -273,7 +278,7 @@ jobs:
         shell: pwsh
         run: |
           cmake --build build-native-hook-fuzz --target tessera_fuzz_native_hook --parallel
-          if ($LASTEXITCODE -ne 0) { throw "x86 native-hook fuzzer build failed ($LASTEXITCODE)" }
+          if ($LASTEXITCODE -ne 0) { throw "MSVC x86 native-hook fuzzer build failed ($LASTEXITCODE)" }
 
       - name: Verify x86 fuzzer executable architecture
         shell: pwsh
@@ -288,7 +293,23 @@ jobs:
           if ($machine -ne 0x014c) { throw ("Expected I386 PE machine 0x014c, got 0x{0:X4}" -f $machine) }
           Write-Host "Verified executable architecture: I386 (PE 0x014c)."
 
-      - name: Run x86 coverage-guided ASan/UBSan campaign
+      - name: Locate and stage x86 AddressSanitizer runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $asanName = "clang_rt.asan_dynamic-i386.dll"
+          $searchRoots = @($env:VCToolsInstallDir, $env:VCToolsRedistDir) | Where-Object { $_ -and (Test-Path $_) }
+          $asanDll = $null
+          foreach ($root in $searchRoots) {
+            $match = Get-ChildItem -Path $root -Filter $asanName -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($match) { $asanDll = $match.FullName; break }
+          }
+          if (-not $asanDll) { throw "MSVC x86 AddressSanitizer runtime DLL '$asanName' was not found." }
+          $targetDir = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz/verify/fuzz"
+          Copy-Item $asanDll (Join-Path $targetDir $asanName) -Force
+          Write-Host "Staged x86 ASan runtime: $asanDll"
+
+      - name: Run x86 coverage-guided ASan campaign
         shell: pwsh
         env:
           CAMPAIGN_SECONDS: ${{ inputs.campaign_seconds || '300' }}
@@ -310,12 +331,6 @@ jobs:
           $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz/verify/fuzz/tessera_fuzz_native_hook.exe"
           if (-not (Test-Path $target)) { throw "Missing x86 native-hook fuzzer: $target" }
 
-          $resource = (clang-cl -print-resource-dir).Trim()
-          if ($LASTEXITCODE -ne 0 -or -not $resource) { throw "Unable to locate Clang resource directory." }
-          $asanDll = Join-Path $resource "lib/windows/clang_rt.asan_dynamic-i386.dll"
-          if (-not (Test-Path $asanDll)) { throw "Missing x86 ASan runtime DLL: $asanDll" }
-          Copy-Item $asanDll (Split-Path $target -Parent) -Force
-
           $stdoutPath = Join-Path $artifactRoot "campaign.stdout.log"
           $stderrPath = Join-Path $artifactRoot "campaign.stderr.log"
           $campaignLog = Join-Path $artifactRoot "campaign.log"
@@ -330,20 +345,17 @@ jobs:
             "-artifact_prefix=$crashes/"
           )
 
-          # libFuzzer writes INFO/progress records to stderr. Capture the native
-          # streams as files so GitHub Actions does not mislabel normal INFO
-          # output as red PowerShell errors.
           $process = Start-Process -FilePath $target -ArgumentList $arguments -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
-          if ($process.ExitCode -ne 0) { throw "x86 coverage-guided fuzzing failed ($($process.ExitCode))" }
+          if ($process.ExitCode -ne 0) { throw "x86 coverage-guided Fuzzer/ASan campaign failed ($($process.ExitCode))" }
 
           $stdout = if (Test-Path $stdoutPath) { [System.IO.File]::ReadAllText($stdoutPath) } else { "" }
           $stderr = if (Test-Path $stderrPath) { [System.IO.File]::ReadAllText($stderrPath) } else { "" }
           [System.IO.File]::WriteAllText($campaignLog, $stdout + [Environment]::NewLine + $stderr)
-
           $campaignText = Get-Content $campaignLog -Raw
+
           $summary = [regex]::Match($campaignText, "(?m)^Done\s+([0-9,]+)\s+runs\s+in\s+([0-9]+)\s+second")
           if (-not $summary.Success) {
-            throw "x86 libFuzzer did not report its completed run count and elapsed time."
+            throw "x86 MSVC Fuzzer did not report its completed run count and elapsed time."
           }
           $executedRuns = [UInt64](($summary.Groups[1].Value -replace ",", ""))
           $elapsedSeconds = [UInt32]$summary.Groups[2].Value
@@ -352,10 +364,13 @@ jobs:
             throw "x86 fuzz campaign was too short or processed too few inputs: runs=$executedRuns, seconds=$elapsedSeconds."
           }
           if ($campaignText -notmatch "stat::number_of_executed_units:\s*[1-9][0-9]*") {
-            throw "x86 libFuzzer did not report executed input units."
+            throw "x86 MSVC Fuzzer did not report executed input units."
+          }
+          if ($campaignText -notmatch "cov:\s*[1-9][0-9]*") {
+            throw "x86 MSVC Fuzzer did not report non-zero coverage."
           }
 
-          Write-Host "x86 libFuzzer summary: $executedRuns executions in $elapsedSeconds seconds."
+          Write-Host "x86 MSVC Fuzzer summary: $executedRuns executions in $elapsedSeconds seconds."
           Get-Content $campaignLog -Tail 40 | ForEach-Object { Write-Host $_ }
           Write-Host "Full x86 campaign log: $campaignLog"
 

@@ -21,6 +21,36 @@ if(WIN32)
     tessera_apply_target_options(tessera_fuzz_native_hook)
 endif()
 
+# Visual Studio's experimental /fsanitize=fuzzer runtime supports both x86
+# and x64. Use it for native MSVC x86 validation because the distributed LLVM
+# Windows toolchain does not ship a 32-bit libFuzzer archive.
+if(TESSERA_ENABLE_MSVC_FUZZER)
+    if(NOT MSVC OR NOT CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        message(FATAL_ERROR "TESSERA_ENABLE_MSVC_FUZZER requires native MSVC.")
+    endif()
+
+    get_property(TESSERA_FUZZ_MODULE_TARGETS GLOBAL PROPERTY TESSERA_MODULE_TARGETS)
+    foreach(module_target IN LISTS TESSERA_FUZZ_MODULE_TARGETS)
+        target_compile_options(${module_target} PRIVATE /fsanitize=fuzzer)
+    endforeach()
+
+    set(TESSERA_MSVC_FUZZ_TARGETS
+        tessera_fuzz_pattern
+        tessera_fuzz_pe
+        tessera_fuzz_json
+    )
+    if(TARGET tessera_fuzz_native_hook)
+        list(APPEND TESSERA_MSVC_FUZZ_TARGETS tessera_fuzz_native_hook)
+    endif()
+
+    foreach(fuzz_target IN LISTS TESSERA_MSVC_FUZZ_TARGETS)
+        target_compile_definitions(${fuzz_target} PRIVATE TESSERA_LIBFUZZER=1)
+        target_compile_options(${fuzz_target} PRIVATE /fsanitize=fuzzer)
+        target_link_options(${fuzz_target} PRIVATE /INCREMENTAL:NO)
+    endforeach()
+endif()
+
+
 if(TESSERA_ENABLE_LIBFUZZER)
     if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         message(FATAL_ERROR "TESSERA_ENABLE_LIBFUZZER requires Clang with the LLVM libFuzzer runtime.")
