@@ -1,19 +1,6 @@
 name: Native Hook Fuzz & Stress Validation
 
 on:
-  push:
-    branches:
-      - "issue-6/unwind-lifecycle"
-      - "main"
-    paths:
-      - ".github/workflows/native-hook-fuzz.yml"
-      - ".github/actions/setup-msvc/**"
-      - "cmake/**"
-      - "CMakeLists.txt"
-      - "src/hook/**"
-      - "src/platform/windows/**"
-      - "include/tessera/hook/**"
-      - "verify/fuzz/**"
   pull_request:
     paths:
       - ".github/workflows/native-hook-fuzz.yml"
