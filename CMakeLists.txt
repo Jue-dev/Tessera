@@ -15,7 +15,6 @@ if(TESSERA_ENABLE_LIBFUZZER AND NOT TESSERA_STATIC_RUNTIME)
     message(FATAL_ERROR "TESSERA_ENABLE_LIBFUZZER requires TESSERA_STATIC_RUNTIME=ON (/MT). LLVM libFuzzer on Windows does not support the dynamic /MD runtime.")
 endif()
 option(TESSERA_WARNINGS_AS_ERRORS "Treat warnings as errors"           ON)
-option(TESSERA_USE_STD_MODULE    "Experimental: import std"            OFF)
 option(TESSERA_ENABLE_ASAN       "Enable AddressSanitizer"             OFF)
 option(TESSERA_ENABLE_MSVC_FUZZER "Use MSVC's experimental coverage-guided fuzzer" OFF)
 

@@ -141,7 +141,9 @@ public:
             const auto* reg = find_region(cur);
             if (reg == nullptr || reg->state != MemoryState::Committed ||
                 has_flag(reg->protection, MemoryProtection::NoAccess) ||
-                has_flag(reg->protection, MemoryProtection::Guard)) {
+                has_flag(reg->protection, MemoryProtection::Guard) ||
+                !any_flag(reg->protection, MemoryProtection::Read | MemoryProtection::Write |
+                                              MemoryProtection::CopyOnWrite)) {
                 break;
             }
             const auto off = static_cast<std::size_t>(cur.value() - reg->base.value());

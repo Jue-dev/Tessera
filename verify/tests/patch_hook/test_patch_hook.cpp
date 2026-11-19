@@ -415,6 +415,17 @@ TEST_CASE("Tessera's bounded x86/x64 decoder reports instruction and relocation 
     REQUIRE(endbr64.first);
     REQUIRE(endbr64.second.length == 4);
 
+    // FEMMS is a two-byte no-ModRM opcode. Decode the following short branch
+    // independently so its displacement cannot be absorbed into the first instruction.
+    const auto femms = decode(Mode::x86, {0x0F, 0x0E});
+    REQUIRE(femms.first);
+    REQUIRE(femms.second.length == 2);
+    const auto following_jcc = decode(Mode::x86, {0x74, 0x02, 0x90, 0x90});
+    REQUIRE(following_jcc.first);
+    REQUIRE(following_jcc.second.length == 2);
+    REQUIRE(following_jcc.second.has_relative_operand);
+    REQUIRE_FALSE(decode(Mode::x86, {0x0F, 0x0C}).first);
+
     const auto rip_load = decode(Mode::x64, {0x48, 0x8B, 0x05, 0x34, 0x12, 0x00, 0x00});
     REQUIRE(rip_load.first);
     REQUIRE(rip_load.second.length == 7);

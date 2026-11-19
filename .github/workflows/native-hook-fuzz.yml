@@ -177,7 +177,7 @@ jobs:
           # Stream fuzzer progress into the Actions log while preserving a full
           # campaign log artifact. Avoid Start-Process -Wait, which hides progress
           # and makes a healthy timed campaign look hung.
-          & $target @arguments 2>&1 | Tee-Object -FilePath $campaignLogPath
+          & $target @arguments 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $campaignLogPath
           $fuzzerExitCode = $LASTEXITCODE
           if ($fuzzerExitCode -ne 0) { throw "x64 coverage-guided fuzzing failed ($fuzzerExitCode)" }
           $campaignLog = Get-Content $campaignLogPath -Raw
@@ -364,7 +364,7 @@ jobs:
           )
 
           # Stream campaign progress live and save the same output for artifacts.
-          & $target @arguments 2>&1 | Tee-Object -FilePath $campaignLog
+          & $target @arguments 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $campaignLog
           $fuzzerExitCode = $LASTEXITCODE
           if ($fuzzerExitCode -ne 0) { throw "x86 coverage-guided Fuzzer/ASan campaign failed ($fuzzerExitCode)" }
           $campaignText = Get-Content $campaignLog -Raw

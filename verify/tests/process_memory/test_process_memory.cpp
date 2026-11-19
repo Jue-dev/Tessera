@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstring>
+#include <cstdio>
 #include <memory>
 #include <string>
 
@@ -50,6 +51,32 @@ TEST_CASE("Process::current and Process::open contracts", "[process]") {
     REQUIRE(local_var == 42);
 }
 
+
+TEST_CASE("Execute-only regions are not readable", "[memory][protection]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    backend->map_region(Address{0x12000}, 0x1000, MemoryProtection::Execute);
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
+    MemoryReader reader{process};
+
+    const AddressRange range{Address{0x12000}, 16};
+    REQUIRE_FALSE(reader.is_readable(range).value());
+    REQUIRE(reader.is_executable(range).value());
+    REQUIRE_FALSE(matches_region_filter(
+        MemoryRegionInfo{
+            .base = Address{0x12000},
+            .allocation_base = Address{0x12000},
+            .size = 0x1000,
+            .state = MemoryState::Committed,
+            .protection = MemoryProtection::Execute,
+            .allocation_protection = MemoryProtection::Execute,
+            .type = MemoryType::Private,
+        },
+        RegionFilter{}));
+    REQUIRE_FALSE(reader.read<std::uint8_t>(Address{0x12000}).has_value());
+}
 
 TEST_CASE("FakeMemoryBackend reader, writer, rollback, and protection warnings", "[memory]") {
     using namespace tessera;
@@ -139,6 +166,14 @@ TEST_CASE("Remote process integration with tessera_test_host", "[process][integr
     REQUIRE(remote_proc->is_alive().value_or(false));
 
     auto regions = enumerate_regions(*remote_proc);
+    if (!regions) {
+        std::fprintf(stderr, "Remote region enumeration failed: %s (native=%u, operation=%.*s, detail=%s)\n",
+                     error_code_name(regions.error().code).data(),
+                     regions.error().native,
+                     static_cast<int>(regions.error().operation.size()),
+                     regions.error().operation.data(),
+                     regions.error().detail.c_str());
+    }
     REQUIRE(regions.has_value());
     REQUIRE_FALSE(regions->empty());
 

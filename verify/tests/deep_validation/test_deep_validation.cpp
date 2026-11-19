@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -224,6 +225,14 @@ TEST_CASE("Deep validation: MSVC ABI preserves branching virtual-base flags in x
         const auto loaded_image = PeImage::from_memory(process, image_base);
         REQUIRE(loaded_image.has_value());
         const auto catalog = RttiCatalog::discover_all(process, range, &*loaded_image);
+        if (!catalog) {
+            std::fprintf(stderr, "RTTI fixture discovery failed: %s (native=%u, operation=%.*s, detail=%s)\n",
+                         error_code_name(catalog.error().code).data(),
+                         catalog.error().native,
+                         static_cast<int>(catalog.error().operation.size()),
+                         catalog.error().operation.data(),
+                         catalog.error().detail.c_str());
+        }
         REQUIRE(catalog.has_value());
         const auto diamond = catalog->find_class("VDiamond");
         REQUIRE(diamond.has_value());

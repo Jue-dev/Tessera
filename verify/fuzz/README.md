@@ -7,9 +7,7 @@ The harnesses expose `LLVMFuzzerTestOneInput` for JSON parsing/writing, byte-pat
 The native-hook validation workflow has two independent jobs. They are intentionally separate so a successful x86 run cannot hide a failed or skipped x64 campaign, and vice versa.
 
 - **x64:** Clang `libFuzzer` with production-module coverage instrumentation, AddressSanitizer, and UndefinedBehaviorSanitizer. The job verifies the Clang runtime libraries, the generated executable's PE machine (`AMD64 / 0x8664`), non-empty seed corpus, and non-zero executed-input statistics.
-- **x86:** MSVC builds and runs a real 32-bit executable (`I386 / 0x014c`). The standalone native-hook harness exercises nine focused instruction seeds plus 4,096 fixed-seed random inputs (4,106 total). Every input runs through the production backend's attach/detach path. Allocation, protection, cleanup, patch-restoration, or detach failures terminate the process instead of being counted as successful inputs.
-
-The x86 job is a deterministic stress corpus, not coverage-guided libFuzzer. It is not reported as a libFuzzer campaign and is never allowed to pass without confirming the 32-bit PE header, exact input count, and at least one successful attach/detach lifecycle.
+- **x86:** MSVC's coverage-guided Fuzzer + AddressSanitizer builds and runs a real 32-bit executable (`I386 / 0x014c`). It validates the runtime probe, architecture, ASan DLL, execution count, campaign duration, and non-zero feature coverage. The Windows i386 distribution does not provide LLVM libFuzzer archive support, so this job uses MSVC Fuzzer.
 
 ## Standalone smoke mode
 
@@ -17,7 +15,7 @@ With `TESSERA_BUILD_FUZZ=ON` and `TESSERA_ENABLE_LIBFUZZER=OFF`, the fuzz target
 
 ## Seed corpus and bounded campaign
 
-The native-hook seed corpus lives in `verify/fuzz/corpus/native_hook`. The manual workflow supports x64 campaigns of 300, 600, or 900 seconds (900 seconds by default); a weekly 900-second schedule is also enabled. Both architecture jobs upload their logs and any available corpus/crash artifacts.
+The native-hook seed corpus lives in `verify/fuzz/corpus/native_hook`. The manual workflow supports campaigns of 300, 600, or 900 seconds (300 seconds by default). The weekly schedule runs 300 seconds on each architecture. Both architecture jobs upload logs, corpus, and crash artifacts.
 
 ## LLVM libFuzzer mode
 
