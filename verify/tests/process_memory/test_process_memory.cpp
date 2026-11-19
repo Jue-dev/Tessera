@@ -93,6 +93,12 @@ TEST_CASE("Unbounded region enumeration stops at the address-space boundary", "[
     REQUIRE(regions->size() == 2);
     REQUIRE((*regions)[0].base == Address{0x10000});
     REQUIRE((*regions)[1].base == Address{0x30000});
+
+    // A caller-supplied bounded range is explicit; do not silently truncate it.
+    const auto bounded = enumerate_regions(
+        process, AddressRange{Address{0x10000}, 0x100000});
+    REQUIRE_FALSE(bounded.has_value());
+    REQUIRE(bounded.error().code == ErrorCode::OutOfRange);
 }
 
 TEST_CASE("FakeMemoryBackend reader, writer, rollback, and protection warnings", "[memory]") {
