@@ -135,9 +135,10 @@ TEST_CASE("Native x86 hooks preserve fastcall register arguments",
 
     constexpr std::size_t target_offset = 64;
     // mov eax,ecx; add eax,edx; ret
-    const std::array<std::byte, 6> target_code{
+    // Exactly five bytes are needed for the x86 entry JMP patch.
+    const std::array<std::byte, 5> target_code{
         std::byte{0x8B}, std::byte{0xC1}, std::byte{0x03},
-        std::byte{0xC2}, std::byte{0xC3}, std::byte{0xC3}};
+        std::byte{0xC2}, std::byte{0xC3}};
     std::memcpy(code + target_offset, target_code.data(), target_code.size());
     REQUIRE(region.protect_read_execute());
 
