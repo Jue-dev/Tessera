@@ -1,40 +1,55 @@
-# Colab portable validation console
+# Colab-hosted Tessera validation console
 
-The validation console is intended to run as interactive notebook code inside
-Google Colab's own notebook UI. It is **not** a separately hosted web service
-or a tunnel to an external web panel.
+The console runs a small HTTP server **inside the active Google Colab runtime**.
+The notebook starts the server and prints a Colab port-proxy URL. The user opens
+that URL in a separate browser tab; the validation UI is not rendered inside a
+notebook iframe and commands remain on the Colab runtime.
 
-Google's free managed runtimes prohibit web-service offerings unrelated to
-interactive compute and prohibit bypassing the notebook UI to interact primarily
-through another web UI. See the official
-[Colab FAQ](https://research.google.com/colaboratory/faq.html) for current
-restrictions and variable runtime limits.
+This is not a permanent public deployment, VPS, or external tunnel. The proxy
+URL is session-scoped and only works for the current Colab user while the
+notebook/runtime remains available. Runtime disconnections stop the server and
+discard its in-memory job state. A new URL is generated after restarting.
 
-## Interface requirements
+## Interface
 
-- Keep the controls in notebook output, using compact, responsive widgets.
-- Mobile-friendly: no wide tables, side-by-side controls that force horizontal
-  scrolling, or raw CSS/HTML source printed as text.
-- Dynamic setup commands and tests: add/remove rows, no fixed maximum.
-- Provide a readable summary, collapsible test logs, and copy/download report.
-- Use Colab Secret for the GitHub token; never print it, put it in URLs, or save
-  it in the notebook/settings/report.
-- Do not launch an externally accessible web server or tunnel on free Colab.
+- Standalone responsive web UI, dark by default, with restrained navy/slate
+  surfaces, cyan/teal accents, clear status indicators, and mobile layouts.
+- Repository/ref and Colab Secret configuration.
+- Dynamic setup-command and test rows; no fixed row limit.
+- Server-side clone, setup, and test execution in the notebook runtime.
+- Progress summary, per-step output, and downloadable text report.
+- No notebook iframe and no third-party UI/CDN dependency.
+
+## Server and access model
+
+- The server binds to the Colab kernel and is exposed only through Colab's
+  authenticated port proxy. The generated URL includes a high-entropy,
+  per-runtime path secret; it is not a reusable deployment URL.
+- No public tunnel, port-forwarding service, or separate VPS is created.
+- The server stops when the Colab runtime stops. The URL is not intended for
+  sharing with other users.
+- The UI path secret is separate from the GitHub token. Never paste the GitHub
+  token into the UI URL.
+- Colab's own browser/port-proxy behavior can change. The notebook prints the
+  runtime-generated URL and a direct open-in-new-tab link. If Colab or the
+  browser blocks opening a separate tab, use the visible URL in a new tab; do
+  not fall back to a public tunnel.
 
 ## Security and execution
 
-- Treat user-provided setup/test commands as arbitrary code. Run only trusted
-  repositories and commands.
-- The GitHub token is used only for repository checkout. Remove it from the
-  environment immediately afterward; avoid credential persistence and redact
-  errors/logs.
-- Pin the tested commit SHA in the report.
-- Enforce clone and test timeouts, output clipping, and cleanup of temporary
-  credentials.
-- Colab's managed VM is not a security boundary for arbitrary untrusted tests.
-  Do not run untrusted PR code with a token present.
-- Runtime sessions are ephemeral and may disconnect. Save reports locally for
-  download; do not assume files persist between sessions.
+- Add the GitHub token to Colab Secrets (default name `GH_TOKEN`). The token
+  is used only for cloning via a temporary askpass helper; the helper is
+  deleted and credential environment variables are not passed to setup/tests.
+- Test processes receive a sanitized copy of the runtime environment. Tokens,
+  passwords, and secret-named environment variables are removed.
+- Colab Secrets are **not an isolation boundary** against arbitrary code
+  running in the same notebook runtime. Malicious setup/test code can interact
+  with notebook APIs and potentially access secrets. Run only trusted
+  repositories and commands; do not run untrusted pull-request code in a
+  runtime where a token is available.
+- Enforce clone/test timeouts, output clipping, credential redaction, and
+  optional workspace cleanup.
+- Runtime files are ephemeral. Download reports before disconnecting.
 
 ## Current Tessera portable test profile
 
@@ -45,4 +60,4 @@ restrictions and variable runtime limits.
    `EXTRA_CXXFLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' ASAN_OPTIONS='detect_leaks=1:halt_on_error=1' UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1' bash verify/windows_mock/run_windows_mock_tests.sh`
 
 Portable Linux mock tests are supplementary. They do not validate native Windows
-/MSVC, loader, unwind, executable-memory, or hook lifecycle behavior.
+/MSVC, loader, unwind registration, executable-memory, or hook lifecycle behavior.
