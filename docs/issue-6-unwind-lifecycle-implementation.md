@@ -8,21 +8,21 @@ current-head evidence.
 
 ## CI / Actions usage policy
 
-Pull-request validation is intentionally one-shot. A normal code commit on
-this draft PR must not start a Windows matrix or fuzz campaign. The dedicated
-`.github/workflows/issue-6-acceptance.yml` runs the four-way Windows matrix
-only when the PR is explicitly marked ready for review (or manually dispatched
-after the workflow exists on the default branch). It has no commit-synchronize
-trigger and watches all test and Windows fixture inputs.
-The short `pr-smoke.yml` and focused `native-hook-fuzz.yml` workflows are
-manual-only. The five-minute fuzz campaign is a separate deliberate dispatch.
-The full SDK/quality workflow runs on relevant main-branch pushes, tags, or
-manual dispatch; its weekly schedule is disabled.
+Actions validation is **manual-only** for Issue #6. The single
+`.github/workflows/issue-6-acceptance.yml` workflow runs the four-way Windows
+matrix and deterministic x64 Release fuzz smoke when explicitly dispatched.
+The five-minute Clang libFuzzer + ASan/UBSan campaign is an optional input to
+that same workflow. PR opened/ready/synchronize/reopened, branch push, and
+schedule events do not start validation.
 
-This keeps PR iterations cheap, avoids duplicate smoke/fuzz workflows, and
-makes expensive validation deliberate. Keep the PR draft while code changes
-are in progress; mark it ready only once the current commit is ready for the
-Windows matrix. Do not treat skipped or unstarted checks as passing.
+Duplicate `pr-smoke.yml` and `native-hook-fuzz.yml` workflows were removed.
+The full SDK/quality workflow `.github/workflows/ci.yml` runs on relevant
+main-branch source pushes or manual dispatch; scheduled runs are disabled and
+release publication remains tag-only.
+
+This reduces duplicate jobs and accidental quota consumption. Keep the PR
+draft while implementation is in progress. Do not treat skipped, unstarted,
+or older-head checks as passing.
 
 ## Progress summary
 
