@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Colab-side GitHub Actions compatibility runner; not a security sandbox."""
 from __future__ import annotations
-import ast, fnmatch, glob, html, itertools, json, os, pathlib, re, shutil, subprocess, sys, tempfile, threading, time, zipfile
+import ast, fnmatch, glob, html, itertools, signal, json, os, pathlib, re, shutil, subprocess, sys, tempfile, threading, time, zipfile
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 import yaml
@@ -254,22 +254,32 @@ class ColabActionsRunner:
             pathlib.Path(path).write_text(script, encoding="utf-8")
             proc = subprocess.Popen(args + [path], cwd=cwd, env=env,
                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                    text=True, errors="replace", bufsize=1)
+                                    text=True, errors="replace", bufsize=1,
+                                    start_new_session=True)
             deadline = time.monotonic() + max(1, int(timeout))
             output = ""
             while True:
                 if self.cancel_event.is_set():
-                    proc.terminate()
+                    try:
+                        os.killpg(proc.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
                     try:
                         output, _ = proc.communicate(timeout=5)
                     except subprocess.TimeoutExpired:
-                        proc.kill()
+                        try:
+                            os.killpg(proc.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
                         output, _ = proc.communicate()
                     return StepResult(name, "CANCELLED", time.monotonic() - started,
                                       proc.returncode, (output or "")[-100000:])
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    proc.kill()
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
                     output, _ = proc.communicate()
                     return StepResult(name, "TIMEOUT", time.monotonic() - started,
                                       proc.returncode, (output or "")[-100000:])
