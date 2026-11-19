@@ -611,12 +611,9 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
         return false;
     }
     if (opcode == 0xE8u) {
-        // A real relative CALL is balanced when its callee returns. CALL $+5
-        // is rejected earlier because it exposes the original instruction PC.
-        const auto next_instruction =
-            reinterpret_cast<std::uintptr_t>(code) + instruction.length;
-        return instruction.has_relative_operand &&
-               instruction.relative_target != static_cast<std::int64_t>(next_instruction);
+        // A direct relative CALL is balanced when its callee returns. CALL $+5
+        // is rejected by decode_block using the original instruction address.
+        return instruction.has_relative_operand;
     }
     if ((opcode >= 0x70u && opcode <= 0x7Fu) ||
         (opcode >= 0xE0u && opcode <= 0xE3u) ||
@@ -852,7 +849,8 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
         while (input_slot < source_info->CountOfCodes) {
             const NativeUnwindCode& source_code = source_info->UnwindCode[input_slot];
             std::size_t slots = 0u;
-            if (!unwind_slot_count(source_code, slots) ||
+            if (source_code.CodeOffset == 0u ||
+                !unwind_slot_count(source_code, slots) ||
                 slots > static_cast<std::size_t>(source_info->CountOfCodes) - input_slot ||
                 source_code.CodeOffset > previous_code_offset ||
                 source_code.CodeOffset > source_info->SizeOfProlog) {
@@ -910,14 +908,19 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
             mapped_prolog_size = static_cast<std::uint8_t>(relocated_end);
         }
 
-        if (((source_info->FrameRegisterAndOffset & 0x0Fu) != 0u) != source_frame_setup) {
+        const unsigned int source_frame_register =
+            source_info->FrameRegisterAndOffset & 0x0Fu;
+        const unsigned int source_frame_offset =
+            source_info->FrameRegisterAndOffset >> 4u;
+        if (((source_frame_register != 0u) != source_frame_setup) ||
+            (source_frame_register == 0u && source_frame_offset != 0u)) {
             return fail(ErrorCode::UnsupportedInstruction,
                         "NativeInlineHook::unwind",
                         0,
                         "The source frame-register header and SET_FPREG operation disagree");
         }
         if (copied_frame_setup) {
-            if (!is_nonvolatile_gpr((source_info->FrameRegisterAndOffset & 0x0Fu))) {
+            if (!is_nonvolatile_gpr(source_frame_register)) {
                 return fail(ErrorCode::UnsupportedInstruction,
                             "NativeInlineHook::unwind",
                             0,
