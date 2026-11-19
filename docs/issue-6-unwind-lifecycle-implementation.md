@@ -37,6 +37,7 @@ or older-head checks as passing.
 | No-source-record policy | [x] Implemented | Only audited stack-neutral leaf subset accepted; unsupported dynamic prologues rejected |
 | Detach/unregister retry | [x] Implemented; test pending CI | On unregister failure, reinstate the patch and retain registration, allocation, registry ownership, and retryable token; deterministic retry regression test exists |
 | Explicit callable lease API | [x] Implemented | Hook::acquire(), get(), and target(); non-copyable, non-movable, thread-affine |
+| Actions quota workflow cleanup | [x] Implemented | Removed automatic PR smoke; full CI and sustained fuzz are manual-only; disabled scheduled fuzz; retained tag-only release |
 | Expanded x64 unwind regression tests | [x] Added; CI pending | ALLOC_LARGE (near/far), PUSH_NONVOL, SAVE_NONVOL (near/far), SET_FPREG, SAVE_XMM128 (near/far), PUSH_MACHFRAME (both OpInfo values), source bounds/readability, handler/chained/version2/reserved opcode and ENDBR-boundary rejection |
 | Unwind slot storage bounds | [x] Corrected; CI pending | Removed `UnwindCode[1]` trailing-array indexing; source and destination slots are read/written using bounded byte spans and `memcpy` |
 | x86/x64 preprocessor separation | [x] Corrected; CI pending | Balanced x64-only guards; the x86 matrix must confirm x64 fixture exclusion |
@@ -125,6 +126,8 @@ snapshot is not a thread-creation barrier and is not a replacement for this
 protocol.
 
 ## Validation evidence
+
+- Current PR head at this record: `fe86b50a797ec89676ca9dc1402cc3f0b617ef19` (subsequent checklist/PR-description commits are documentation-only).
 
 - PR Smoke #96 passed x64 Release, x86 Release, x64 Debug, and x86 Debug on
   commit ad8a378d994522d7bebabde5a70d9330298fac33.
