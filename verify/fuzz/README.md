@@ -10,9 +10,9 @@ The Windows-only `tessera_fuzz_native_hook` target feeds up to 96 arbitrary byte
 
 ## Seed corpus and bounded campaign
 
-The seed corpus lives in `verify/fuzz/corpus/native_hook`. The manual-only `Native Hook Coverage-Guided Fuzz` workflow supports 60, 300, and 900 seconds on Windows x64 with Clang libFuzzer, ASan, and UBSan. It copies the seeds into the runner workspace and uploads corpus/crash artifacts. No weekly schedule is enabled, to conserve Actions usage.
+The seed corpus lives in `verify/fuzz/corpus/native_hook`. The manual-only `Native Hook Coverage-Guided Fuzz` workflow supports 60, 300, and 900 seconds on Windows x64 with Clang libFuzzer, ASan, and UBSan. It copies the seeds into the runner workspace and uploads corpus/crash artifacts. No weekly schedule is enabled.
 
-At the final checkpoint, run the 300-second campaign once against the exact validated commit and inspect artifacts before treating it as acceptance evidence.
+Current-head acceptance evidence (2026-11-19): [run #24](https://github.com/Jue-dev/Tessera/actions/runs/44566681404), exact commit `313d96f503ac835d602499b7350270d5198d71a0`, completed a 900-second campaign: 14,666,829 executions, 2,651 new units, 978 coverage counters, 1,999 features, no crash/sanitizer findings. The artifact was reviewed (797 corpus files, no crash files). This is x64 fuzz evidence; x86 remains covered by the Windows matrix, Detours integration, and deterministic smoke tests.
 
 ## LLVM libFuzzer mode
 
