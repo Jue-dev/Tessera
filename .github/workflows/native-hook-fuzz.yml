@@ -78,6 +78,10 @@ jobs:
           Copy-Item -Path (Join-Path $seedSource "*") -Destination $corpus -Recurse -Force
           $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz\verify\fuzz\tessera_fuzz_native_hook.exe"
           if (-not (Test-Path $target)) { throw "Missing native-hook fuzzer: $target" }
+          $resource = (clang-cl -print-resource-dir).Trim()
+          $asanDll = Join-Path $resource "lib\windows\clang_rt.asan_dynamic-x86_64.dll"
+          if (-not (Test-Path $asanDll)) { throw "Missing ASan runtime DLL: $asanDll" }
+          Copy-Item $asanDll (Split-Path $target -Parent) -Force
           & $target $corpus "-max_total_time=300" "-timeout=10" "-max_len=96" "-rss_limit_mb=4096" "-seed=20261119" "-print_final_stats=1" "-artifact_prefix=$crashes\"
           if ($LASTEXITCODE -ne 0) { throw "Coverage-guided native-hook fuzzing failed ($LASTEXITCODE)" }
 
