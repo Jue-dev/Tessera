@@ -712,6 +712,7 @@ def run_self_tests():
         root = pathlib.Path(temporary)
         workflow_dir = root / ".github" / "workflows"
         workflow_dir.mkdir(parents=True, exist_ok=True)
+        step_output_expression = "$" + "{{ steps.publish.outputs.smoke }}"
         workflow_text = "\n".join([
             "name: Colab runner self-test",
             "on:",
@@ -722,8 +723,10 @@ def run_self_tests():
             "    steps:",
             "      - name: Write environment file",
             "        run: echo COLAB_ACTIONS_SMOKE=passed >> \"$GITHUB_ENV\"",
-            "      - name: Verify environment is passed between steps",
-            "        run: test \"$COLAB_ACTIONS_SMOKE\" = \"passed\"",
+            "      - id: publish",
+            "        run: echo smoke=passed >> \"$GITHUB_OUTPUT\"",
+            "      - name: Verify environment and step output",
+            "        run: test \"$COLAB_ACTIONS_SMOKE\" = \"passed\" && test \"" + step_output_expression + "\" = \"passed\"",
         ])
         (workflow_dir / "smoke.yml").write_text(workflow_text, encoding="utf-8")
         runner = ColabActionsRunner(root, step_timeout=20, log=lambda _message: None)
@@ -735,6 +738,10 @@ def run_self_tests():
             raise RuntimeError("Runner must block Windows jobs on the Colab Linux platform.")
         if len(runner.matrix_variants({"strategy": {"matrix": {"arch": ["x86", "x64"]}}})) != 2:
             raise RuntimeError("Runner matrix expansion self-test failed.")
+        if not runner.evaluate_condition("always()", {}, True):
+            raise RuntimeError("always() expression self-test failed.")
+        if runner.evaluate_condition("success()", {}, True) or not runner.evaluate_condition("failure()", {}, True):
+            raise RuntimeError("success()/failure() expression self-test failed.")
     print("Colab Actions runner self-tests: PASS (Linux shell, GITHUB_ENV, matrix, platform gate).")
 
 
