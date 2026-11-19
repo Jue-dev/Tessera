@@ -42,6 +42,8 @@ on:
       - ".github/actions/**"
   # Select the develop branch in the Actions UI for manual development validation.
   workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1" # Weekly full validation (Monday, 03:17 UTC).
 
 concurrency:
   group: tessera-full-${{ github.ref }}
