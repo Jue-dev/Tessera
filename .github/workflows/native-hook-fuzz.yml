@@ -1,0 +1,88 @@
+name: Native Hook Coverage-Guided Fuzz
+
+on:
+  workflow_dispatch:
+    inputs:
+      campaign_seconds:
+        description: "Fuzz duration (300 seconds is the Issue #6 gate)."
+        required: true
+        type: choice
+        default: "300"
+        options:
+          - "60"
+          - "300"
+          - "900"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tessera-native-hook-fuzz-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native-hook-fuzz:
+    name: Windows x64 Clang libFuzzer + ASan/UBSan
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Setup MSVC build environment (x64)
+        uses: ./.github/actions/setup-msvc
+        with:
+          arch: x64
+
+      - name: Verify Clang toolchain
+        shell: pwsh
+        run: |
+          $clang = Get-Command clang-cl -ErrorAction Stop
+          Write-Host "Using clang-cl: $($clang.Source)"
+          clang-cl --version
+
+      - name: Inspect Clang sanitizer runtime libraries
+        shell: pwsh
+        run: |
+          $resource = (clang-cl -print-resource-dir).Trim()
+          $runtimeDir = Join-Path $resource "lib\windows"
+          Write-Host "Clang resource directory: $resource"
+          Write-Host "Runtime library directory: $runtimeDir"
+          if (-not (Test-Path $runtimeDir)) { throw "Missing Clang Windows runtime directory: $runtimeDir" }
+          Get-ChildItem $runtimeDir | Where-Object { $_.Name -match "asan|ubsan|fuzzer" } |
+            Select-Object -ExpandProperty Name
+
+      - name: Configure instrumented native-hook fuzzer
+        run: cmake -S . -B build-native-hook-fuzz -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_FUZZ=ON -DTESSERA_STATIC_RUNTIME=ON -DTESSERA_ENABLE_LIBFUZZER=ON
+
+      - name: Build instrumented native-hook fuzzer
+        run: cmake --build build-native-hook-fuzz --target tessera_fuzz_native_hook --parallel
+
+      - name: Run bounded coverage-guided campaign
+        shell: pwsh
+        run: |
+          $seedSource = Join-Path $env:GITHUB_WORKSPACE "verify\fuzz\corpus\native_hook"
+          $artifactRoot = Join-Path $env:GITHUB_WORKSPACE "artifacts\native-hook-fuzz"
+          $corpus = Join-Path $artifactRoot "corpus"
+          $crashes = Join-Path $artifactRoot "crashes"
+          New-Item -ItemType Directory -Path $corpus -Force | Out-Null
+          New-Item -ItemType Directory -Path $crashes -Force | Out-Null
+          Copy-Item -Path (Join-Path $seedSource "*") -Destination $corpus -Recurse -Force
+          $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz\verify\fuzz\tessera_fuzz_native_hook.exe"
+          if (-not (Test-Path $target)) { throw "Missing native-hook fuzzer: $target" }
+          $resource = (clang-cl -print-resource-dir).Trim()
+          $asanDll = Join-Path $resource "lib\windows\clang_rt.asan_dynamic-x86_64.dll"
+          if (-not (Test-Path $asanDll)) { throw "Missing ASan runtime DLL: $asanDll" }
+          Copy-Item $asanDll (Split-Path $target -Parent) -Force
+          & $target $corpus "-max_total_time=${{ inputs.campaign_seconds }}" "-timeout=10" "-max_len=96" "-rss_limit_mb=4096" "-seed=20261119" "-print_final_stats=1" "-artifact_prefix=$crashes\"
+          if ($LASTEXITCODE -ne 0) { throw "Coverage-guided native-hook fuzzing failed ($LASTEXITCODE)" }
+
+      - name: Upload fuzz corpus and crash artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-hook-libfuzzer-${{ github.run_number }}
+          path: artifacts/native-hook-fuzz/
+          if-no-files-found: warn
