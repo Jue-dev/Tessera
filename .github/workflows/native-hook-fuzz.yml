@@ -2,35 +2,26 @@ name: Native Hook Coverage-Guided Fuzz
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches: [ "main" ]
-    types: [ opened, reopened, synchronize, ready_for_review ]
-    paths:
-      - ".github/workflows/native-hook-fuzz.yml"
-      - ".github/actions/**"
-      - "CMakeLists.txt"
-      - "cmake/**"
-      - "include/tessera/hook/**"
-      - "src/hook/**"
-      - "verify/fuzz/**"
-      - "verify/tests/patch_hook/**"
-      - "vcpkg.json"
-      - "vcpkg-configuration.json"
-  schedule:
-    - cron: "41 4 * * 1" # Weekly Monday campaign.
+    inputs:
+      campaign_seconds:
+        description: "Coverage-guided campaign duration (use 300 seconds for Issue #6 acceptance)."
+        required: true
+        type: choice
+        default: "300"
+        options:
+          - "60"
+          - "300"
+          - "900"
 
 permissions:
   contents: read
 
 concurrency:
-  group: tessera-native-hook-fuzz-${{ github.event.pull_request.number || github.run_id }}
+  group: tessera-native-hook-fuzz-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   native-hook-fuzz:
-    # Keep draft PR iterations from consuming Actions allowance. The workflow
-    # runs for PRs only after ready-for-review; scheduled/manual campaigns remain available.
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     name: Windows x64 Clang libFuzzer + ASan/UBSan
     runs-on: windows-latest
     timeout-minutes: 20
@@ -85,7 +76,7 @@ jobs:
           $asanDll = Join-Path $resource "lib\windows\clang_rt.asan_dynamic-x86_64.dll"
           if (-not (Test-Path $asanDll)) { throw "Missing ASan runtime DLL: $asanDll" }
           Copy-Item $asanDll (Split-Path $target -Parent) -Force
-          & $target $corpus "-max_total_time=300" "-timeout=10" "-max_len=96" "-rss_limit_mb=4096" "-seed=20261119" "-print_final_stats=1" "-artifact_prefix=$crashes\"
+          & $target $corpus "-max_total_time=${{ inputs.campaign_seconds }}" "-timeout=10" "-max_len=96" "-rss_limit_mb=4096" "-seed=20261119" "-print_final_stats=1" "-artifact_prefix=$crashes\"
           if ($LASTEXITCODE -ne 0) { throw "Coverage-guided native-hook fuzzing failed ($LASTEXITCODE)" }
 
       - name: Upload fuzz corpus and crash artifacts

@@ -1,0 +1,178 @@
+name: Issue #6 Native Hook Acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_sustained_fuzz:
+        description: "Run the additional five-minute Clang libFuzzer + ASan/UBSan campaign."
+        required: true
+        type: boolean
+        default: false
+      campaign_seconds:
+        description: "Campaign duration (use 300 seconds for the Issue #6 acceptance gate)."
+        required: true
+        type: choice
+        default: "300"
+        options:
+          - "60"
+          - "300"
+          - "900"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tessera-issue-6-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-matrix:
+    name: "Windows ${{ matrix.arch }} ${{ matrix.configuration }}"
+    runs-on: windows-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            preset: x64-debug
+            configuration: Debug
+          - arch: x86
+            preset: x86-debug
+            configuration: Debug
+          - arch: x64
+            preset: x64-release
+            configuration: Release
+          - arch: x86
+            preset: x86-release
+            configuration: Release
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Setup MSVC (${{ matrix.arch }})
+        uses: ./.github/actions/setup-msvc
+        with:
+          arch: ${{ matrix.arch }}
+
+      - name: Generate PE test fixtures
+        shell: pwsh
+        run: .\\verify\\windows\\generate_test_fixtures.ps1 -OutputDirectory .\\verify\\tests\\fixtures
+
+      - name: Configure (${{ matrix.preset }})
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Enable deterministic native-hook fuzz smoke (x64 Release)
+        if: matrix.preset == 'x64-release'
+        run: cmake -S . -B artifacts/x64/Release/build -DTESSERA_BUILD_FUZZ=ON
+
+      - name: Build (${{ matrix.preset }})
+        run: cmake --build --preset ${{ matrix.preset }} --parallel
+
+      - name: Test (${{ matrix.preset }})
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure
+
+      - name: Run deterministic native-hook fuzz corpus
+        if: matrix.preset == 'x64-release'
+        shell: pwsh
+        run: |
+          $target = "artifacts/x64/Release/build/verify/fuzz/tessera_fuzz_native_hook.exe"
+          if (-not (Test-Path $target)) { throw "Missing native-hook fuzz target: $target" }
+          & $target
+          if ($LASTEXITCODE -ne 0) { throw "Native-hook deterministic fuzz smoke failed ($LASTEXITCODE)" }
+
+  sustained-fuzz:
+    name: Windows x64 Clang libFuzzer + ASan/UBSan
+    if: ${{ inputs.run_sustained_fuzz }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Setup MSVC build environment (x64)
+        uses: ./.github/actions/setup-msvc
+        with:
+          arch: x64
+
+      - name: Verify Clang toolchain
+        shell: pwsh
+        run: |
+          $clang = Get-Command clang-cl -ErrorAction Stop
+          Write-Host "Using clang-cl: $($clang.Source)"
+          clang-cl --version
+
+      - name: Inspect Clang sanitizer runtime libraries
+        shell: pwsh
+        run: |
+          $resource = (clang-cl -print-resource-dir).Trim()
+          $runtimeDir = Join-Path $resource "lib\\windows"
+          Write-Host "Clang resource directory: $resource"
+          Write-Host "Runtime library directory: $runtimeDir"
+          if (-not (Test-Path $runtimeDir)) { throw "Missing Clang Windows runtime directory: $runtimeDir" }
+          Get-ChildItem $runtimeDir | Where-Object { $_.Name -match "asan|ubsan|fuzzer" } |
+            Select-Object -ExpandProperty Name
+
+      - name: Configure instrumented native-hook fuzzer
+        run: cmake -S . -B build-native-hook-fuzz -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_FUZZ=ON -DTESSERA_STATIC_RUNTIME=ON -DTESSERA_ENABLE_LIBFUZZER=ON
+
+      - name: Build instrumented native-hook fuzzer
+        run: cmake --build build-native-hook-fuzz --target tessera_fuzz_native_hook --parallel
+
+      - name: Run bounded coverage-guided campaign
+        shell: pwsh
+        run: |
+          $seedSource = Join-Path $env:GITHUB_WORKSPACE "verify\\fuzz\\corpus\\native_hook"
+          $artifactRoot = Join-Path $env:GITHUB_WORKSPACE "artifacts\\native-hook-fuzz"
+          $corpus = Join-Path $artifactRoot "corpus"
+          $crashes = Join-Path $artifactRoot "crashes"
+          New-Item -ItemType Directory -Path $corpus -Force | Out-Null
+          New-Item -ItemType Directory -Path $crashes -Force | Out-Null
+          Copy-Item -Path (Join-Path $seedSource "*") -Destination $corpus -Recurse -Force
+          $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz\\verify\\fuzz\\tessera_fuzz_native_hook.exe"
+          if (-not (Test-Path $target)) { throw "Missing native-hook fuzzer: $target" }
+          $resource = (clang-cl -print-resource-dir).Trim()
+          $asanDll = Join-Path $resource "lib\\windows\\clang_rt.asan_dynamic-x86_64.dll"
+          if (-not (Test-Path $asanDll)) { throw "Missing ASan runtime DLL: $asanDll" }
+          Copy-Item $asanDll (Split-Path $target -Parent) -Force
+          & $target $corpus "-max_total_time=${{ inputs.campaign_seconds }}" "-timeout=10" "-max_len=96" "-rss_limit_mb=4096" "-seed=20261119" "-print_final_stats=1" "-artifact_prefix=$crashes\\"
+          if ($LASTEXITCODE -ne 0) { throw "Coverage-guided native-hook fuzzing failed ($LASTEXITCODE)" }
+
+      - name: Upload fuzz corpus and crash artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: issue-6-native-hook-fuzz-${{ github.run_number }}
+          path: artifacts/native-hook-fuzz/
+          if-no-files-found: warn
+
+  acceptance-summary:
+    name: Acceptance summary
+    if: always()
+    needs:
+      - windows-matrix
+      - sustained-fuzz
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write validation summary
+        shell: bash
+        run: |
+          {
+            echo "## Issue #6 native-hook acceptance"
+            echo ""
+            echo "- Windows x86/x64 Debug/Release matrix: ${{ needs.windows-matrix.result }}"
+            if [ "${{ inputs.run_sustained_fuzz }}" = "true" ]; then
+              echo "- Sustained Clang libFuzzer + ASan/UBSan: ${{ needs.sustained-fuzz.result }}"
+            else
+              echo "- Sustained Clang libFuzzer + ASan/UBSan: **not requested**"
+              echo ""
+              echo "Run again with run_sustained_fuzz=true and campaign_seconds=300 before marking Issue #6 complete."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ needs.windows-matrix.result }}" != "success" ]; then exit 1; fi
+          if [ "${{ inputs.run_sustained_fuzz }}" = "true" ] && [ "${{ needs.sustained-fuzz.result }}" != "success" ]; then exit 1; fi

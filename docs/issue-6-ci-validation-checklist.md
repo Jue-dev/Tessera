@@ -2,8 +2,9 @@
 
 This checklist is intentionally separate from the implementation notes. Do not
 mark an item complete until the corresponding job/test has passed on the
-current PR head commit. The latest source changes are not considered validated
-until this checklist has been run with Actions available again.
+current PR head commit. The latest source changes are not considered validated until this checklist
+has been run with Actions available again. Workflows are deliberately manual
+for PR validation so each iteration does not consume Actions automatically.
 
 ## A. PR Smoke — required on the latest head
 
@@ -16,8 +17,9 @@ until this checklist has been run with Actions available again.
 - [ ] No warnings promoted to errors, test hangs, or flaky thread lifecycle
   failures.
 
-Workflow: `.github/workflows/pr-smoke.yml`
-Expected evidence: four successful jobs for the exact commit SHA.
+Primary workflow: `.github/workflows/issue-6-acceptance.yml` (manual dispatch only).
+The standalone `.github/workflows/pr-smoke.yml` is also manual-only for a shorter repeat.
+Expected evidence: four successful Windows jobs for the exact commit SHA.
 
 ## B. x64 unwind runtime correctness — all tests below
 
@@ -64,7 +66,9 @@ Relevant regression tests (exact names):
 - [ ] Corpus/crash artifact uploads successfully; inspect the artifact and
   retain any new reproducer as a checked-in regression seed.
 
-Workflow: `.github/workflows/native-hook-fuzz.yml`
+Primary workflow: `.github/workflows/issue-6-acceptance.yml` with
+`run_sustained_fuzz=true` and `campaign_seconds=300`. The standalone
+`.github/workflows/native-hook-fuzz.yml` is manual-only for focused fuzz runs.
 Expected evidence: successful “Run bounded coverage-guided campaign” and
 “Upload fuzz corpus and crash artifacts” steps for the exact commit SHA.
 
@@ -77,8 +81,8 @@ Expected evidence: successful “Run bounded coverage-guided campaign” and
 - [ ] MSVC `/analyze` build and CTest pass.
 - [ ] No unintended release/publish job is started from this branch.
 
-Workflow: `.github/workflows/ci.yml` (manual development validation only;
-inspect every job and do not publish a release).
+Workflow: `.github/workflows/ci.yml` (main-push or manual only; automatic
+weekly runs are disabled). Inspect every job and do not publish a release.
 
 ## E. Host-lifecycle acceptance — review/test before closing Issue #6
 
@@ -120,6 +124,8 @@ inspect every job and do not publish a release).
   allowance is exhausted. Do not infer success from queued, skipped, cancelled,
   or runner-less workflow records.
 
+After Actions allowance is restored, run the dedicated acceptance workflow
+once on the final branch head and select the full five-minute fuzz campaign.
 Current PR head and checklist progress must be refreshed when Actions becomes
 available. Keep Issue #6 open until sections A–F have evidence or a remaining
 item is explicitly resolved with a documented technical justification.

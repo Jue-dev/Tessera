@@ -1,8 +1,8 @@
 name: Tessera CI & SDK Release
 
 on:
-  # Full validation runs automatically on main only when build, source, or
-  # verification inputs change. Documentation-only changes stay quiet.
+  # Full validation runs on main only when build/source inputs change, or when
+  # explicitly dispatched. Weekly scheduled runs are disabled to conserve Actions.
   # Tag pushes still run the release pipeline; path filters do not apply to tags.
   push:
     branches: [ "main" ]
@@ -24,8 +24,6 @@ on:
       - ".github/actions/**"
   # Select the develop branch in the Actions UI for manual development validation.
   workflow_dispatch:
-  schedule:
-    - cron: "17 3 * * 1" # Weekly full validation (Monday, 03:17 UTC).
 
 concurrency:
   group: tessera-full-${{ github.ref }}
