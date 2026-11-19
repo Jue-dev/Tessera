@@ -114,7 +114,7 @@ public:
             if (!already_leased) {
                 lock_ = std::shared_lock<std::shared_mutex>{owner.lifecycle_mutex_};
             }
-            callable_ = owner.active_callable_;
+            callable_ = owner.active_callable_.load(std::memory_order_acquire);
 
             frame_.owner = &owner;
             frame_.previous = active_lease_frame_;
@@ -169,7 +169,7 @@ public:
 
     // Unsafe non-owning snapshot used only by original(); callers must
     // externally quiesce it before detach or release.
-    [[nodiscard]] void* callable() const noexcept { return active_callable_; }
+    [[nodiscard]] void* callable() const noexcept { return active_callable_.load(std::memory_order_acquire); }
 
 private:
     HookCore(Address target, void* target_ptr, void* detour_ptr, HookBackend* backend) noexcept;
@@ -178,7 +178,7 @@ private:
     Address target_{};
     void* target_ptr_ = nullptr;
     void* detour_ptr_ = nullptr;
-    void* active_callable_ = nullptr;
+    std::atomic<void*> active_callable_{nullptr};
     HookToken token_{};
     HookBackend* backend_ = nullptr;
     std::atomic<bool> installed_{false};
