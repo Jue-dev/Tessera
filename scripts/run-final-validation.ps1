@@ -112,6 +112,14 @@ try {
     if ($DetoursRoot) {
         foreach ($arch in @("x64", "x86")) {
             Set-MsvcEnvironment $arch
+            $processor = if ($arch -eq "x86") { "X86" } else { "X64" }
+            Push-Location (Join-Path $DetoursRoot "src")
+            try {
+                nmake /nologo "DETOURS_TARGET_PROCESSOR=$processor"
+                if ($LASTEXITCODE -ne 0) { throw "Detours NMake build failed for $arch" }
+            } finally {
+                Pop-Location
+            }
             Invoke-Logged "detours-$arch" {
                 & ./verify/windows/run_detours_integration.ps1 -DetoursRoot $DetoursRoot -Architecture $arch -Configuration Release
                 if ($LASTEXITCODE -ne 0) { throw "Detours integration failed: $arch" }
@@ -133,10 +141,12 @@ try {
             if (-not (Test-Path $runtime)) { throw "ASan runtime missing: $runtime" }
             $target = Join-Path $root "build-final-native-hook-fuzz/verify/fuzz/tessera_fuzz_native_hook.exe"
             Copy-Item $runtime (Split-Path $target -Parent) -Force
-            $corpus = Join-Path $root "verify/fuzz/corpus/native_hook"
             $artifact = Join-Path $root "artifacts/final-validation/native-hook-fuzz"
-            New-Item -ItemType Directory -Force -Path $artifact | Out-Null
-            & $target $corpus "-max_total_time=$FuzzSeconds" "-timeout=10" "-max_len=96" "-rss_limit_mb=4096" "-seed=20261119" "-print_final_stats=1" "-artifact_prefix=$artifact/"
+            $corpus = Join-Path $artifact "corpus"
+            $crashes = Join-Path $artifact "crashes"
+            New-Item -ItemType Directory -Force -Path $corpus, $crashes | Out-Null
+            Copy-Item (Join-Path $root "verify/fuzz/corpus/native_hook/*") $corpus -Recurse -Force
+            & $target $corpus "-max_total_time=$FuzzSeconds" "-timeout=10" "-max_len=96" "-rss_limit_mb=4096" "-seed=20261119" "-print_final_stats=1" "-artifact_prefix=$crashes/"
             if ($LASTEXITCODE -ne 0) { throw "libFuzzer failed: $LASTEXITCODE" }
         }
     } else {
