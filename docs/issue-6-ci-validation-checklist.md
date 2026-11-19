@@ -138,6 +138,21 @@ only; scheduled runs are disabled). Inspect every job and do not publish a relea
   uncertain rollback remains fail-fast. Deterministic `FakePatchWriteOps`
   tests cover protection failure, flush rollback, fatal rollback, and success.
 
+## Continuation checkpoint — 2026-11-19
+
+- [x] Refreshed repository, branch, PR #7, and Issue #6 state.
+- [x] Reviewed the PR diff and the native backend / HookCore ownership,
+  unwind-registration, detach-retry, and lease-boundary paths at source level.
+      This is a static review, not Windows runtime proof; the independent final
+      failure-path audit remains open.
+- [x] Restricted SDK bundle assembly and release publication to an actual
+  `push` of a `v*` tag. Manual validation runs must skip this job.
+- [x] Preserved a separate, explicit checklist for Windows x86/x64, fuzz,
+  Detours, `/GR-`, `/analyze`, SDK package, host-unload, and failure-path
+  acceptance.
+- [ ] Do not merge or close Issue #6 until the remaining checklist sections
+      have exact-current-head evidence or a documented technical resolution.
+
 ## Current execution state
 
 - Actions audit snapshot (2026-11-19): the previously inspected PR head
