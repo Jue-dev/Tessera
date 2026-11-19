@@ -140,6 +140,16 @@ only; scheduled runs are disabled). Inspect every job and do not publish a relea
 
 ## Current execution state
 
+- Actions audit snapshot (2026-11-19): the previously inspected PR head
+  `a7a83f8485a4da27c83b49627554467ad9eedf93` had no workflow runs or status
+  contexts attached to that exact SHA. Older PR-triggered runs were skipped or
+  failed on earlier SHAs and are not evidence for the current head.
+- The CI workflow's `publish-sdk-bundle` job is now guarded by both
+  `github.event_name == 'push'` and a `refs/tags/v*` ref. Manual dispatches,
+  including dispatches against a tag, must not assemble or publish release
+  artifacts. Keep the release gate tag-push-only.
+
+
 - Real shared-library fixture and DLL unload-order test are now part of the
   Windows test executable; the x86 export fallback and DLL basename checks
   were source-reviewed. This test is added, not yet runtime-validated.
