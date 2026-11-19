@@ -220,6 +220,10 @@ TEST_CASE("Deep validation: MSVC ABI preserves branching virtual-base flags in x
             }
         }
 
+        // Give the fake address space a following region so a final unmapped gap
+        // inside SizeOfImage is reported as MEM_FREE, as VirtualQueryEx would.
+        backend->map_uncommitted(Address{image_base.value() + image->size_of_image()}, 0x1000);
+
         Process process = FakeMemoryBackend::make_process(backend, architecture);
         const AddressRange range{image_base, image->size_of_image()};
         const auto loaded_image = PeImage::from_memory(process, image_base);
