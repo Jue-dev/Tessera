@@ -210,7 +210,7 @@ HookCore::HookCore(HookCore&& other) noexcept
     : target_(other.target_),
       target_ptr_(std::exchange(other.target_ptr_, nullptr)),
       detour_ptr_(std::exchange(other.detour_ptr_, nullptr)),
-      active_callable_(std::exchange(other.active_callable_, nullptr)),
+      active_callable_(other.active_callable_.exchange(nullptr, std::memory_order_acq_rel)),
       token_(other.token_),
       backend_(other.backend_),
       installed_(other.installed_.exchange(false, std::memory_order_acq_rel)) {
@@ -233,7 +233,7 @@ HookCore& HookCore::operator=(HookCore&& other) noexcept {
         target_ = other.target_;
         target_ptr_ = std::exchange(other.target_ptr_, nullptr);
         detour_ptr_ = std::exchange(other.detour_ptr_, nullptr);
-        active_callable_ = std::exchange(other.active_callable_, nullptr);
+        active_callable_.store(other.active_callable_.exchange(nullptr, std::memory_order_acq_rel), std::memory_order_release);
         token_ = other.token_;
         backend_ = other.backend_;
         installed_.store(other.installed_.exchange(false, std::memory_order_acq_rel),
@@ -361,7 +361,7 @@ Status HookCore::install(const HookOptions& options) noexcept {
     }
 
     token_ = *attach_result;
-    active_callable_ = token_.trampoline != nullptr ? token_.trampoline : target_ptr_;
+    active_callable_.store(token_.trampoline != nullptr ? token_.trampoline : target_ptr_, std::memory_order_release);
     installed_.store(true, std::memory_order_release);
     return ok();
 }
@@ -395,7 +395,7 @@ Status HookCore::remove() noexcept {
         return detach_result;
     }
 
-    active_callable_ = target_ptr_;
+    active_callable_.store(target_ptr_, std::memory_order_release);
     installed_.store(false, std::memory_order_release);
     token_ = HookToken{};
     return ok();
@@ -408,7 +408,7 @@ void* HookCore::release() noexcept {
         return nullptr;
     }
     std::unique_lock lock(lifecycle_mutex_);
-    void* const current_fn = active_callable_;
+    void* const current_fn = active_callable_.load(std::memory_order_acquire);
     installed_.store(false, std::memory_order_release);
     token_ = HookToken{};
     return current_fn;
