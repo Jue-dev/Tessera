@@ -64,3 +64,8 @@ The runner does not publish GitHub checks, commit statuses, releases, PR comment
 - [ ] Do not treat portable Linux results as Windows/MSVC validation.
 
 The final runtime/Colab checklist must be completed in a real Colab session; it is not asserted as passed by a notebook file commit.
+
+
+## Startup self-test
+
+Before opening the interface, the engine runs a small deterministic smoke test in a temporary directory. It checks Linux shell execution, passing a value through `GITHUB_ENV`, simple matrix expansion, and the Windows platform block. The notebook also compiles the downloaded engine with Python's `py_compile`. These are local engine checks, not a full Colab integration test or a Windows-native Tessera test.
