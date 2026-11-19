@@ -84,8 +84,8 @@ Relevant regression tests (exact names):
 - [ ] Corpus/crash artifact uploads successfully; inspect the artifact and
   retain any new reproducer as a checked-in regression seed.
 
-Run `.github/workflows/native-hook-fuzz.yml` manually with
-`campaign_seconds=300` after Actions allowance is available. The acceptance
+Run `.github/workflows/issue-6-acceptance.yml` manually with
+`run_sustained_fuzz=true` and `campaign_seconds=300` after Actions allowance is available. The acceptance
 workflow's PR-ready event intentionally skips the sustained campaign to avoid
 starting a second long job automatically.
 Expected evidence: successful “Run bounded coverage-guided campaign” and
@@ -100,8 +100,8 @@ Expected evidence: successful “Run bounded coverage-guided campaign” and
 - [ ] MSVC `/analyze` build and CTest pass.
 - [ ] No unintended release/publish job is started from this branch.
 
-Workflow: `.github/workflows/ci.yml` (main-push or manual only; automatic
-weekly runs are disabled). Inspect every job and do not publish a release.
+Workflow: `.github/workflows/ci.yml` (source-path-filtered main push or manual
+only; scheduled runs are disabled). Inspect every job and do not publish a release.
 
 ## E. Host-lifecycle acceptance — review/test before closing Issue #6
 
@@ -158,10 +158,11 @@ weekly runs are disabled). Inspect every job and do not publish a release.
   allowance is exhausted. Do not infer success from queued, skipped, cancelled,
   or runner-less workflow records.
 
-After Actions allowance is restored, mark the PR ready once on the final branch
-head to run the four-way Windows matrix. Then manually dispatch the focused fuzz
-workflow with a five-minute campaign. Do not push intermediate commits while
-the PR is marked ready; new commits do not automatically start another run.
+After Actions allowance is restored, dispatch the single
+`issue-6-acceptance.yml` workflow against the final PR branch/head. Run it once
+with sustained fuzz disabled to validate the matrix; run it once more only if the
+five-minute sanitizer campaign is still required. The workflow is manual-only,
+so commits do not start or cancel jobs. Avoid duplicate dispatches.
 Current PR head and checklist progress must be refreshed when Actions becomes
 available. Keep Issue #6 open until sections A–F have evidence or a remaining
 item is explicitly resolved with a documented technical justification.
