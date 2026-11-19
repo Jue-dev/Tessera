@@ -171,21 +171,27 @@ original_function = nullptr;
   also cannot determine whether application code is inside a detour callback
   that may call the trampoline later.
   Calls made through `Hook::operator()` hold an internal shared call lease.
-  `Hook::acquire()` also exposes an explicit, non-copyable scoped lease for
-  multi-step call paths:
+  `Hook::acquire()` also exposes an explicit, non-copyable, thread-affine
+  scoped lease for multi-step call paths:
   ```cpp
   {
       auto callable = hook->acquire();
-      const Fn original = callable.get();
-      const int result = original(42); // The lease remains held through the call.
-  }
+      const Fn original = callable.get(); // Target before install; trampoline while installed.
+      const Fn entry = callable.target(); // Calls through the patched entry and enters the detour.
+      const int result = entry(42);       // The lease spans callback and any trampoline call.
+  } // Destroy on the acquiring thread, before destroying or moving the Hook.
   ```
+  Use `get()` when the caller wants the current original/trampoline callable;
+  use `target()` when the caller must enter through the patched target and
+  therefore run the detour. The shared lease remains held for the entire scope,
+  including calls made by the detour through a saved original/trampoline pointer.
   `remove()`, `install()`, and `release()` wait for these leases to finish.
   Attempting `install()` or `remove()` from inside that same hook's leased
   invocation returns a conflict; `release()` returns null and leaves ownership
   unchanged rather than self-deadlocking. A scoped lease cannot track a pointer
-  that escapes its scope, direct calls to the patched target, or copied raw
-  function pointers.
+  that escapes its scope or calls made without acquiring a lease first. The
+  `Hook` must outlive its lease, and the lease must be destroyed on the thread
+  that acquired it because its nesting frame is thread-local.
   `original()` remains a non-owning raw function pointer and does not acquire
   a lifetime lease. The application must stop new target calls, wait for every
   in-flight detour callback and every raw trampoline call to finish, and only
