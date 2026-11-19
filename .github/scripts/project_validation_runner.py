@@ -2,13 +2,18 @@
 """Execute a schema-v1 project validation profile in a checked-out target."""
 import json, os, pathlib, shutil, subprocess, sys, time
 
-profile_path = pathlib.Path(os.environ["PROFILE_SOURCE"]) / os.environ["PROFILE"]
-target = pathlib.Path(os.environ["TARGET"])
+profile_root = pathlib.Path(os.environ["PROFILE_SOURCE"]).resolve()
+profile_path = (profile_root / os.environ["PROFILE"]).resolve()
+if profile_root not in profile_path.parents: raise SystemExit("Profile path must stay within repository")
+target = pathlib.Path(os.environ["TARGET"]).resolve()
 report_path = pathlib.Path("PROJECT_VALIDATION_REPORT.txt")
 cfg = json.loads(profile_path.read_text(encoding="utf-8"))
 setup = cfg.get("setup", [])
 tests = cfg.get("tests", [])
 timeout = int(cfg.get("test_timeout", 900))
+if not 1 <= timeout <= 7200: raise SystemExit("test_timeout must be between 1 and 7200 seconds")
+if cfg.get("schema_version") != 1: raise SystemExit("Unsupported profile schema")
+if not isinstance(setup, list) or not isinstance(tests, list): raise SystemExit("Profile setup/tests must be arrays")
 continue_on_error = bool(cfg.get("continue_on_error", True))
 lines = [
     "PROJECT VALIDATION REPORT",
@@ -29,9 +34,7 @@ def run(name, command, needs=""):
     print(f"::group::{name}")
     started = time.time()
     try:
-        result = subprocess.run(command, shell=True, cwd=target, text=True,
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                timeout=timeout)
+        env = os.environ.copy()\n        for key in list(env):\n            if any(marker in key.upper() for marker in ("TOKEN", "PASSWORD", "SECRET", "CREDENTIAL", "AUTH")):\n                env.pop(key, None)\n        result = subprocess.run(command, shell=True, cwd=target, env=env, text=True,\n                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,\n                                timeout=timeout)
         output = result.stdout or ""
         status = "PASS" if result.returncode == 0 else "FAIL"
         if result.returncode == 0: passed += 1
