@@ -67,12 +67,15 @@ using NativeHookFn = int(__cdecl*)(int);
 using NativeHookFastFn = std::uintptr_t(__fastcall*)(std::uintptr_t);
 tessera::Hook<NativeHookFn>* g_recursive_lease_hook = nullptr;
 std::atomic<bool> g_remove_from_lease_rejected{false};
+std::atomic<bool> g_release_from_lease_rejected{false};
 
 int __cdecl remove_from_callable_lease_trampoline(int value) {
     const auto result = g_recursive_lease_hook->remove();
     g_remove_from_lease_rejected.store(
         !result.has_value() && result.error().code == tessera::ErrorCode::Conflict,
         std::memory_order_release);
+    const NativeHookFn released = g_recursive_lease_hook->release();
+    g_release_from_lease_rejected.store(released == nullptr, std::memory_order_release);
     return value + 7;
 }
 
@@ -463,6 +466,7 @@ TEST_CASE("Hook lifecycle changes inside a leased call fail without deadlocking"
     using namespace tessera;
 
     g_remove_from_lease_rejected.store(false, std::memory_order_release);
+    g_release_from_lease_rejected.store(false, std::memory_order_release);
     MockHookBackend backend{};
     backend.trampoline = reinterpret_cast<void*>(&remove_from_callable_lease_trampoline);
     auto hook = Hook<NativeHookFn>::create(
@@ -476,6 +480,7 @@ TEST_CASE("Hook lifecycle changes inside a leased call fail without deadlocking"
 
     REQUIRE(result == 12);
     REQUIRE(g_remove_from_lease_rejected.load(std::memory_order_acquire));
+    REQUIRE(g_release_from_lease_rejected.load(std::memory_order_acquire));
     REQUIRE(hook->installed());
     REQUIRE(hook->remove().has_value());
 }
