@@ -65,6 +65,14 @@ int __cdecl blocking_trampoline_function(int value) {
 
 using NativeHookFn = int(__cdecl*)(int);
 using NativeHookFastFn = std::uintptr_t(__fastcall*)(std::uintptr_t);
+tessera::Hook<NativeHookFn>* g_recursive_lease_hook = nullptr;
+
+int __cdecl recursive_trampoline_function(int value) {
+    if (value <= 0) {
+        return 0;
+    }
+    return value + (*g_recursive_lease_hook)(value - 1);
+}
 
 struct ExecutableRegionGuard {
     void* address = nullptr;
@@ -420,6 +428,25 @@ TEST_CASE("Tessera's bounded x86/x64 decoder reports instruction and relocation 
         {0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
          0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66});
     REQUIRE_FALSE(overlong.first);
+}
+
+TEST_CASE("Hook callable leases support same-thread recursive original calls",
+          "[hook][lifecycle][threads]") {
+    using namespace tessera;
+
+    MockHookBackend backend{};
+    backend.trampoline = reinterpret_cast<void*>(&recursive_trampoline_function);
+    auto hook = Hook<NativeHookFn>::create(
+        &sample_target_function, &sample_detour_function, &backend);
+    REQUIRE(hook.has_value());
+    REQUIRE(hook->install().has_value());
+
+    g_recursive_lease_hook = &*hook;
+    const int result = (*hook)(4);
+    g_recursive_lease_hook = nullptr;
+
+    REQUIRE(result == 10);
+    REQUIRE(hook->remove().has_value());
 }
 
 TEST_CASE("Hook callable leases drain in-flight operator calls before remove",
