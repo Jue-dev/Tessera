@@ -1,4 +1,4 @@
-name: Native Hook Coverage-Guided Fuzz
+name: Native Hook Fuzz & Stress Validation
 
 on:
   push:
@@ -47,7 +47,7 @@ concurrency:
 
 jobs:
   native-hook-fuzz:
-    name: Windows ${{ matrix.arch }} Native Hook Fuzz/Stress
+    name: Windows ${{ matrix.arch }} ${{ matrix.arch == 'x64' && 'Coverage-Guided Fuzz' || 'Deterministic Stress' }}
     runs-on: windows-latest
     timeout-minutes: 25
     strategy:
@@ -128,7 +128,20 @@ jobs:
             )
           }
           & cmake @cmakeArgs
-          if ($LASTEXITCODE -ne 0) { throw "CMake configure failed for $env:FUZZ_ARCH ($LASTEXITCODE)" }
+          $configureExitCode = $LASTEXITCODE
+          if ($configureExitCode -ne 0) {
+            $diagnosticLogs = @(
+              "build-native-hook-fuzz/CMakeFiles/CMakeError.log",
+              "build-native-hook-fuzz/CMakeFiles/CMakeOutput.log"
+            )
+            foreach ($logPath in $diagnosticLogs) {
+              if (Test-Path $logPath) {
+                Write-Host "===== $logPath ====="
+                Get-Content $logPath -Tail 160
+              }
+            }
+            throw "CMake configure failed for $env:FUZZ_ARCH ($configureExitCode)"
+          }
 
       - name: Configure x86 native-hook randomized stress harness
         if: matrix.arch == 'x86'
