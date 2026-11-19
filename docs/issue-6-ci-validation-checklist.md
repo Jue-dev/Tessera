@@ -209,3 +209,16 @@ item is explicitly resolved with a documented technical justification.
 - [ ] Re-run CI on the fix commit `ad3338edd7a4cb7e0e03b9a02110b28b16fce674`; the fix is source-reviewed but not yet compiler/runtime validated.
 - [ ] Review newly exposed failures after compilation proceeds beyond this blocker.
 
+
+## Actions run #9 triage — 2026-11-19
+
+- [x] Inspected run [44547235720](https://github.com/Jue-dev/Tessera/actions/runs/44547235720) and job [135640968636](https://github.com/Jue-dev/Tessera/actions/runs/44547235720/job/135640968636). The requested **Live Microsoft Detours Hook (x86)** job passed all steps, including Detours build and live integration.
+- [x] x86 Debug and Release passed CTest and SDK staging/upload in this run.
+- [x] Identified x64 Debug/Release and x64 Detours failures: the six failures all surfaced in `tessera_test_patch_hook` x64 unwind tests (one install rejection and five virtual-unwind state mismatches). These require fixture/implementation diagnosis; they are not CI infrastructure failures.
+- [x] Identified MSVC `/analyze` blocker C6320 in `invoke_breakpoint_trampoline`: a constant `EXCEPTION_EXECUTE_HANDLER` filter could swallow unrelated exceptions.
+- [x] Corrected the `UWOP_ALLOC_LARGE (OpInfo=0)` fixture's slot layout: its 16-bit payload belongs in slot 1; `UWOP_SET_FPREG` and `UWOP_PUSH_NONVOL` now follow in slots 2 and 3.
+- [x] Narrowed the SEH filter to handle only `EXCEPTION_BREAKPOINT`; all unrelated exceptions continue searching.
+- [ ] Re-run x64 Debug/Release, x64 Detours, `/analyze`, and `/GR-` on the exact fix head. No Actions rerun was launched after these edits.
+- [ ] Investigate remaining five x64 virtual-unwind failures. They are not considered fixed by the fixture or SEH-filter edits.
+- [ ] Inspect current run #9's full source SHA and refresh this checkpoint against the PR head before any merge decision.
+
