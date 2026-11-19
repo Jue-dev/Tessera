@@ -86,9 +86,9 @@ struct TestUnwindInfo {
     UCHAR size_of_prolog = 0;
     UCHAR count_of_codes = 0;
     UCHAR frame_register_and_offset = 0;
-    TestUnwindCode unwind_code[1]{};
 };
 
+constexpr std::size_t kTestUnwindCodeOffset = sizeof(TestUnwindInfo);
 constexpr std::size_t kTestTrampolineEntryPrefixSize = 4u;
 constexpr UCHAR kTestUnwindOpAllocSmall = 2u;
 constexpr UCHAR kTestUnwindOpPushNonVol = 0u;
@@ -98,10 +98,22 @@ void set_test_unwind_code(
     TestUnwindCode code) noexcept {
     auto* const destination =
         reinterpret_cast<std::byte*>(info) +
-        offsetof(TestUnwindInfo, unwind_code) + slot * sizeof(TestUnwindCode);
+        kTestUnwindCodeOffset + slot * sizeof(TestUnwindCode);
     std::memcpy(destination, &code, sizeof(code));
 }
-static_assert(offsetof(TestUnwindInfo, unwind_code) == 4u);
+
+[[nodiscard]] TestUnwindCode get_test_unwind_code(
+    const TestUnwindInfo* info,
+    std::size_t slot) noexcept {
+    TestUnwindCode code{};
+    const auto* const source =
+        reinterpret_cast<const std::byte*>(info) +
+        kTestUnwindCodeOffset + slot * sizeof(TestUnwindCode);
+    std::memcpy(&code, source, sizeof(code));
+    return code;
+}
+
+static_assert(sizeof(TestUnwindInfo) == 4u);
 static_assert(sizeof(TestUnwindCode) == 2u);
 DWORD __cdecl invoke_breakpoint_trampoline(NativeHookFn trampoline) noexcept {
     __try {
@@ -997,7 +1009,7 @@ TEST_CASE("Native x64 trampoline maps ALLOC_LARGE and SET_FPREG together",
         {5u, static_cast<UCHAR>(kTestUnwindOpPushNonVol | (5u << 4u))}); // push rbp
     const USHORT allocation_in_eight_byte_units = 0x20u;
     std::memcpy(reinterpret_cast<std::byte*>(source_info) +
-                    offsetof(TestUnwindInfo, unwind_code) +
+                    kTestUnwindCodeOffset +
                     3u * sizeof(TestUnwindCode),
                 &allocation_in_eight_byte_units,
                 sizeof(allocation_in_eight_byte_units));
@@ -1113,8 +1125,9 @@ TEST_CASE("Native x64 trampoline restores a saved nonvolatile XMM register",
     source_info->size_of_prolog = 9u;
     source_info->count_of_codes = 3u;
     source_info->frame_register_and_offset = 0u;
-    source_info->unwind_code[0] = {
-        9u, static_cast<UCHAR>(8u | (6u << 4u))}; // UWOP_SAVE_XMM128 XMM6
+    set_test_unwind_code(
+        source_info, 0u,
+        {9u, static_cast<UCHAR>(8u | (6u << 4u))}); // UWOP_SAVE_XMM128 XMM6
     const USHORT xmm_save_offset_in_sixteen_byte_units = 1u;
     std::memcpy(reinterpret_cast<std::byte*>(source_info) +
                     offsetof(TestUnwindInfo, unwind_code) + sizeof(TestUnwindCode),
@@ -1247,8 +1260,9 @@ TEST_CASE("Native x64 trampoline remaps unwind offsets and unwinds an exception 
     source_info->count_of_codes = 1u;
     source_info->frame_register_and_offset = 0u;
     
-    source_info->unwind_code[0].code_offset = 4u;
-    source_info->unwind_code[0].operation = kTestUnwindOpAllocSmall | (4u << 4u);
+    set_test_unwind_code(
+        source_info, 0u,
+        {4u, static_cast<UCHAR>(kTestUnwindOpAllocSmall | (4u << 4u))});
     // Operation info 4 means (0x28 - 8) / 8.
 
     struct SourceFunctionTableGuard {
@@ -1297,9 +1311,11 @@ TEST_CASE("Native x64 trampoline remaps unwind offsets and unwinds an exception 
     REQUIRE((trampoline_info->version_and_flags & 0x07u) == 1u);
     REQUIRE(trampoline_info->count_of_codes == 1u);
     REQUIRE(trampoline_info->size_of_prolog == 8u);
-    REQUIRE(trampoline_info->unwind_code[0].code_offset == 8u);
-    REQUIRE((trampoline_info->unwind_code[0].operation & 0x0Fu) == kTestUnwindOpAllocSmall);
-    REQUIRE((trampoline_info->unwind_code[0].operation >> 4u) == 4u);
+    const TestUnwindCode trampoline_unwind_code =
+        get_test_unwind_code(trampoline_info, 0u);
+    REQUIRE(trampoline_unwind_code.code_offset == 8u);
+    REQUIRE((trampoline_unwind_code.operation & 0x0Fu) == kTestUnwindOpAllocSmall);
+    REQUIRE((trampoline_unwind_code.operation >> 4u) == 4u);
 
     // The OS exception dispatcher must find the generated RUNTIME_FUNCTION,
     // apply the translated ALLOC_SMALL unwind code, and reach this handler.
@@ -1358,8 +1374,9 @@ TEST_CASE("Native x64 unwind registration remains alive until an explicit callab
     source_info->count_of_codes = 1u;
     source_info->frame_register_and_offset = 0u;
     
-    source_info->unwind_code[0].code_offset = 4u;
-    source_info->unwind_code[0].operation = kTestUnwindOpAllocSmall | (4u << 4u);
+    set_test_unwind_code(
+        source_info, 0u,
+        {4u, static_cast<UCHAR>(kTestUnwindOpAllocSmall | (4u << 4u))});
     // Operation info 4 means (0x28 - 8) / 8.
 
     struct SourceFunctionTableGuard {
@@ -2112,9 +2129,9 @@ TEST_CASE("Native x64 trampoline maps UWOP_PUSH_MACHFRAME with and without error
     const DWORD64 expected_rsp = static_cast<DWORD64>(stack_begin + 384u);
 
     for (unsigned int has_error_code = 0u; has_error_code <= 1u; ++has_error_code) {
-        source_info->unwind_code[0].code_offset = 1u;
-        source_info->unwind_code[0].operation =
-            static_cast<UCHAR>(10u | (has_error_code << 4u));
+        set_test_unwind_code(
+            source_info, 0u,
+            {1u, static_cast<UCHAR>(10u | (has_error_code << 4u))});
         REQUIRE(hook->install(options).has_value());
 
         const NativeHookFn trampoline = hook->original();
@@ -2269,8 +2286,9 @@ TEST_CASE("Native x64 unwind rejects unsupported, malformed, and prefix-boundary
         unwind_info->size_of_prolog = 4u;
         unwind_info->count_of_codes = 1u;
         unwind_info->frame_register_and_offset = 0u;
-        unwind_info->unwind_code[0].code_offset = 4u;
-        unwind_info->unwind_code[0].operation = kTestUnwindOpAllocSmall | (4u << 4u);
+        set_test_unwind_code(
+            unwind_info, 0u,
+            {4u, static_cast<UCHAR>(kTestUnwindOpAllocSmall | (4u << 4u))});
     }
 
     // The fourth source has an ENDBR64 prefix followed by SUB RSP. Its invalid
@@ -2288,11 +2306,14 @@ TEST_CASE("Native x64 unwind rejects unsupported, malformed, and prefix-boundary
     auto* endbr_unwind =
         reinterpret_cast<TestUnwindInfo*>(code + unwind_offsets[3]);
     endbr_unwind->size_of_prolog = 8u;
-    endbr_unwind->unwind_code[0].code_offset = 4u;
+    set_test_unwind_code(endbr_unwind, 0u,
+                          {4u, static_cast<UCHAR>(kTestUnwindOpAllocSmall | (4u << 4u))});
 
     // Version 2 and reserved version-1 opcodes are not copied by this backend.
     reinterpret_cast<TestUnwindInfo*>(code + unwind_offsets[4])->version_and_flags = 2u;
-    reinterpret_cast<TestUnwindInfo*>(code + unwind_offsets[5])->unwind_code[0].operation = 6u;
+    set_test_unwind_code(
+        reinterpret_cast<TestUnwindInfo*>(code + unwind_offsets[5]),
+        0u, {4u, 6u});
 
     for (std::size_t index = 0; index < target_offsets.size(); ++index) {
         std::memcpy(original[index].data(), code + target_offsets[index],
@@ -2307,7 +2328,9 @@ TEST_CASE("Native x64 unwind rejects unsupported, malformed, and prefix-boundary
         static_cast<UCHAR>(1u | (4u << 3u));
     // A valid v1 record whose CodeOffset lands inside the four-byte SUB
     // instruction, not at its end, must also fail closed.
-    reinterpret_cast<TestUnwindInfo*>(code + unwind_offsets[2])->unwind_code[0].code_offset = 2u;
+    set_test_unwind_code(
+        reinterpret_cast<TestUnwindInfo*>(code + unwind_offsets[2]),
+        0u, {2u, static_cast<UCHAR>(kTestUnwindOpAllocSmall | (4u << 4u))});
 
     struct SourceFunctionTableGuard {
         std::array<RUNTIME_FUNCTION, 6> entries{};
