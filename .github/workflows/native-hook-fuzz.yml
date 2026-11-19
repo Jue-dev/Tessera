@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       campaign_seconds:
-        description: "x64 coverage-guided fuzz campaign duration."
+        description: "x86 and x64 coverage-guided fuzz campaign duration."
         required: true
         type: choice
         default: "300"
@@ -181,8 +181,8 @@ jobs:
           path: artifacts/native-hook-fuzz/x64/
           if-no-files-found: warn
 
-  native-hook-stress-x86:
-    name: Windows x86 Deterministic Native Hook Stress
+  native-hook-fuzz-x86:
+    name: Windows x86 Coverage-Guided Native Hook Fuzz
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
@@ -191,100 +191,177 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install LLVM 22 for C++23 and libFuzzer
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "22.1.8"
+          force-url: https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-win64.exe
+          directory: \${{ runner.temp }}/llvm22
+
       - name: Setup MSVC Developer Environment (x86)
         uses: ./.github/actions/setup-msvc
         with:
           arch: x86
 
-      - name: Verify 32-bit MSVC toolchain
+      - name: Verify Clang x86 toolchain and sanitizer runtimes
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           if ($env:VSCMD_ARG_TGT_ARCH -ne "x86") {
             throw "Expected x86 MSVC target environment, got '$env:VSCMD_ARG_TGT_ARCH'."
           }
-          $probeSource = Join-Path $env:RUNNER_TEMP "tessera_x86_toolchain_probe.cpp"
-          $probeObject = Join-Path $env:RUNNER_TEMP "tessera_x86_toolchain_probe.obj"
-          @'
-          #include <expected>
-          #include <functional>
-          #include <bit>
-          static_assert(sizeof(void*) == 4, "x86 target required");
-          int main() {
-            std::expected<int, int> value = 42;
-            std::move_only_function<int()> fn = [] { return 42; };
-            return value.value() == fn() && std::byteswap(0x01020304u) == 0x04030201u ? 0 : 1;
-          }
-          '@ | Set-Content -Path $probeSource -Encoding ascii
-          cl /nologo /std:c++latest /Zc:__cplusplus /EHsc /c $probeSource /Fo$probeObject
-          if ($LASTEXITCODE -ne 0) { throw "MSVC x86 C++23 toolchain probe failed ($LASTEXITCODE)" }
-          if (-not (Test-Path $probeObject)) { throw "MSVC x86 probe did not produce an object file." }
-          $objectBytes = [System.IO.File]::ReadAllBytes($probeObject)
-          $machine = [BitConverter]::ToUInt16($objectBytes, 0)
-          if ($machine -ne 0x014c) { throw ("Expected I386 COFF object 0x014c, got 0x{0:X4}" -f $machine) }
-          Write-Host "Verified x86 MSVC compiler, C++23 library features, and I386 COFF output."
 
-      - name: Configure x86 native-hook stress harness
+          $clang = Get-Command clang-cl -ErrorAction Stop
+          Write-Host "Using clang-cl: $($clang.Source)"
+          clang-cl --version
+          if ($LASTEXITCODE -ne 0) { throw "clang-cl version check failed ($LASTEXITCODE)" }
+          clang-cl "--target=i686-pc-windows-msvc" -v
+          if ($LASTEXITCODE -ne 0) { throw "clang-cl x86 target check failed ($LASTEXITCODE)" }
+
+          $resource = (clang-cl -print-resource-dir).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $resource) { throw "Unable to locate Clang resource directory." }
+          $runtimeDir = Join-Path $resource "lib/windows"
+          $required = @(
+            "clang_rt.fuzzer-i386.lib",
+            "clang_rt.asan_dynamic-i386.lib",
+            "clang_rt.asan_static_runtime_thunk-i386.lib",
+            "clang_rt.asan_dynamic-i386.dll"
+          )
+          foreach ($name in $required) {
+            $path = Join-Path $runtimeDir $name
+            if (-not (Test-Path $path)) { throw "Missing required x86 Clang runtime: $path" }
+            Write-Host "Found: $name"
+          }
+
+      - name: Configure instrumented native-hook fuzzer (x86)
         shell: pwsh
         run: |
-          cmake -S . -B build-native-hook-fuzz -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DCMAKE_CXX_STANDARD=23 -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_FUZZ=ON -DTESSERA_STATIC_RUNTIME=ON -DTESSERA_ENABLE_LIBFUZZER=OFF
-          if ($LASTEXITCODE -ne 0) { throw "x86 stress harness configure failed ($LASTEXITCODE)" }
+          $ErrorActionPreference = "Stop"
+          $cmakeArgs = @(
+            "-S", ".", "-B", "build-native-hook-fuzz", "-G", "Ninja",
+            "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
+            "-DCMAKE_C_COMPILER=clang-cl",
+            "-DCMAKE_CXX_COMPILER=clang-cl",
+            "-DCMAKE_C_COMPILER_TARGET=i686-pc-windows-msvc",
+            "-DCMAKE_CXX_COMPILER_TARGET=i686-pc-windows-msvc",
+            "-DCMAKE_CXX_STANDARD=23",
+            "-DTESSERA_BUILD_TESTS=OFF",
+            "-DTESSERA_BUILD_EXAMPLES=OFF",
+            "-DTESSERA_BUILD_FUZZ=ON",
+            "-DTESSERA_STATIC_RUNTIME=ON",
+            "-DTESSERA_ENABLE_LIBFUZZER=ON"
+          )
+          & cmake @cmakeArgs
+          $configureExitCode = $LASTEXITCODE
+          if ($configureExitCode -ne 0) {
+            $diagnosticLogs = @(
+              "build-native-hook-fuzz/CMakeFiles/CMakeConfigureLog.yaml",
+              "build-native-hook-fuzz/CMakeFiles/CMakeError.log",
+              "build-native-hook-fuzz/CMakeFiles/CMakeOutput.log"
+            )
+            foreach ($logPath in $diagnosticLogs) {
+              if (Test-Path $logPath) {
+                Write-Host "===== $logPath ====="
+                Get-Content $logPath -Tail 240
+              }
+            }
+            throw "CMake configure failed for x86 ($configureExitCode)"
+          }
 
-      - name: Build x86 randomized native-hook stress harness
+      - name: Build instrumented native-hook fuzzer (x86)
         shell: pwsh
         run: |
           cmake --build build-native-hook-fuzz --target tessera_fuzz_native_hook --parallel
-          if ($LASTEXITCODE -ne 0) { throw "x86 native-hook stress build failed ($LASTEXITCODE)" }
+          if ($LASTEXITCODE -ne 0) { throw "x86 native-hook fuzzer build failed ($LASTEXITCODE)" }
 
-      - name: Verify x86 stress executable architecture
+      - name: Verify x86 fuzzer executable architecture
         shell: pwsh
         run: |
           $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz/verify/fuzz/tessera_fuzz_native_hook.exe"
-          if (-not (Test-Path $target)) { throw "Missing x86 stress executable: $target" }
+          if (-not (Test-Path $target)) { throw "Missing x86 fuzzer executable: $target" }
           $bytes = [System.IO.File]::ReadAllBytes($target)
-          if ($bytes.Length -lt 64) { throw "Stress executable is too small to be a valid PE image." }
+          if ($bytes.Length -lt 64) { throw "Fuzzer executable is too small to be a valid PE image." }
           $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
           if ($peOffset -lt 64 -or ($peOffset + 6) -gt $bytes.Length) { throw "Invalid PE header offset: $peOffset" }
           $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
           if ($machine -ne 0x014c) { throw ("Expected I386 PE machine 0x014c, got 0x{0:X4}" -f $machine) }
           Write-Host "Verified executable architecture: I386 (PE 0x014c)."
 
-      - name: Run x86 deterministic native-hook stress corpus
+      - name: Run x86 coverage-guided ASan/UBSan campaign
         shell: pwsh
+        env:
+          CAMPAIGN_SECONDS: \${{ inputs.campaign_seconds || '300' }}
         run: |
           $ErrorActionPreference = "Stop"
-          $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz/verify/fuzz/tessera_fuzz_native_hook.exe"
+          $seedSource = Join-Path $env:GITHUB_WORKSPACE "verify/fuzz/corpus/native_hook"
           $artifactRoot = Join-Path $env:GITHUB_WORKSPACE "artifacts/native-hook-fuzz/x86"
-          New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
-          if (-not (Test-Path $target)) { throw "Missing x86 native-hook stress target: $target" }
+          $corpus = Join-Path $artifactRoot "corpus"
+          $crashes = Join-Path $artifactRoot "crashes"
+          New-Item -ItemType Directory -Path $corpus -Force | Out-Null
+          New-Item -ItemType Directory -Path $crashes -Force | Out-Null
+          $seedFiles = @(Get-ChildItem -Path $seedSource -File)
+          if ($seedFiles.Count -eq 0) { throw "The x86 native-hook seed corpus is empty." }
+          Copy-Item -Path (Join-Path $seedSource "*") -Destination $corpus -Recurse -Force
 
-          & $target 2>&1 | Tee-Object -FilePath (Join-Path $artifactRoot "stress.log")
-          $stressExitCode = $LASTEXITCODE
-          if ($stressExitCode -ne 0) { throw "x86 native-hook stress executable failed ($stressExitCode)" }
+          if ($env:CAMPAIGN_SECONDS -notin @("300", "600", "900")) {
+            throw "Unsupported fuzz duration: $env:CAMPAIGN_SECONDS"
+          }
+          $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz/verify/fuzz/tessera_fuzz_native_hook.exe"
+          if (-not (Test-Path $target)) { throw "Missing x86 native-hook fuzzer: $target" }
 
-          $stressLog = Get-Content (Join-Path $artifactRoot "stress.log") -Raw
-          $summary = [regex]::Match(
-            $stressLog,
-            "(?m)^native-hook-stress-summary: inputs=65546 successful_lifecycles=(\d+) elapsed_ms=(\d+) inputs_per_second=(\d+)\r?$"
+          $resource = (clang-cl -print-resource-dir).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $resource) { throw "Unable to locate Clang resource directory." }
+          $asanDll = Join-Path $resource "lib/windows/clang_rt.asan_dynamic-i386.dll"
+          if (-not (Test-Path $asanDll)) { throw "Missing x86 ASan runtime DLL: $asanDll" }
+          Copy-Item $asanDll (Split-Path $target -Parent) -Force
+
+          $stdoutPath = Join-Path $artifactRoot "campaign.stdout.log"
+          $stderrPath = Join-Path $artifactRoot "campaign.stderr.log"
+          $campaignLog = Join-Path $artifactRoot "campaign.log"
+          $arguments = @(
+            $corpus,
+            "-max_total_time=$env:CAMPAIGN_SECONDS",
+            "-timeout=10",
+            "-max_len=96",
+            "-rss_limit_mb=1024",
+            "-seed=20261119",
+            "-print_final_stats=1",
+            "-artifact_prefix=$crashes/"
           )
-          if (-not $summary.Success) {
-            throw "x86 stress corpus did not report all 65,546 inputs, elapsed time, and throughput."
-          }
-          $successfulLifecycles = [UInt64]$summary.Groups[1].Value
-          $elapsedMilliseconds = [UInt64]$summary.Groups[2].Value
-          $inputsPerSecond = [UInt64]$summary.Groups[3].Value
-          if ($successfulLifecycles -lt 52437) {
-            throw "x86 stress corpus completed too few real attach/detach lifecycles: $successfulLifecycles / 65,546 (minimum 52,437)."
-          }
-          if ($elapsedMilliseconds -eq 0 -or $inputsPerSecond -eq 0) {
-            throw "x86 stress timing/throughput metrics are invalid."
-          }
-          Write-Host "x86 stress verified: 65,546 inputs; $successfulLifecycles successful lifecycles; ${elapsedMilliseconds}ms; $inputsPerSecond inputs/second."
 
-      - name: Upload x86 stress logs and artifacts
+          # libFuzzer writes INFO/progress records to stderr. Capture the native
+          # streams as files so GitHub Actions does not mislabel normal INFO
+          # output as red PowerShell errors.
+          $process = Start-Process -FilePath $target -ArgumentList $arguments -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+          if ($process.ExitCode -ne 0) { throw "x86 coverage-guided fuzzing failed ($($process.ExitCode))" }
+
+          $stdout = if (Test-Path $stdoutPath) { [System.IO.File]::ReadAllText($stdoutPath) } else { "" }
+          $stderr = if (Test-Path $stderrPath) { [System.IO.File]::ReadAllText($stderrPath) } else { "" }
+          [System.IO.File]::WriteAllText($campaignLog, $stdout + [Environment]::NewLine + $stderr)
+
+          $campaignText = Get-Content $campaignLog -Raw
+          $summary = [regex]::Match($campaignText, "(?m)^Done\s+([0-9,]+)\s+runs\s+in\s+([0-9]+)\s+second")
+          if (-not $summary.Success) {
+            throw "x86 libFuzzer did not report its completed run count and elapsed time."
+          }
+          $executedRuns = [UInt64](($summary.Groups[1].Value -replace ",", ""))
+          $elapsedSeconds = [UInt32]$summary.Groups[2].Value
+          $minimumDuration = [Math]::Max(1, [Int32]$env:CAMPAIGN_SECONDS - 5)
+          if ($executedRuns -lt 100000 -or $elapsedSeconds -lt $minimumDuration) {
+            throw "x86 fuzz campaign was too short or processed too few inputs: runs=$executedRuns, seconds=$elapsedSeconds."
+          }
+          if ($campaignText -notmatch "stat::number_of_executed_units:\s*[1-9][0-9]*") {
+            throw "x86 libFuzzer did not report executed input units."
+          }
+
+          Write-Host "x86 libFuzzer summary: $executedRuns executions in $elapsedSeconds seconds."
+          Get-Content $campaignLog -Tail 40 | ForEach-Object { Write-Host $_ }
+          Write-Host "Full x86 campaign log: $campaignLog"
+
+      - name: Upload x86 fuzz corpus and crash artifacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: native-hook-stress-x86-${{ github.run_number }}
+          name: native-hook-libfuzzer-x86-\${{ github.run_number }}
           path: artifacts/native-hook-fuzz/x86/
           if-no-files-found: warn
