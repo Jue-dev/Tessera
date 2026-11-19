@@ -2,10 +2,12 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string_view>
 #include <vector>
 
 #include "tessera/core/result.hpp"
+#include "tessera/core/checked_math.hpp
 #include "tessera/core/types.hpp"
 #include "tessera/memory/memory_reader.hpp"
 #include "tessera/memory/memory_writer.hpp"
@@ -18,7 +20,7 @@ namespace tessera::rtti {
 class ObjectView {
 public:
     ObjectView(const Process& process, Address base_address, reflection::TypeInfo type_info) noexcept
-        : process_(&process), base_(base_address), type_(std::move(type_info)) {}
+        : process_(process), base_(base_address), type_(std::move(type_info)) {}
 
     [[nodiscard]] Address address() const noexcept { return base_; }
     [[nodiscard]] const reflection::TypeInfo& type() const noexcept { return type_; }
@@ -27,6 +29,14 @@ public:
         const auto* f = type_.find_field(field_name);
         if (f == nullptr) {
             return fail(ErrorCode::NotFound, "ObjectView::field_address", 0, "Field not found in TypeInfo");
+        }
+        if (!field_in_bounds(*f)) {
+            return fail(ErrorCode::OutOfRange, "ObjectView::field_address", 0,
+                        "Reflected field lies outside the object size");
+        }
+        if (f->offset > static_cast<std::size_t>((std::numeric_limits<std::int64_t>::max)())) {
+            return fail(ErrorCode::OutOfRange, "ObjectView::field_address", 0,
+                        "Field offset cannot be represented as a signed address delta");
         }
         return base_.offset(static_cast<std::int64_t>(f->offset));
     }
@@ -37,17 +47,29 @@ public:
         if (f == nullptr) {
             return fail(ErrorCode::NotFound, "ObjectView::read_field", 0, "Field not found in TypeInfo");
         }
-        if (sizeof(T) > f->size && f->size != 0) {
+        if (!field_in_bounds(*f) || sizeof(T) > f->size) {
             return fail(ErrorCode::InvalidArgument,
                         "ObjectView::read_field",
                         0,
                         "Requested type size exceeds reflected field size");
         }
+        if (f->offset > static_cast<std::size_t>((std::numeric_limits<std::int64_t>::max)())) {
+            return fail(ErrorCode::OutOfRange, "ObjectView::read_field", 0,
+                        "Field offset cannot be represented as a signed address delta");
+        }
+        if (f->offset > static_cast<std::size_t>((std::numeric_limits<std::int64_t>::max)())) {
+            return fail(ErrorCode::OutOfRange, "ObjectView::write_field", 0,
+                        "Field offset cannot be represented as a signed address delta");
+        }
+        if (f->offset > static_cast<std::size_t>((std::numeric_limits<std::int64_t>::max)())) {
+            return fail(ErrorCode::OutOfRange, "ObjectView::read_bitfield", 0,
+                        "Field offset cannot be represented as a signed address delta");
+        }
         auto addr = base_.offset(static_cast<std::int64_t>(f->offset));
         if (!addr) {
             return std::unexpected(addr.error());
         }
-        MemoryReader reader{*process_};
+        MemoryReader reader{process_};
         return reader.read<T>(*addr);
     }
 
@@ -57,7 +79,7 @@ public:
         if (f == nullptr) {
             return fail(ErrorCode::NotFound, "ObjectView::write_field", 0, "Field not found in TypeInfo");
         }
-        if (sizeof(T) > f->size && f->size != 0) {
+        if (!field_in_bounds(*f) || sizeof(T) > f->size) {
             return fail(ErrorCode::InvalidArgument,
                         "ObjectView::write_field",
                         0,
@@ -67,14 +89,17 @@ public:
         if (!addr) {
             return std::unexpected(addr.error());
         }
-        MemoryWriter writer{*process_};
+        MemoryWriter writer{process_};
         return writer.write_value<T>(*addr, value);
     }
 
     [[nodiscard]] Result<std::uint64_t> read_bitfield(std::string_view field_name) const noexcept {
         const auto* f = type_.find_field(field_name);
         if (f == nullptr || !has_flag(f->flags, reflection::FieldFlags::Bitfield) ||
-            f->bit_width == 0 || f->bit_width > 64) {
+            f->bit_width == 0 || f->bit_width > 64 ||
+            (f->size != 1 && f->size != 2 && f->size != 4 && f->size != 8) ||
+            f->bit_offset >= f->size * 8 || f->bit_width > f->size * 8 - f->bit_offset ||
+            !field_in_bounds(*f)) {
             return fail(ErrorCode::InvalidArgument, "ObjectView::read_bitfield");
         }
         auto addr = base_.offset(static_cast<std::int64_t>(f->offset));
@@ -127,7 +152,13 @@ public:
             sub_addr = *a;
         } else {
             // MSVC virtual base PMD resolution: *(*(int32_t**)((char*)this + pdisp) + vdisp) + mdisp
-            MemoryReader reader{*process_};
+            MemoryReader reader{process_};
+            if (b->pdisp < 0 || b->vdisp < 0) {
+                return fail(ErrorCode::InvalidArgument,
+                            "ObjectView::base_subobject",
+                            0,
+                            "Virtual-base PMD is missing a valid vbptr or vbtable offset");
+            }
             auto vbptr_loc = base_.offset(b->pdisp);
             if (!vbptr_loc) return std::unexpected(vbptr_loc.error());
             auto vbtable_addr = reader.read_pointer(*vbptr_loc);
@@ -136,11 +167,15 @@ public:
             if (!vdisp_loc) return std::unexpected(vdisp_loc.error());
             auto vbase_delta = reader.read<std::int32_t>(*vdisp_loc);
             if (!vbase_delta) return std::unexpected(vbase_delta.error());
-            auto final_addr = vbptr_loc->offset(static_cast<std::int64_t>(*vbase_delta) + b->mdisp);
+            // MSVC PMD resolution is this + mdisp + *(vbtable + vdisp).
+            // pdisp locates the vbptr but is not part of the final base offset.
+            const std::int64_t final_delta =
+                static_cast<std::int64_t>(*vbase_delta) + static_cast<std::int64_t>(b->mdisp);
+            auto final_addr = base_.offset(final_delta);
             if (!final_addr) return std::unexpected(final_addr.error());
             sub_addr = *final_addr;
         }
-        return ObjectView{*process_, sub_addr, std::move(*base_type_res)};
+        return ObjectView{process_, sub_addr, std::move(*base_type_res)};
     }
 
     // Resolves either a virtual method (by reading the live vptr + vtable_index) or a non-virtual/Python method.
@@ -156,8 +191,14 @@ public:
             if (!vptr || vptr->is_null()) {
                 return fail(ErrorCode::NullAddress, "ObjectView::resolve_method", 0, "Null vptr");
             }
-            const std::size_t slot_off = (*m->vtable_index) * process_->pointer_size();
-            auto slot_addr = vptr->offset(static_cast<std::int64_t>(slot_off));
+            auto slot_off = checked_mul<std::size_t>(*m->vtable_index,
+                                                    process_.pointer_size());
+            if (!slot_off ||
+                *slot_off > static_cast<std::size_t>((std::numeric_limits<std::int64_t>::max)())) {
+                return fail(ErrorCode::OutOfRange, "ObjectView::resolve_method", 0,
+                            "Vtable slot offset overflowed");
+            }
+            auto slot_addr = vptr->offset(static_cast<std::int64_t>(*slot_off));
             if (!slot_addr) {
                 return std::unexpected(slot_addr.error());
             }
@@ -173,7 +214,12 @@ public:
     }
 
 private:
-    const Process* process_ = nullptr;
+    [[nodiscard]] bool field_in_bounds(const reflection::FieldInfo& field) const noexcept {
+        return type_.size != 0 && field.size != 0 &&
+               field.offset <= type_.size && field.size <= type_.size - field.offset;
+    }
+
+    Process process_;
     Address base_{};
     reflection::TypeInfo type_{};
 };
