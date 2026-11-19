@@ -1838,14 +1838,12 @@ TEST_CASE("Native x64 trampoline maps far UWOP_SAVE_NONVOL and UWOP_ALLOC_LARGE"
     std::memset(code, 0x90, 4096);
 
     constexpr std::size_t target_offset = 64u;
-    constexpr std::uint32_t stack_allocation = 0x80008u;
+    constexpr std::uint32_t stack_allocation = 0x28u;
     constexpr std::uint32_t save_offset = 0x80000u;
-    const std::array<std::byte, 15> prologue{
-        std::byte{0x48}, std::byte{0x81}, std::byte{0xEC},
-        std::byte{0x08}, std::byte{0x00}, std::byte{0x08}, std::byte{0x00},
-        std::byte{0x48}, std::byte{0x89}, std::byte{0xB4},
-        std::byte{0x24}, std::byte{0x00}, std::byte{0x00},
-        std::byte{0x08}, std::byte{0x00}}; // mov [rsp+0x80000], rsi
+    const std::array<std::byte, 12> prologue{
+        std::byte{0x48}, std::byte{0x83}, std::byte{0xEC}, std::byte{0x28},
+        std::byte{0x48}, std::byte{0x89}, std::byte{0xB4}, std::byte{0x24},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x08}, std::byte{0x00}}; // sub rsp, 0x28; mov [rsp+0x80000], rsi
     std::memcpy(code + target_offset, prologue.data(), prologue.size());
     const std::array<std::byte, 16> epilogue{
         std::byte{0x48}, std::byte{0x8B}, std::byte{0xB4},
@@ -1863,10 +1861,10 @@ TEST_CASE("Native x64 trampoline maps far UWOP_SAVE_NONVOL and UWOP_ALLOC_LARGE"
     std::memset(source_info, 0, 32u);
     source_info->version_and_flags = 1u;
     source_info->size_of_prolog = static_cast<UCHAR>(prologue.size());
-    source_info->count_of_codes = 6u;
+    source_info->count_of_codes = 4u;
     set_test_unwind_code(
         source_info, 0u,
-        {15u, static_cast<UCHAR>(5u | (6u << 4u))}); // UWOP_SAVE_NONVOL_FAR RSI
+        {12u, static_cast<UCHAR>(5u | (6u << 4u))}); // UWOP_SAVE_NONVOL_FAR RSI
     std::memcpy(reinterpret_cast<std::byte*>(source_info) +
                     kTestUnwindCodeOffset + sizeof(TestUnwindCode),
                 &save_offset, sizeof(save_offset));
@@ -1960,14 +1958,12 @@ TEST_CASE("Native x64 trampoline maps far UWOP_SAVE_XMM128 and UWOP_ALLOC_LARGE"
     std::memset(code, 0x90, 4096);
 
     constexpr std::size_t target_offset = 64u;
-    constexpr std::uint32_t stack_allocation = 0x100028u;
+    constexpr std::uint32_t stack_allocation = 0x28u;
     constexpr std::uint32_t save_offset = 0x100000u;
-    const std::array<std::byte, 15> prologue{
-        std::byte{0x48}, std::byte{0x81}, std::byte{0xEC},
-        std::byte{0x28}, std::byte{0x00}, std::byte{0x10}, std::byte{0x00},
-        std::byte{0x0F}, std::byte{0x29}, std::byte{0xB4},
-        std::byte{0x24}, std::byte{0x00}, std::byte{0x00},
-        std::byte{0x10}, std::byte{0x00}}; // movaps [rsp+0x100000], xmm6
+    const std::array<std::byte, 12> prologue{
+        std::byte{0x48}, std::byte{0x83}, std::byte{0xEC}, std::byte{0x28},
+        std::byte{0x0F}, std::byte{0x29}, std::byte{0xB4}, std::byte{0x24},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x10}, std::byte{0x00}}; // sub rsp, 0x28; movaps [rsp+0x100000], xmm6
     std::memcpy(code + target_offset, prologue.data(), prologue.size());
     const std::array<std::byte, 16> epilogue{
         std::byte{0x0F}, std::byte{0x28}, std::byte{0xB4},
@@ -1985,10 +1981,10 @@ TEST_CASE("Native x64 trampoline maps far UWOP_SAVE_XMM128 and UWOP_ALLOC_LARGE"
     std::memset(source_info, 0, 32u);
     source_info->version_and_flags = 1u;
     source_info->size_of_prolog = static_cast<UCHAR>(prologue.size());
-    source_info->count_of_codes = 6u;
+    source_info->count_of_codes = 4u;
     set_test_unwind_code(
         source_info, 0u,
-        {15u, static_cast<UCHAR>(9u | (6u << 4u))}); // UWOP_SAVE_XMM128_FAR XMM6
+        {12u, static_cast<UCHAR>(9u | (6u << 4u))}); // UWOP_SAVE_XMM128_FAR XMM6
     std::memcpy(reinterpret_cast<std::byte*>(source_info) +
                     kTestUnwindCodeOffset + sizeof(TestUnwindCode),
                 &save_offset, sizeof(save_offset));
@@ -3617,9 +3613,27 @@ TEST_CASE("Native inline backend supports multiple simultaneous hooks and restor
 #else
     REQUIRE(first_trampoline[3] == std::byte{0xFB});
 #endif
+    #if defined(_M_X64) || defined(__x86_64__)
+    // The trampoline uses a complementary Jcc pair instead of an unconditional
+    // tail JMP so Windows does not mistake the transfer for an epilog while
+    // relocated stack-unwind state is still active.
+    REQUIRE(first_trampoline[9] == std::byte{0x0F});
+    REQUIRE(first_trampoline[10] == std::byte{0x84});
+    REQUIRE(first_trampoline[15] == std::byte{0x0F});
+    REQUIRE(first_trampoline[16] == std::byte{0x85});
+    const auto* second_trampoline = reinterpret_cast<const std::byte*>(
+        reinterpret_cast<std::uintptr_t>(second->original()));
+    const auto* third_trampoline = reinterpret_cast<const std::byte*>(
+        reinterpret_cast<std::uintptr_t>(third->original()));
+    REQUIRE(second_trampoline[9] == std::byte{0x0F});
+    REQUIRE(second_trampoline[10] == std::byte{0x84});
+    REQUIRE(third_trampoline[9] == std::byte{0x0F});
+    REQUIRE(third_trampoline[10] == std::byte{0x84});
+#else
     REQUIRE(first_trampoline[9] == std::byte{0xE9});
     REQUIRE(reinterpret_cast<const std::byte*>(reinterpret_cast<std::uintptr_t>(second->original()))[9] == std::byte{0xE9});
     REQUIRE(reinterpret_cast<const std::byte*>(reinterpret_cast<std::uintptr_t>(third->original()))[9] == std::byte{0xE9});
+#endif
 
 #if defined(_M_X64) || defined(__x86_64__)
     const auto verify_entry_transfer = [](std::byte* entry, std::uintptr_t detour_address) {
