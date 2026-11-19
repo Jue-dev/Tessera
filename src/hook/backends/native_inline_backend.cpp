@@ -495,7 +495,11 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
     std::memcpy(destination + 8, &second_relative, sizeof(second_relative));
     return true;
 #else
-    return write_relative_jump(destination, instruction_address, target);
+    destination[0] = std::byte{0xE9};
+    const auto relative = static_cast<std::uint32_t>(target) -
+                          static_cast<std::uint32_t>(instruction_address + 5u);
+    std::memcpy(destination + 1, &relative, sizeof(relative));
+    return true;
 #endif
 }
 
