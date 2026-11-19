@@ -129,11 +129,16 @@ original_function = nullptr;
   the overwritten entry range (and, during detach, outside the trampoline) and
   cannot return into bytes being patched. Application-level admission and drain
   must cover the calling thread as well as every other thread.
-- The process-wide transaction mutex is shared by static Tessera copies. If
-  Windows reports that its previous owner terminated while holding the mutex
-  (`WAIT_ABANDONED`), the backend calls `std::terminate()`: the prior owner may
-  have died during an executable-code write, so registry and target-byte
-  consistency cannot be proven safely.
+- The named process-wide transaction mutex serializes patch transactions
+  across static Tessera copies, but the active-range registry is currently
+  local to each loaded backend image. Therefore, loading multiple independent
+  static copies into one process is not a supported configuration: the mutex
+  alone cannot make their overlap registries coherent. Use one Tessera hook
+  backend image per process until a shared cross-image registry is implemented.
+- If Windows reports that the previous mutex owner terminated while holding
+  the mutex (`WAIT_ABANDONED`), the backend calls `std::terminate()`: the
+  previous owner may have died during an executable-code write, so registry
+  and target-byte consistency cannot be proven safely.
 - `SuspendOthersStrict` (the default) takes a Toolhelp thread snapshot,
   suspends the enumerated process threads during the short patch transaction,
   checks their instruction pointers, and fails if an enumerated thread cannot
@@ -161,23 +166,30 @@ original_function = nullptr;
   before the application has stored the trampoline pointer. Thread suspension
   also cannot determine whether application code is inside a detour callback
   that may call the trampoline later.
-  `original()` returns a raw function pointer and does not acquire a lifetime
-  lease. The application must stop new calls, wait for every in-flight detour
-  callback and original/trampoline call to finish, and only then call
-  `remove()`, destroy the hook, or unload the module containing the detour.
-  Do not remove a hook from inside its own detour callback.
+  Calls made through `Hook::operator()` hold an internal shared call lease;
+  `remove()`, `install()`, and `release()` wait for those calls to finish
+  before changing the callable/trampoline lifetime. Attempting `install()` or
+  `remove()` from inside that same hook's leased invocation returns a conflict;
+  `release()` returns null and leaves ownership unchanged rather than
+  self-deadlocking. The lease does not track direct calls to the patched target
+  or calls through copied function pointers.
+  `original()` returns a non-owning raw function pointer and does not acquire
+  a lifetime lease. The application must stop new target calls, wait for every
+  in-flight detour callback and every raw trampoline call to finish, and only
+  then call `remove()`, destroy the hook, or unload the module containing the
+  detour. Do not remove a hook from inside its own detour callback.
 - Concurrent calls to `install()`, `remove()`, move operations, or destruction
   on the same `Hook` object require external synchronization. The backend's
   process-wide lock serializes patch transactions across hook objects; it does
   not make the public `Hook` wrapper or a detour's application state thread-safe.
-- Tessera does not expose an automatic in-flight counter or call lease for
-  this API. A counter entered from the detour body alone cannot close the race
-  between a thread branching to the detour and incrementing that counter;
-  additionally, callers can retain and invoke the raw pointer returned by
-  `original()` without passing through the `Hook` object. A correct reclamation
-  protocol therefore needs application-level admission control around both
-  target calls and every retained trampoline call, followed by a drain before
-  detach. Do not treat a detour-only reference count as sufficient.
+- The `Hook::operator()` path has a lock-backed callable lease, and the
+  `original()` snapshot is atomic with respect to lifecycle pointer updates.
+  Neither protects calls made directly through the patched target or copied
+  raw trampoline pointers. A detour-body counter alone cannot close the race
+  between a thread branching to the detour and incrementing that counter.
+  Applications still need admission control around target calls and retained
+  raw trampoline calls, followed by a drain before detach. Do not treat a
+  detour-only reference count as sufficient.
 - Hooks should be installed early where practical. Functions with unsupported
   short-branch layouts or prologues too close to a page boundary fail with an
   error instead of being patched.
@@ -212,7 +224,9 @@ trampoline return jumps, multiple simultaneous hooks,
 page-protection restoration, page-boundary rejection, overlapping patch
 rejection, detach conflict preservation and retry, and a fixed-seed 256-sample
 malformed-prologue stress corpus that verifies rejected bytes remain unchanged
-and accepted hooks can be removed cleanly. A real worker-thread integration test
+and accepted hooks can be removed cleanly. The overflow-safe address-range
+helper is unit-tested at `UINTPTR_MAX`, including wrapped-end, zero-length,
+and half-open boundary cases. A real worker-thread integration test
 exercises strict suspend/context/resume coordination. A separate four-worker
 integration test performs repeated attach/detach cycles under an application-owned
 shared/exclusive admission gate, ensuring callbacks and trampoline calls drain
@@ -221,11 +235,17 @@ cover exception containment and retryable detach failures. Patch-transaction tes
 failures, rollback ordering, page-protection restoration, and preservation of
 the first native error.
 
+The Windows native-hook fuzz smoke target also runs nine focused decoder/relocator seeds plus 512 deterministic random prologues (`0xC0FFEE42`) on every full quality-gate run. Each accepted sample must detach and restore its original bytes; each rejected sample must leave the target bytes unchanged. This is a reproducible smoke corpus, not a replacement for long-running coverage-guided fuzzing with LLVM libFuzzer.
+
 The Windows validation workflows run at multiple stages:
 `.github/workflows/pr-smoke.yml` validates qualifying pull requests with x86
 and x64 Debug and Release build/test jobs. `.github/workflows/ci.yml` performs
 the full x86/x64 Debug and Release matrix, the `/GR-` quality gate (including
 fuzz/benchmark smoke targets), Detours integration, and MSVC static analysis.
-The full workflow runs for qualifying source/build pushes to `main`, version
-tags, manual dispatch, and its weekly schedule. A successful Debug smoke job
-does not replace the Release, Detours, or static-analysis checks.
+The separate `.github/workflows/native-hook-fuzz.yml` workflow runs a bounded
+five-minute Windows x64 Clang libFuzzer campaign with production-code
+coverage, ASan/UBSan, checked-in binary seeds, and uploaded corpus/crash
+artifacts. It is scheduled weekly and can be started manually; its first
+completed run still needs review before treating the campaign as validated.
+A successful PR smoke job does not replace the Release, Detours, static-analysis,
+long-running fuzz, or real application integration checks.

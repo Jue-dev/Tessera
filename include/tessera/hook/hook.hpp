@@ -1,6 +1,10 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
+#include <exception>
+#include <mutex>
+#include <shared_mutex>
 #include <type_traits>
 #include <utility>
 
@@ -71,6 +75,69 @@ namespace detail {
 
 class HookCore {
 public:
+    class CallableLease {
+    public:
+        CallableLease(const CallableLease&) = delete;
+        CallableLease& operator=(const CallableLease&) = delete;
+        CallableLease(CallableLease&&) = delete;
+        CallableLease& operator=(CallableLease&&) = delete;
+
+        ~CallableLease() noexcept {
+            if (active_lease_frame_ != &frame_) {
+                std::terminate();
+            }
+            active_lease_frame_ = frame_.previous;
+        }
+
+        [[nodiscard]] void* get() const noexcept { return callable_; }
+
+    private:
+        struct Frame {
+            const HookCore* owner = nullptr;
+            Frame* previous = nullptr;
+        };
+
+        friend class HookCore;
+        explicit CallableLease(const HookCore& owner) {
+            bool already_leased = false;
+            for (Frame* frame = active_lease_frame_; frame != nullptr;
+                 frame = frame->previous) {
+                if (frame->owner == &owner) {
+                    already_leased = true;
+                    break;
+                }
+            }
+
+            // std::shared_mutex is not recursively lockable. A nested
+            // invocation on this thread is already protected by its outer
+            // lease, so it must not acquire the same shared mutex again.
+            if (!already_leased) {
+                lock_ = std::shared_lock<std::shared_mutex>{owner.lifecycle_mutex_};
+            }
+            callable_ = owner.active_callable_.load(std::memory_order_acquire);
+
+            frame_.owner = &owner;
+            frame_.previous = active_lease_frame_;
+            active_lease_frame_ = &frame_;
+        }
+
+        std::shared_lock<std::shared_mutex> lock_{};
+        void* callable_ = nullptr;
+        Frame frame_{};
+        inline static thread_local Frame* active_lease_frame_ = nullptr;
+
+        [[nodiscard]] static bool is_active_on_current_thread(
+            const HookCore& owner) noexcept {
+            for (Frame* frame = active_lease_frame_; frame != nullptr;
+                 frame = frame->previous) {
+                if (frame->owner == &owner) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    };
+
     HookCore() noexcept = default;
 
     [[nodiscard]] static Result<HookCore> create(Address target,
@@ -89,33 +156,50 @@ public:
     [[nodiscard]] Status remove() noexcept;
     [[nodiscard]] void* release() noexcept;
 
-    [[nodiscard]] bool installed() const noexcept { return installed_; }
+    // A lease keeps the current callable valid until the returned object is
+    // destroyed. remove(), install(), and release() take the exclusive side
+    // of the same lock and therefore wait for leased invocations to finish.
+    [[nodiscard]] CallableLease acquire_callable() const {
+        return CallableLease{*this};
+    }
+    [[nodiscard]] bool installed() const noexcept {
+        return installed_.load(std::memory_order_acquire);
+    }
     [[nodiscard]] Address target() const noexcept { return target_; }
-    [[nodiscard]] void* callable() const noexcept { return active_callable_; }
+
+    // Unsafe non-owning snapshot used only by original(); callers must
+    // externally quiesce it before detach or release.
+    [[nodiscard]] void* callable() const noexcept { return active_callable_.load(std::memory_order_acquire); }
 
 private:
     HookCore(Address target, void* target_ptr, void* detour_ptr, HookBackend* backend) noexcept;
 
+    mutable std::shared_mutex lifecycle_mutex_{};
     Address target_{};
     void* target_ptr_ = nullptr;
     void* detour_ptr_ = nullptr;
-    void* active_callable_ = nullptr;
+    std::atomic<void*> active_callable_{nullptr};
     HookToken token_{};
     HookBackend* backend_ = nullptr;
-    bool installed_ = false;
+    std::atomic<bool> installed_{false};
 };
 
 } // namespace detail
 
 // Move-only typed inline hook wrapper for the current process.
-// Before remove() or destruction, stop new calls and wait for in-flight detour
-// callbacks/original-trampoline calls to finish. The destructor attempts detach
-// but cannot report failure; explicitly call remove() and inspect its result
-// before destruction when cleanup failure is possible. If detach fails during
-// destruction, the patch may remain active, so keep the detour module and its
-// callback state alive for as long as the process can reach that patch.
+// operator() holds an internal call lease: remove(), install(), and release()
+// wait for calls made through that operator to finish before changing the
+// callable/trampoline lifetime. Direct target calls and raw pointers returned
+// by original() bypass that lease; the host must stop new entries and drain
+// in-flight detour callbacks and raw trampoline calls before detach or unload.
+// The destructor attempts detach but cannot report failure; explicitly call
+// remove() and inspect its result before destruction when cleanup failure is
+// possible. If detach fails during destruction, the patch may remain active,
+// so keep the detour module and callback state alive.
 // Calling original() or operator() is valid immediately after create():
-// before install() and after remove() it invokes the target function; while installed it invokes the trampoline.
+// before install() and after remove() it invokes the target; while installed
+// it invokes the trampoline. Concurrent destruction or moves still require
+// external synchronization with all users of the Hook object.
 template <FunctionPointer Fn>
 class [[nodiscard]] Hook {
 public:
@@ -154,6 +238,8 @@ public:
     [[nodiscard]] Status remove() noexcept { return core_.remove(); }
 
     // Leaves the hook installed permanently and prevents the destructor from detaching it.
+    // Calling this from the hook's own leased operator() invocation returns
+    // nullptr and retains normal ownership instead of self-deadlocking.
     Fn release() noexcept {
         return reinterpret_cast<Fn>(reinterpret_cast<std::uintptr_t>(core_.release()));
     }
@@ -169,12 +255,15 @@ public:
         return reinterpret_cast<Fn>(reinterpret_cast<std::uintptr_t>(core_.callable()));
     }
 
-    // Convenience invocation only; it does not synchronize with remove() or
-    // object destruction. Externally serialize lifecycle changes and calls.
+    // This invocation holds a lease for the full duration of the call, so a
+    // concurrent remove()/release() cannot free the trampoline until it ends.
+    // Calls made through a copied raw pointer from original() are not tracked.
     template <class... Args>
         requires std::invocable<Fn, Args...>
     decltype(auto) operator()(Args&&... args) const {
-        const Fn fn = original();
+        auto lease = core_.acquire_callable();
+        const Fn fn = reinterpret_cast<Fn>(
+            reinterpret_cast<std::uintptr_t>(lease.get()));
         TESSERA_ASSERT(fn != nullptr);
         return fn(std::forward<Args>(args)...);
     }

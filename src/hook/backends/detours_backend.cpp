@@ -210,16 +210,16 @@ HookCore::HookCore(HookCore&& other) noexcept
     : target_(other.target_),
       target_ptr_(std::exchange(other.target_ptr_, nullptr)),
       detour_ptr_(std::exchange(other.detour_ptr_, nullptr)),
-      active_callable_(std::exchange(other.active_callable_, nullptr)),
+      active_callable_(other.active_callable_.exchange(nullptr, std::memory_order_acq_rel)),
       token_(other.token_),
       backend_(other.backend_),
-      installed_(std::exchange(other.installed_, false)) {
+      installed_(other.installed_.exchange(false, std::memory_order_acq_rel)) {
     other.token_ = HookToken{};
 }
 
 HookCore& HookCore::operator=(HookCore&& other) noexcept {
     if (this != &other) {
-        if (installed_) {
+        if (installed_.load(std::memory_order_acquire)) {
             auto detach_status = remove();
             if (!detach_status) {
                 diagnostics::notify(token_.observer,
@@ -233,17 +233,18 @@ HookCore& HookCore::operator=(HookCore&& other) noexcept {
         target_ = other.target_;
         target_ptr_ = std::exchange(other.target_ptr_, nullptr);
         detour_ptr_ = std::exchange(other.detour_ptr_, nullptr);
-        active_callable_ = std::exchange(other.active_callable_, nullptr);
+        active_callable_.store(other.active_callable_.exchange(nullptr, std::memory_order_acq_rel), std::memory_order_release);
         token_ = other.token_;
         backend_ = other.backend_;
-        installed_ = std::exchange(other.installed_, false);
+        installed_.store(other.installed_.exchange(false, std::memory_order_acq_rel),
+                        std::memory_order_release);
         other.token_ = HookToken{};
     }
     return *this;
 }
 
 HookCore::~HookCore() noexcept {
-    if (installed_) {
+    if (installed_.load(std::memory_order_acquire)) {
         auto st = remove();
         if (!st) {
             diagnostics::notify(token_.observer,
@@ -314,7 +315,14 @@ Result<HookCore> HookCore::create(Address target, void* detour, HookBackend* bac
 }
 
 Status HookCore::install(const HookOptions& options) noexcept {
-    if (installed_) {
+    if (CallableLease::is_active_on_current_thread(*this)) {
+        return fail(ErrorCode::Conflict,
+                    "Hook::install",
+                    0,
+                    "Hook lifecycle cannot change from inside a leased callable invocation");
+    }
+    std::unique_lock lock(lifecycle_mutex_);
+    if (installed_.load(std::memory_order_acquire)) {
         return ok();
     }
     if (!is_valid_thread_policy(options.threads)) {
@@ -353,13 +361,20 @@ Status HookCore::install(const HookOptions& options) noexcept {
     }
 
     token_ = *attach_result;
-    active_callable_ = token_.trampoline != nullptr ? token_.trampoline : target_ptr_;
-    installed_ = true;
+    active_callable_.store(token_.trampoline != nullptr ? token_.trampoline : target_ptr_, std::memory_order_release);
+    installed_.store(true, std::memory_order_release);
     return ok();
 }
 
 Status HookCore::remove() noexcept {
-    if (!installed_) {
+    if (CallableLease::is_active_on_current_thread(*this)) {
+        return fail(ErrorCode::Conflict,
+                    "Hook::remove",
+                    0,
+                    "A hook cannot be removed from inside its own leased callable invocation");
+    }
+    std::unique_lock lock(lifecycle_mutex_);
+    if (!installed_.load(std::memory_order_acquire)) {
         return ok();
     }
     if (backend_ == nullptr) {
@@ -380,15 +395,21 @@ Status HookCore::remove() noexcept {
         return detach_result;
     }
 
-    active_callable_ = target_ptr_;
-    installed_ = false;
+    active_callable_.store(target_ptr_, std::memory_order_release);
+    installed_.store(false, std::memory_order_release);
     token_ = HookToken{};
     return ok();
 }
 
 void* HookCore::release() noexcept {
-    void* const current_fn = active_callable_;
-    installed_ = false;
+    if (CallableLease::is_active_on_current_thread(*this)) {
+        // This API cannot report an error separately. Return null and retain
+        // ownership rather than self-deadlocking or abandoning live state.
+        return nullptr;
+    }
+    std::unique_lock lock(lifecycle_mutex_);
+    void* const current_fn = active_callable_.load(std::memory_order_acquire);
+    installed_.store(false, std::memory_order_release);
     token_ = HookToken{};
     return current_fn;
 }

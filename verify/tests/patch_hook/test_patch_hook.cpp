@@ -19,6 +19,8 @@
 
 #include "FakeMemoryBackend.hpp"
 #include "hook/backends/patch_write_transaction.hpp"
+#include "hook/backends/address_range.hpp"
+#include "platform/windows/thread_backend.hpp"
 #include "hook/backends/x86_instruction_decoder.hpp"
 #include "tessera/hook/hook.hpp"
 #include "tessera/patch/patch.hpp"
@@ -42,6 +44,17 @@ int __cdecl sample_alternate_trampoline_function(int x) {
     return x + 20;
 }
 
+std::atomic<bool> g_callable_lease_entered{false};
+std::atomic<bool> g_callable_lease_release{false};
+
+int __cdecl blocking_trampoline_function(int value) {
+    g_callable_lease_entered.store(true, std::memory_order_release);
+    while (!g_callable_lease_release.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+    }
+    return value + 42;
+}
+
 #if defined(_MSC_VER)
 #define TESSERA_TEST_NOINLINE __declspec(noinline)
 #elif defined(__clang__) || defined(__GNUC__)
@@ -52,6 +65,26 @@ int __cdecl sample_alternate_trampoline_function(int x) {
 
 using NativeHookFn = int(__cdecl*)(int);
 using NativeHookFastFn = std::uintptr_t(__fastcall*)(std::uintptr_t);
+tessera::Hook<NativeHookFn>* g_recursive_lease_hook = nullptr;
+std::atomic<bool> g_remove_from_lease_rejected{false};
+std::atomic<bool> g_release_from_lease_rejected{false};
+
+int __cdecl remove_from_callable_lease_trampoline(int value) {
+    const auto result = g_recursive_lease_hook->remove();
+    g_remove_from_lease_rejected.store(
+        !result.has_value() && result.error().code == tessera::ErrorCode::Conflict,
+        std::memory_order_release);
+    const NativeHookFn released = g_recursive_lease_hook->release();
+    g_release_from_lease_rejected.store(released == nullptr, std::memory_order_release);
+    return value + 7;
+}
+
+int __cdecl recursive_trampoline_function(int value) {
+    if (value <= 0) {
+        return 0;
+    }
+    return value + (*g_recursive_lease_hook)(value - 1);
+}
 
 struct ExecutableRegionGuard {
     void* address = nullptr;
@@ -213,6 +246,27 @@ public:
 };
 
 } // namespace
+
+TEST_CASE("Native hook address range helpers remain correct at uintptr limits",
+          "[hook][native][address-range]") {
+    using tessera::detail::address_range_contains;
+    using tessera::detail::address_ranges_overlap;
+
+    constexpr std::uintptr_t maximum =
+        (std::numeric_limits<std::uintptr_t>::max)();
+
+    REQUIRE(address_ranges_overlap(maximum - 7u, 8u, maximum - 2u, 2u));
+    REQUIRE(address_ranges_overlap(maximum - 2u, 2u, maximum - 7u, 8u));
+    REQUIRE_FALSE(address_ranges_overlap(maximum - 7u, 4u, maximum - 2u, 2u));
+    REQUIRE_FALSE(address_ranges_overlap(maximum, 0u, maximum, 1u));
+    REQUIRE_FALSE(address_ranges_overlap(maximum, 1u, maximum, 0u));
+
+    REQUIRE(address_range_contains(maximum - 2u, 3u, maximum - 2u));
+    REQUIRE(address_range_contains(maximum - 2u, 3u, maximum));
+    REQUIRE_FALSE(address_range_contains(maximum - 2u, 2u, maximum));
+    REQUIRE_FALSE(address_range_contains(maximum, 0u, maximum));
+    REQUIRE(address_range_contains(1u, (std::numeric_limits<std::size_t>::max)(), maximum));
+}
 
 TEST_CASE("Patch apply, restore, expected_original, and PatchTransaction rollback", "[patch]") {
     using namespace tessera;
@@ -386,6 +440,114 @@ TEST_CASE("Tessera's bounded x86/x64 decoder reports instruction and relocation 
         {0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
          0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66});
     REQUIRE_FALSE(overlong.first);
+}
+
+TEST_CASE("Hook callable leases support same-thread recursive original calls",
+          "[hook][lifecycle][threads]") {
+    using namespace tessera;
+
+    MockHookBackend backend{};
+    backend.trampoline = reinterpret_cast<void*>(&recursive_trampoline_function);
+    auto hook = Hook<NativeHookFn>::create(
+        &sample_target_function, &sample_detour_function, &backend);
+    REQUIRE(hook.has_value());
+    REQUIRE(hook->install().has_value());
+
+    g_recursive_lease_hook = &*hook;
+    const int result = (*hook)(4);
+    g_recursive_lease_hook = nullptr;
+
+    REQUIRE(result == 10);
+    REQUIRE(hook->remove().has_value());
+}
+
+TEST_CASE("Hook lifecycle changes inside a leased call fail without deadlocking",
+          "[hook][lifecycle][threads]") {
+    using namespace tessera;
+
+    g_remove_from_lease_rejected.store(false, std::memory_order_release);
+    g_release_from_lease_rejected.store(false, std::memory_order_release);
+    MockHookBackend backend{};
+    backend.trampoline = reinterpret_cast<void*>(&remove_from_callable_lease_trampoline);
+    auto hook = Hook<NativeHookFn>::create(
+        &sample_target_function, &sample_detour_function, &backend);
+    REQUIRE(hook.has_value());
+    REQUIRE(hook->install().has_value());
+
+    g_recursive_lease_hook = &*hook;
+    const int result = (*hook)(5);
+    g_recursive_lease_hook = nullptr;
+
+    REQUIRE(result == 12);
+    REQUIRE(g_remove_from_lease_rejected.load(std::memory_order_acquire));
+    REQUIRE(g_release_from_lease_rejected.load(std::memory_order_acquire));
+    REQUIRE(hook->installed());
+    REQUIRE(hook->remove().has_value());
+}
+
+TEST_CASE("Hook callable leases drain in-flight operator calls before remove",
+          "[hook][lifecycle][threads]") {
+    using namespace tessera;
+
+    g_callable_lease_entered.store(false, std::memory_order_release);
+    g_callable_lease_release.store(false, std::memory_order_release);
+
+    MockHookBackend backend{};
+    backend.trampoline = reinterpret_cast<void*>(&blocking_trampoline_function);
+    auto hook = Hook<NativeHookFn>::create(
+        &sample_target_function, &sample_detour_function, &backend);
+    REQUIRE(hook.has_value());
+    REQUIRE(hook->install().has_value());
+
+    std::atomic<int> call_result{-1};
+    std::atomic<bool> remove_started{false};
+    std::atomic<bool> remove_finished{false};
+    std::atomic<bool> remove_succeeded{false};
+
+    std::thread caller([&] {
+        call_result.store((*hook)(5), std::memory_order_release);
+    });
+
+    const auto entered_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!g_callable_lease_entered.load(std::memory_order_acquire) &&
+           std::chrono::steady_clock::now() < entered_deadline) {
+        std::this_thread::yield();
+    }
+    const bool call_entered =
+        g_callable_lease_entered.load(std::memory_order_acquire);
+    if (!call_entered) {
+        g_callable_lease_release.store(true, std::memory_order_release);
+        caller.join();
+    }
+    REQUIRE(call_entered);
+
+    std::thread remover([&] {
+        remove_started.store(true, std::memory_order_release);
+        const auto result = hook->remove();
+        remove_succeeded.store(result.has_value(), std::memory_order_release);
+        remove_finished.store(true, std::memory_order_release);
+    });
+
+    const auto remove_start_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!remove_started.load(std::memory_order_acquire) &&
+           std::chrono::steady_clock::now() < remove_start_deadline) {
+        std::this_thread::yield();
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    const bool remove_finished_before_release =
+        remove_finished.load(std::memory_order_acquire);
+
+    g_callable_lease_release.store(true, std::memory_order_release);
+    caller.join();
+    remover.join();
+
+    REQUIRE_FALSE(remove_finished_before_release);
+    REQUIRE(remove_succeeded.load(std::memory_order_acquire));
+    REQUIRE(remove_finished.load(std::memory_order_acquire));
+    REQUIRE(call_result.load(std::memory_order_acquire) == 47);
+    REQUIRE_FALSE(hook->installed());
 }
 
 TEST_CASE("Hook lifecycle and Detours-off contract", "[hook]") {
@@ -1950,6 +2112,17 @@ TEST_CASE("Native inline x64 backend routes a far detour through its near relay"
     REQUIRE(code[68] == std::byte{0xB8});
 }
 #endif
+
+TEST_CASE("Strict thread enumeration ignores a stale Win32 last-error value",
+          "[hook][native][threads][integration]") {
+    using tessera::ThreadPolicy;
+    using tessera::platform::windows::ScopedThreadList;
+
+    ::SetLastError(ERROR_ACCESS_DENIED);
+    auto threads = ScopedThreadList::collect_other_threads(
+        ThreadPolicy::SuspendOthersStrict);
+    REQUIRE(threads.has_value());
+}
 
 TEST_CASE("Native inline backend suspends and resumes a real worker thread under strict policy",
           "[hook][native][threads][integration]") {
