@@ -223,6 +223,8 @@ jobs:
         run: ctest --preset x64-analyze --output-on-failure
 
   publish-sdk-bundle:
+    # Manual validation must not assemble or publish release artifacts.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     name: Bundle Full SDK & Publish GitHub Release
     needs: [build-and-test, no-rtti-and-packaging-gate, detours-integration, msvc-static-analysis]
     runs-on: windows-latest
@@ -262,7 +264,7 @@ jobs:
           path: Tessera-SDK-Windows.zip
 
       - name: Publish GitHub Release (On Tag Push v*)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: Tessera-SDK-Windows.zip
