@@ -1,113 +1,98 @@
-# Issue #6 implementation plan: unwind metadata and call admission
+# Issue #6 — implementation and validation tracker
 
-This branch tracks the work for issue #6. The changes are staged deliberately:
-unsupported unwind shapes and call paths must remain fail-closed until they have
-correct implementation and Windows tests.
+This document is the live progress record for native x86/x64 inline-hook unwind
+and call-lifecycle safety. The PR remains a draft and Issue #6 remains open
+until every required gate below is satisfied.
 
-## Scope and constraints
+## Current progress
 
-- x64 runtime-function registration is separate from x86; x86 does not use
-  Windows x64 `RUNTIME_FUNCTION` tables.
-- The native backend currently emits a trampoline containing an ENDBR landing
-  pad, relocated instructions, and a jump back. It does not emit x64 unwind
-  metadata for that generated range.
-- `Hook::operator()` already takes an internal callable lease. This lease does
-  not protect direct calls to the target or raw pointers obtained from
-  `original()`.
-- Thread snapshots are not an admission barrier. Host code must prevent new
-  entries and drain active calls before detach or module unload.
+| Work item | Status | Evidence / remaining work |
+|---|---|---|
+| x64 dynamic trampoline unwind registration | [x] Implemented | Stable `RUNTIME_FUNCTION` and `UNWIND_INFO` storage; register before publishing the entry patch |
+| Version-1 unwind translation | [x] Implemented | Translate supported `CodeOffset` entries through relocated instruction boundaries; preserve extra slots |
+| Fail-closed unwind validation | [x] Implemented | Reject unknown/version-2 operations, malformed slot streams, handler/chained records, non-entry targets, and unmappable offsets |
+| No-source-record policy | [x] Implemented | Accept only the audited leaf-safe subset; reject stack-changing/non-leaf dynamic code |
+| Detach and unregister retry | [x] Implemented | Restore target, drain supported leases, unregister; on unregister failure restore the hook patch and retain retryable ownership |
+| Explicit callable lease API | [x] Implemented | `Hook::acquire()`, `get()`, and `target()`; non-copyable, non-movable, thread-affine |
+| Deterministic lifecycle/unwind tests | [x] Implemented | Real target-entry → detour → trampoline lease test, SEH in relocated prologue, lookup lifetime, unregister-failure retry, and malformed metadata rejection |
+| Windows x86/x64 Debug/Release matrix | [x] Passed | PR Smoke run #96, commit `ad8a378d994522d7bebabde5a70d9330298fac33`; all four jobs and test steps succeeded |
+| x64 Release deterministic fuzz smoke | [x] Passed | Included in the x64 Release job of PR Smoke #96 |
+| Five-minute Clang libFuzzer + ASan/UBSan campaign | [ ] In progress | Native Hook Coverage-Guided Fuzz run #8; instrumented build succeeded, campaign result/artifact upload not yet confirmed |
+| Broader unwind-opcode stack-walk coverage | [ ] Remaining | Current SEH integration test exercises `UWOP_ALLOC_SMALL`; add realistic tests for each accepted opcode family and multi-slot payloads |
+| Module unload / host admission ordering | [ ] Remaining review | API cannot intercept raw pointers or prevent unrelated callers from entering; define and test host-side stop-admission → drain → detach → unload ordering |
+| Registration/allocation failure injection | [ ] Remaining review | Unregister failure is forced and retry-tested; deterministic failure injection for allocation and `RtlAddFunctionTable` remains outstanding |
+| Final independent review and acceptance audit | [ ] Remaining | Re-check patch bytes, page protections, registry ownership, token retryability, and code/data lifetime on every failure edge |
 
-## Milestones
+## Implementation contract
 
-### M0 — Baseline and design (this change)
+### x64 unwind metadata
 
-- Record the current trampoline layout and explicit unsupported cases.
-- Define the unwind metadata ownership/lifetime contract.
-- Define an opt-in call-lease API contract without pretending it protects
-  unleased raw function pointers.
-- Keep issue #6 open until code and tests meet its acceptance criteria.
+The trampoline contains an ENDBR landing pad, relocated instructions, a jump
+back to the original function, and a separate near relay when needed. On x64,
+the backend owns a stable dynamic function-table entry and its unwind bytes in
+the trampoline allocation. It registers this metadata after the allocation is
+finalized and before publishing the target patch.
 
-### M1 — Unwind metadata model (x64 only)
+When the source address has a Windows runtime-function record, the hook target
+must be the function entry. Supported version-1 unwind operations are copied
+with their extra slots preserved, and each `CodeOffset` is mapped only when it
+lands on an exact relocated instruction boundary. Unsupported versions,
+operations, handler/chained records, malformed streams, non-entry targets,
+and offsets that cannot be represented are rejected before target bytes are
+changed.
 
-**Runtime implementation added; Windows execution validation pending.**
+When no source runtime-function record exists, only the audited stack-neutral
+leaf subset is accepted. The backend does not invent unwind semantics for
+stack-changing or non-leaf dynamic code. x86 does not use x64
+`RUNTIME_FUNCTION` tables.
 
-- Each native hook state owns its stable `RUNTIME_FUNCTION` entry and its
-  `UNWIND_INFO` bytes in the trampoline allocation.
-- The backend resolves the source function with
-  `RtlLookupFunctionEntry`, requires the hook target to be the function entry,
-  and translates each copied unwind operation's `CodeOffset` through the
-  decoder/relocator instruction-boundary map.
-- Version-1 unwind operations are copied with their extra slots preserved.
-  Handler/chained records, unknown/version-2 operations, malformed streams,
-  non-boundary mappings, and non-entry targets fail before the target patch.
-- For code without a source runtime-function entry, only a small audited
-  stack-neutral leaf-instruction subset is accepted; other dynamic code fails
-  closed rather than receiving guessed unwind semantics.
-- `RtlAddFunctionTable` runs after trampoline code and metadata initialization
-  and before the entry patch is published.
-- Detach restores the target, drains the supported call lease path, and then
-  unregisters. If unregister fails, the entry patch is reinstated and the token
-  and metadata remain available for retry.
-- Added an x64 SEH integration test that raises a breakpoint from relocated
-  prologue code and checks the translated `UWOP_ALLOC_SMALL` offset. The test
-  must still pass in the actual Windows CI matrix before this milestone is
-  considered validated.
+Detach restores the target and performs the backend's thread-coordination
+check before unregistering the dynamic function table. If unregister fails,
+the backend reinstates the entry patch and retains the function table,
+allocation, registry ownership, and retryable token. It does not free memory
+that Windows may still consult.
 
-### M2 — Call admission and drain
+### Callable lease and host ownership
 
-**Runtime API and deterministic lifecycle coverage added; host-side admission remains required.**
 `Hook::acquire()` returns a non-copyable, non-movable, thread-affine scoped
-lease. `get()` returns the current original/trampoline callable, while
-`target()` returns the patched target entry so the caller can acquire the
-lease before entering the detour. The Hook must outlive the lease and the lease
-must be destroyed on its acquiring thread. Tests cover compile-time
-non-copy/non-move constraints, pre/post-install pointer identity, and
-concurrent remove/drain ordering through a real detour-entry → trampoline call.
-The x64 native-backend test verifies that the generated function table remains
-registered while that call is blocked, then disappears after the lease drains.
-This does not create a process-wide admission barrier and cannot track pointers
-that escape the scope or calls that do not acquire a lease first.
+lease. `get()` exposes the current original/trampoline callable; `target()`
+exposes the target entry so the caller can acquire the lease before entering
+the detour. The Hook must outlive the lease, and the lease must be destroyed on
+the acquiring thread.
 
-Native detach also retains the function-table registration and allocation until
-the target patch is restored and the backend's thread-coordination check has
-completed. The host must still gate new target entries and quiesce direct/raw
-trampoline calls before removal or module unload.
+The lease protects calls made while it remains alive, including the detour's
+use of a trampoline pointer during that scope. It does **not** track a pointer
+that escapes the scope, a direct target call made without first acquiring a
+lease, or a call from outside the application-controlled admission protocol.
+`original()` remains a raw, non-owning pointer for compatibility.
 
-- Add an explicit RAII lease API for calls routed through Tessera. A lease
-  exposes the callable pointer while retaining the lifecycle lock until its
-  scope ends.
-- Keep `original()` as a clearly documented unsafe/non-owning snapshot for
-  compatibility; do not imply that a lease tracks pointers copied earlier.
-- Test admission racing with remove, nested leases, move/cleanup constraints,
-  detach failure/retry, and callback/module lifetime.
-- Host-side entry admission remains required for direct target calls and
-  callbacks that can be invoked by code outside the lease API.
+The host must therefore:
+1. Stop admitting new calls to the target and any escaped/raw trampoline path.
+2. Wait for every in-flight target call, detour callback, and raw trampoline
+   call to finish.
+3. Call `remove()` and verify success.
+4. Only then destroy hook state or unload the module containing the detour or
+   any callback state.
 
-### M3 — Windows validation
+A Toolhelp thread snapshot is not a thread-creation barrier and cannot replace
+this host-side admission protocol. Concurrent mutation/destruction of the
+same `Hook` object also requires external synchronization.
 
-- Added x64 tests for `RtlLookupFunctionEntry` on live trampolines,
-  registration removal after detach, and fail-closed handling of dynamic
-  stack-changing prologues without source unwind metadata.
-- Added an SEH exception test through a relocated stack-allocation prologue and
-  a native-backend lease/lifetime test. Broader stack-walk coverage across each
-  supported unwind opcode is still pending.
-- Added failure-path tests that externally remove the dynamic function-table
-  registration to force a backend unregister failure, verify target patch
-  reinstatement and token retry, and reject EHANDLER, CHAININFO, and an unwind
-  CodeOffset inside an instruction.
-- The full Windows x86/x64 Debug/Release matrix and sustained coverage-guided
-  native-hook fuzz campaign are required gates; a previous CI iteration exposed
-  three legacy dynamic-code whitelist regressions, which are being corrected
-  without allowing stack-changing operations for functions lacking unwind data.
-- Run x86/x64 Debug and Release CI; run sustained fuzzing and preserve every
-  finding as a corpus regression.
-- Exercise failure injection for allocation, registration, detach, and
-  unregister paths. Target bytes, protections, token ownership, and metadata
-  must remain retryable or fail-fast if consistency cannot be proven.
+## Validation record
+
+- PR Smoke #96 passed on x64 Release, x86 Release, x64 Debug, and x86 Debug.
+- The x64 Release job also passed the deterministic native-hook fuzz corpus.
+- Native Hook Coverage-Guided Fuzz run #8 successfully configured and built
+  the Windows x64 clang-cl libFuzzer + ASan/UBSan executable. Its bounded
+  campaign and artifact upload have not yet been confirmed.
+- Earlier fuzz workflow attempts failed during toolchain/runtime setup. Those
+  failures are not counted as successful fuzz campaigns.
 
 ## Definition of done
 
-Issue #6 may close only when all acceptance criteria in the issue are met,
-unsupported unwind layouts are rejected before patching, lifetime tests pass,
-and the exact Windows CI matrix is green. Documentation-only progress does not
-count as completion.
+Issue #6 may close only after the sustained fuzz campaign passes, the remaining
+unwind-opcode and host module-unload ordering coverage has been reviewed and
+tested, the outstanding failure-injection paths are addressed or explicitly
+proven unreachable, and a final audit confirms all acceptance criteria from
+the issue. This PR is intentionally kept in draft; no merge or release is
+performed here.
