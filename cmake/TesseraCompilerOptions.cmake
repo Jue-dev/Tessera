@@ -63,7 +63,6 @@ function(tessera_apply_target_options target_name)
             "$<$<COMPILE_LANGUAGE:CXX>:/W4>"
             "$<$<COMPILE_LANGUAGE:CXX>:/permissive->"
             "$<$<COMPILE_LANGUAGE:CXX>:/Zc:__cplusplus>"
-            "$<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>"
             "$<$<COMPILE_LANGUAGE:CXX>:/Zc:inline>"
             /utf-8
             "$<$<COMPILE_LANGUAGE:CXX>:/EHsc>"
@@ -71,6 +70,14 @@ function(tessera_apply_target_options target_name)
             /sdl
             "$<$<COMPILE_LANGUAGE:CXX>:/wd4324>" # structure was padded due to alignment specifier
         )
+
+        # This switch is specific to cl.exe; clang-cl diagnoses it as an
+        # unused driver option, and warnings are errors in the fuzz build.
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+            target_compile_options(${target_name} PRIVATE
+                "$<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>"
+            )
+        endif()
 
         # /guard:cf requires both compile and link flags
         if(NOT TESSERA_ENABLE_ASAN)
