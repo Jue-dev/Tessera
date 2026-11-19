@@ -66,7 +66,8 @@ The fixture test passed on the validated CI head. This does not replace integrat
 - [x] `RtlAddFunctionTable` failure path is before target patching and only marks registration after success.
 - [x] Patch transaction rollback tests, including protection failure, flush rollback, fatal rollback, and success, passed in CI.
 - [x] Unregister-failure retry test passed in CI.
-- [ ] Independent final audit of every failure edge, including registry ownership, target bytes, page protection, unwind registration, token validity, and retryability.
+- [x] Additional source-level audit reviewed HookCore lease/install/remove/release/destructor paths, native attach/detach ownership, unwind metadata parsing/registration, thread-suspension RAII, and patch-write rollback transaction. No clear defect was identified in those reviewed paths.
+- [ ] Independent reviewer audit of every failure edge, including registry ownership, target bytes, page protection, unwind registration, token validity, and retryability.
 - [ ] Deterministic Windows API failure injection for allocation, registration, protection, and cache flush; current static review/test seams do not inject every system API failure.
 
 ## G. Workflow and quota policy
@@ -77,6 +78,10 @@ The fixture test passed on the validated CI head. This does not replace integrat
 - [x] Release job guarded to a version-tag push.
 - [x] No merge, release, or tag action performed.
 - [x] Avoid redundant Actions runs: current-head Windows matrix and quality gates are green; do not rerun them without a specific code change or need.
+
+## Additional source review note
+
+Reviewed the lifecycle core and backend source after the current-head CI run. The checked paths preserve ownership until successful detach; unregister failure reinstalls the patch and retains retry state; thread suspension is RAII-resumed; fatal rollback uncertainty terminates rather than returning an unsafe state. This is a source review by the current assistant, not an independent human review or injected system-API failure test.
 
 ## Current conclusion
 
