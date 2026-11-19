@@ -1498,6 +1498,16 @@ public:
                         "The trampoline or detour relay could not be made executable");
         }
 
+#if defined(TESSERA_HOOK_X64)
+        // Register unwind metadata before any entry patch can publish the
+        // trampoline to another thread or to HookCore.
+        auto unwind_status = register_trampoline_unwind(
+            *state, block.entry_prefix_size, block);
+        if (!unwind_status) {
+            return std::unexpected(unwind_status.error());
+        }
+#endif
+
         auto suspended_result = SuspendedThreads::acquire(options.threads);
         if (!suspended_result) {
             return std::unexpected(suspended_result.error());
@@ -1601,22 +1611,54 @@ public:
             return thread_status;
         }
 
-        if (std::memcmp(state->patch_target, state->patch_bytes.data(), state->patch_size) != 0) {
-            suspended.resume();
-            return fail(ErrorCode::Conflict,
-                        "NativeInlineHook::detach",
-                        0,
-                        "Target bytes changed");
+#if defined(TESSERA_HOOK_X64)
+        if (!state->target_detached) {
+#endif
+            if (std::memcmp(state->patch_target,
+                            state->patch_bytes.data(),
+                            state->patch_size) != 0) {
+                suspended.resume();
+                return fail(ErrorCode::Conflict,
+                            "NativeInlineHook::detach",
+                            0,
+                            "Target bytes changed");
+            }
+
+            auto restore_status = write_target_bytes(state->patch_target,
+                                                     state->original_bytes.data(),
+                                                     state->patch_bytes.data(),
+                                                     state->patch_size,
+                                                     state->original_protection);
+            if (!restore_status) {
+                return restore_status;
+            }
+#if defined(TESSERA_HOOK_X64)
+            state->target_detached = true;
         }
 
-        auto restore_status = write_target_bytes(state->patch_target,
-                                                 state->original_bytes.data(),
-                                                 state->patch_bytes.data(),
-                                                 state->patch_size,
-                                                 state->original_protection);
-        if (!restore_status) {
-            return restore_status;
+        if (state->unwind_registered &&
+            !::RtlDeleteFunctionTable(&state->unwind_function)) {
+            // A failed unregister must not leave HookCore believing it has
+            // detached while its target is still restored. Reinstall the entry
+            // patch under the same suspended-thread window and retain the
+            // function table + executable allocation for a retry.
+            auto reattach_status = write_target_bytes(state->patch_target,
+                                                      state->patch_bytes.data(),
+                                                      state->original_bytes.data(),
+                                                      state->patch_size,
+                                                      state->original_protection);
+            if (!reattach_status) {
+                std::terminate();
+            }
+            state->target_detached = false;
+            suspended.resume();
+            return fail(ErrorCode::IoError,
+                        "RtlDeleteFunctionTable",
+                        ::GetLastError(),
+                        "The target patch was restored because Windows could not unregister the trampoline unwind table");
         }
+        state->unwind_registered = false;
+#endif
 
         suspended.resume();
         registry.erase(registry_entry);
