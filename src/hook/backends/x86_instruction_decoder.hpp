@@ -494,7 +494,7 @@ struct Encoding {
         } else if (!vector_encoding && opcode2 >= 0x80 && opcode2 <= 0x8F) {
             encoding.relative = true;
             encoding.immediate = Immediate::operand;
-        } else if (!vector_encoding && opcode2 == 0x0A || opcode2 == 0x0C) {
+        } else if (!vector_encoding && (opcode2 == 0x0A || opcode2 == 0x0C)) {
             return false; // Reserved two-byte opcodes; never guess an instruction length.
         } else if (!vector_encoding &&
                    (opcode2 == 0x78 || opcode2 == 0x79) && operand16) {
