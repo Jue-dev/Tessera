@@ -130,8 +130,10 @@ single-backend-image configuration.
 4. Run separate x86 and x64 campaigns with AddressSanitizer and UndefinedBehaviorSanitizer
    where the compiler/runtime combination supports them.
 5. Preserve every crash, timeout, or invariant failure as a regression corpus
-   input. Add a time-bounded scheduled campaign and publish corpus/artifact
-   summaries.
+   input. A weekly Windows x64 Clang libFuzzer + ASan/UBSan workflow and binary
+   seed corpus are now checked in; its first completed run and review of any
+   findings are still required. Separate x86 campaigns and longer campaigns
+   remain outstanding.
 6. Differential-check instruction lengths against an independent trusted
    decoder during tests; keep the independent implementation out of the
    production runtime if the project intends to own its decoder.
