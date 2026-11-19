@@ -650,4 +650,38 @@ def launch_ui():
     display(w.HTML("<hr><small>Güvenlik: Colab sandbox değildir. Workflow komutları runtime üzerinde kod çalıştırır. "
                    "Yalnızca güvendiğin depolarda kullan. Token job adımlarına aktarılmaz. Windows/MSVC native davranışı emüle edilmez.</small>"))
 
-if __name__ == "__main__": launch_ui()
+def run_self_tests():
+    """Quick smoke tests for shell execution, GITHUB_ENV and platform gating."""
+    with tempfile.TemporaryDirectory(prefix="colab-actions-selftest-") as temporary:
+        root = pathlib.Path(temporary)
+        workflow_dir = root / ".github" / "workflows"
+        workflow_dir.mkdir(parents=True, exist_ok=True)
+        workflow_text = "\n".join([
+            "name: Colab runner self-test",
+            "on:",
+            "  workflow_dispatch:",
+            "jobs:",
+            "  smoke:",
+            "    runs-on: ubuntu-latest",
+            "    steps:",
+            "      - name: Write environment file",
+            "        run: echo COLAB_ACTIONS_SMOKE=passed >> \\"$GITHUB_ENV\\"",
+            "      - name: Verify environment is passed between steps",
+            "        run: test \\"$COLAB_ACTIONS_SMOKE\\" = \\"passed\\"",
+        ])
+        (workflow_dir / "smoke.yml").write_text(workflow_text, encoding="utf-8")
+        runner = ColabActionsRunner(root, step_timeout=20, log=lambda _message: None)
+        result = runner.execute(".github/workflows/smoke.yml", "workflow_dispatch", {}, "main")
+        if result.get("status") != "PASS":
+            raise RuntimeError("Runner shell/environment self-test failed: " +
+                               json.dumps(result, ensure_ascii=False))
+        if runner.platform_state("windows-latest")[0] != "BLOCKED_PLATFORM":
+            raise RuntimeError("Runner must block Windows jobs on the Colab Linux platform.")
+        if len(runner.matrix_variants({"strategy": {"matrix": {"arch": ["x86", "x64"]}}})) != 2:
+            raise RuntimeError("Runner matrix expansion self-test failed.")
+    print("Colab Actions runner self-tests: PASS (Linux shell, GITHUB_ENV, matrix, platform gate).")
+
+
+if __name__ == "__main__":
+    run_self_tests()
+    launch_ui()
