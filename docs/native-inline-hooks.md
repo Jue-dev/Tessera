@@ -168,8 +168,11 @@ original_function = nullptr;
   that may call the trampoline later.
   Calls made through `Hook::operator()` hold an internal shared call lease;
   `remove()`, `install()`, and `release()` wait for those calls to finish
-  before changing the callable/trampoline lifetime. The lease does not track
-  direct calls to the patched target or calls through copied function pointers.
+  before changing the callable/trampoline lifetime. Attempting `install()` or
+  `remove()` from inside that same hook's leased invocation returns a conflict;
+  `release()` returns null and leaves ownership unchanged rather than
+  self-deadlocking. The lease does not track direct calls to the patched target
+  or calls through copied function pointers.
   `original()` returns a non-owning raw function pointer and does not acquire
   a lifetime lease. The application must stop new target calls, wait for every
   in-flight detour callback and every raw trampoline call to finish, and only
