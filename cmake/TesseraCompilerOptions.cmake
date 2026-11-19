@@ -11,11 +11,11 @@ function(tessera_verify_cpp23_toolchain)
         message(FATAL_ERROR "Unsupported pointer size: ${CMAKE_SIZEOF_VOID_P}.")
     endif()
 
-    # CheckCXXSourceCompiles does not inherit target compile_features. Explicitly
-    # select the language mode for the compiler used by this configure.
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        set(CMAKE_REQUIRED_FLAGS "-std=c++23")
-    elseif(MSVC)
+    # CheckCXXSourceCompiles does not inherit target compile_features.
+    # Use the active driver's native spelling: clang-cl is Clang by compiler ID,
+    # but it consumes MSVC-style options and must probe with the same language
+    # mode used by the project's MSVC-compatible targets.
+    if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC" OR MSVC)
         set(CMAKE_REQUIRED_FLAGS "/std:c++latest /Zc:__cplusplus")
     else()
         set(CMAKE_REQUIRED_FLAGS "-std=c++23")
@@ -46,7 +46,7 @@ function(tessera_verify_cpp23_toolchain)
         message(FATAL_ERROR
             "Compiler does not support required C++23 library features "
             "(std::expected, std::move_only_function, std::byteswap). "
-            "Requires MSVC 19.38+ or clang-cl 17+ with a compatible standard library.")
+            "Requires a C++23-capable compiler and standard library providing all three library features.")
     endif()
 endfunction()
 
