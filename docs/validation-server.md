@@ -1,63 +1,75 @@
-# Colab-hosted Tessera validation console
+# Colab-hosted project validation console
 
-The console runs a small HTTP server **inside the active Google Colab runtime**.
-The notebook starts the server and prints a Colab port-proxy URL. The user opens
-that URL in a separate browser tab; the validation UI is not rendered inside a
-notebook iframe and commands remain on the Colab runtime.
+The reusable console runs project-defined setup and test commands in the active
+Google Colab runtime. The generic notebook is
+[`Project_Validation_Console.ipynb`](../verify/portable/Project_Validation_Console.ipynb).
+It starts a local HTTP server and prints a Colab port-proxy URL that opens in a
+separate browser tab; the interface is not embedded in a notebook iframe.
 
-This is not a permanent public deployment, VPS, or external tunnel. The proxy
-URL is session-scoped and only works for the current Colab user while the
-notebook/runtime remains available. Runtime disconnections stop the server and
-discard its in-memory job state. A new URL is generated after restarting.
+## Reusable configuration profiles
 
-## Interface
+- Import a versioned JSON profile with **Load profile**.
+- Export the current repository, runtime, setup and test settings with
+  **Export profile** to reuse them in another Colab session or project.
+- Restore the notebook's included defaults with **Restore defaults**.
+- Profiles include the Colab Secret *name*, never the secret/token value.
+  Store credentials in Colab Secrets and review imported shell commands before
+  running them.
+- The included default profile is configured for Tessera. A standalone copy is
+  available at
+  [`tessera.portable-validation.json`](../verify/portable/profiles/tessera.portable-validation.json).
 
-- Standalone responsive web UI, dark by default, with restrained navy/slate
-  surfaces, cyan/teal accents, clear status indicators, and mobile layouts.
-- Repository/ref and Colab Secret configuration.
-- Dynamic setup-command and test rows; no fixed row limit.
-- Server-side clone, setup, and test execution in the notebook runtime.
-- Progress summary, per-step output, and downloadable text report.
+The schema is versioned with `schema_version: 1`. It supports project name,
+repository URL/ref, Colab Secret name, Git username, clone depth, timeouts,
+workspace retention, continue-on-failure, setup commands, and named tests with
+optional executable requirements. The profile is a settings file, not a
+trusted/sandboxed workflow: its commands execute as shell code in Colab.
+
+## Interface and reports
+
+- Generic responsive dark UI with project identity driven by the loaded profile.
+- Dynamic setup-command and test rows.
+- Progress metrics and per-step execution logs.
+- Full text report with both **Copy report** and **Download report** actions,
+  plus an in-page preview and a server-side report text endpoint.
 - No notebook iframe and no third-party UI/CDN dependency.
 
 ## Server and access model
 
-- The server binds to the Colab kernel and is exposed only through Colab's
-  authenticated port proxy. The generated URL includes a high-entropy,
-  per-runtime path secret; it is not a reusable deployment URL.
-- No public tunnel, port-forwarding service, or separate VPS is created.
-- The server stops when the Colab runtime stops. The URL is not intended for
-  sharing with other users.
-- The UI path secret is separate from the GitHub token. Never paste the GitHub
-  token into the UI URL.
-- Colab's own browser/port-proxy behavior can change. The notebook prints the
-  runtime-generated URL and a direct open-in-new-tab link. If Colab or the
-  browser blocks opening a separate tab, use the visible URL in a new tab; do
-  not fall back to a public tunnel.
+- The server binds inside the active Colab runtime and is exposed through
+  Colab's authenticated port proxy. The generated URL contains a high-entropy,
+  per-runtime path secret.
+- No public tunnel, port-forwarding service, VPS, or permanent deployment is
+  created. The URL expires when the runtime stops.
+- The session URL is not intended for sharing with other users. The GitHub
+  token is never placed in the URL.
+- If the browser blocks opening a separate tab, copy the printed URL into a
+  new tab.
 
 ## Security and execution
 
-- Add the GitHub token to Colab Secrets (default name `GH_TOKEN`). The token
-  is used only for cloning via a temporary askpass helper; the helper is
-  deleted and credential environment variables are not passed to setup/tests.
-- Test processes receive a sanitized copy of the runtime environment. Tokens,
-  passwords, and secret-named environment variables are removed.
-- Colab Secrets are **not an isolation boundary** against arbitrary code
-  running in the same notebook runtime. Malicious setup/test code can interact
-  with notebook APIs and potentially access secrets. Run only trusted
-  repositories and commands; do not run untrusted pull-request code in a
-  runtime where a token is available.
-- Enforce clone/test timeouts, output clipping, credential redaction, and
-  optional workspace cleanup.
-- Runtime files are ephemeral. Download reports before disconnecting.
+- Add a GitHub token to Colab Secrets (the default name is `GH_TOKEN`). It is
+  used for repository checkout through a temporary askpass helper that is
+  deleted after cloning.
+- Setup/test processes receive a sanitized environment. Token, password and
+  credential-named environment variables are removed before commands execute.
+- Colab Secrets are **not an isolation boundary** against arbitrary code in
+  the same runtime. Malicious setup/test commands can interact with notebook
+  APIs and may access secrets. Run only trusted repositories and commands.
+- Clone and step timeouts, output clipping, credential redaction and optional
+  workspace cleanup are applied.
+- Runtime state and files are ephemeral. Download or copy reports before
+  disconnecting.
 
-## Current Tessera portable test profile
+## Tessera default profile limits
 
-1. GCC strict mock: `bash verify/windows_mock/run_windows_mock_tests.sh`
-2. Clang/libc++ strict mock:
-   `EXTRA_CXXFLAGS='-stdlib=libc++' CXX=clang++ bash verify/windows_mock/run_windows_mock_tests.sh`
-3. GCC ASan/UBSan:
-   `EXTRA_CXXFLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer' ASAN_OPTIONS='detect_leaks=1:halt_on_error=1' UBSAN_OPTIONS='halt_on_error=1:print_stacktrace=1' bash verify/windows_mock/run_windows_mock_tests.sh`
+The included profile runs the portable Linux mock suite only. A Linux mock
+`PASS` is not evidence of native Windows/MSVC behavior. The following still
+require a Windows runner:
 
-Portable Linux mock tests are supplementary. They do not validate native Windows
-/MSVC, loader, unwind registration, executable-memory, or hook lifecycle behavior.
+- x86/x64 Debug and Release CMake builds plus CTest
+- Native inline-hook attach, trampoline execution, detach and rollback
+- x64 unwind/function-table registration and exception behavior
+- DLL unload/admission-drain lifecycle tests
+- Live Microsoft Detours integration
+- MSVC static analysis and Windows SDK install/consumer checks
