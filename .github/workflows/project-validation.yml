@@ -36,7 +36,9 @@ jobs:
         run: |
           python3 - <<'PY'
           import json, os, pathlib
-          p=pathlib.Path(os.environ["PROFILE"])
+          p=pathlib.Path(os.environ["PROFILE"]).resolve()
+          root=pathlib.Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          if root not in p.parents: raise SystemExit("Profile path must stay within the repository")
           if not p.is_file(): raise SystemExit(f"Profile not found: {p}")
           cfg=json.loads(p.read_text())
           if cfg.get("schema_version") != 1: raise SystemExit("Unsupported profile schema")
@@ -44,7 +46,8 @@ jobs:
           ref=os.environ.get("TARGET_REF","").strip() or cfg.get("ref","")
           if repo.startswith("https://github.com/"): repo=repo.removeprefix("https://github.com/").removesuffix(".git")
           if not repo or "/" not in repo or repo.startswith("-"): raise SystemExit("Repository must be owner/name or a GitHub HTTPS URL")
-          if any(part in repo for part in ("..","\\"," ")): raise SystemExit("Invalid repository name")
+          if any(part in repo for part in ("..","\\"," ","\n","\r")): raise SystemExit("Invalid repository name")
+          if "\n" in ref or "\r" in ref: raise SystemExit("Invalid ref")
           with open(os.environ["GITHUB_OUTPUT"],"a") as f:
             f.write(f"repository={repo}\n")
             f.write(f"ref={ref}\n")
