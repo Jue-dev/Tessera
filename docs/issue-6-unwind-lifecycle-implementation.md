@@ -127,48 +127,19 @@ protocol.
 
 ## Validation evidence
 
-- Current PR head at this record: `fe86b50a797ec89676ca9dc1402cc3f0b617ef19` (subsequent checklist/PR-description commits are documentation-only).
+- Exact PR head validated: `f4cc4d1715cef026585cf14650659981f891ace4`.
+- Current-head CI run [#44561390158](https://github.com/Jue-dev/Tessera/actions/runs/44561390158) succeeded: x86/x64 Debug/Release matrix, CTest, SDK staging, Detours x86/x64, no-RTTI quality gate, MSVC /analyze, and package checks. Release publication skipped as expected.
+- The current-head run validates the expanded unwind tests, source-metadata bounds checks, ENDBR boundary rejection, bounded unwind-slot serialization, unregister retry, patch rollback tests, and DLL unload-order fixture at aggregate CTest level.
+- Artifacts were uploaded for all four SDK configurations.
+- The separate five-minute Clang libFuzzer + ASan/UBSan campaign has **not** been run on this exact head. The earlier campaign is not current-head evidence.
+- A green CI run is not proof of real host integration: the fixture verifies a controlled admission/drain sequence, but the application must gate every target entry and raw/escaped trampoline use.
 
-- PR Smoke #96 passed x64 Release, x86 Release, x64 Debug, and x86 Debug on
-  commit ad8a378d994522d7bebabde5a70d9330298fac33.
-- The x64 Release deterministic native-hook smoke passed in that same run.
-- Native Hook Coverage-Guided Fuzz run #8 completed the bounded Windows x64
-  clang-cl libFuzzer + ASan/UBSan campaign successfully on that same earlier
-  commit; artifact native-hook-libfuzzer-8 was uploaded.
-- The expanded unwind tests, including far/multi-slot unwind operations,
-  PUSH_MACHFRAME, readable-metadata/function-bound checks, ENDBR boundary
-  rejection, version-2/reserved-opcode rejection, and x86 preprocessor-guard
-  correction were added after that green commit.
-  They have not been validated on the current head.
-- The repository's Actions allowance is currently unavailable. Queued,
-  skipped, cancelled, runner-less, or unsuccessful workflow records are not
-  evidence of a passing test.
-- The current exact-head test gates and expected evidence are recorded in
-  docs/issue-6-ci-validation-checklist.md.
+## Current status
 
-## Current exact pause point
+The Windows CI matrix and full quality gates are green on the exact PR head. Remaining work is a source-level independent failure-path audit, real host admission/drain/unload acceptance, and current-head sustained sanitizer campaign if Actions quota permits. The separate checklist is refreshed to reflect evidence and remaining gates.
 
-The latest source additions include strict ENDBR `CodeOffset` rejection, a
-six-case malformed-metadata regression test, bounded byte-span serialization
-for unwind slots (removing `UnwindCode[1]` out-of-bounds indexing), and a real
-DLL unload-order test. Existing unregister-retry and patch-write rollback
-regression tests are already present; they still need exact-head Windows CI.
-The DLL fixture is built as a separate CMake shared-library target and the test
-checks active callback drain, successful detach, `FreeLibrary`, and continued
-operation of the original target. Static ownership audits for allocation and
-`RtlAddFunctionTable` failure cleanup are documented.
-No Windows validation has been run on the current head because the Actions
-quota is unavailable. Source-level review of the DLL fixture, CMake path quoting, x86 decorated export
-fallback, unload checks, function-pointer conversion, and unwind-slot byte
-bounds is complete. The next
-step is not another code edit: run the exact-head four-way Windows matrix once
-when Actions allowance is restored, then dispatch the five-minute Clang fuzz
-campaign separately. Do not mark CI checkboxes as passed before those runs.
+The PR remains draft and Issue #6 remains open. No merge or release has been performed.
 
 ## Definition of done
 
-Do not close Issue #6 until the current-head PR Smoke and fuzz validations pass,
-the full quality gates are reviewed, the host-side admission/module-unload
-contract is validated, failure paths have sufficient deterministic coverage or
-a rigorous documented proof, and the final safety audit is complete. This PR
-remains draft; no merge or release is performed here.
+Do not close Issue #6 until the current-head Windows matrix and required fuzz validation have evidence, full quality gates are reviewed, host-side admission/module-unload integration is validated, and the final failure-path audit is complete or remaining limitations are explicitly accepted.
