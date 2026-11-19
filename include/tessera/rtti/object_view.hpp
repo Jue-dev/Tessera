@@ -48,11 +48,17 @@ public:
         if (f == nullptr) {
             return fail(ErrorCode::NotFound, "ObjectView::read_field", 0, "Field not found in TypeInfo");
         }
-        if (!field_in_bounds(*f) || sizeof(T) > f->size) {
+        if (!field_in_bounds(*f)) {
+            return fail(ErrorCode::OutOfRange,
+                        "ObjectView::read_field",
+                        0,
+                        "Reflected field lies outside the object size");
+        }
+        if (sizeof(T) > f->size) {
             return fail(ErrorCode::InvalidArgument,
                         "ObjectView::read_field",
                         0,
-                        "Requested type size exceeds reflected field or object bounds");
+                        "Requested type size exceeds the reflected field size");
         }
         auto addr = field_address(field_name);
         if (!addr) {
@@ -67,11 +73,17 @@ public:
         if (f == nullptr) {
             return fail(ErrorCode::NotFound, "ObjectView::write_field", 0, "Field not found in TypeInfo");
         }
-        if (!field_in_bounds(*f) || sizeof(T) > f->size) {
+        if (!field_in_bounds(*f)) {
+            return fail(ErrorCode::OutOfRange,
+                        "ObjectView::write_field",
+                        0,
+                        "Reflected field lies outside the object size");
+        }
+        if (sizeof(T) > f->size) {
             return fail(ErrorCode::InvalidArgument,
                         "ObjectView::write_field",
                         0,
-                        "Written type size exceeds reflected field or object bounds");
+                        "Written type size exceeds the reflected field size");
         }
         auto addr = field_address(field_name);
         if (!addr) {
@@ -85,12 +97,17 @@ public:
         if (f == nullptr || !has_flag(f->flags, reflection::FieldFlags::Bitfield) ||
             f->bit_width == 0 || f->bit_width > 64 ||
             (f->size != 1 && f->size != 2 && f->size != 4 && f->size != 8) ||
-            f->bit_offset >= f->size * 8 || f->bit_width > f->size * 8 - f->bit_offset ||
-            !field_in_bounds(*f)) {
+            f->bit_offset >= f->size * 8 || f->bit_width > f->size * 8 - f->bit_offset) {
             return fail(ErrorCode::InvalidArgument,
                         "ObjectView::read_bitfield",
                         0,
                         "Invalid bitfield metadata or bit range");
+        }
+        if (!field_in_bounds(*f)) {
+            return fail(ErrorCode::OutOfRange,
+                        "ObjectView::read_bitfield",
+                        0,
+                        "Reflected bitfield lies outside the object size");
         }
         auto addr = field_address(field_name);
         if (!addr) {

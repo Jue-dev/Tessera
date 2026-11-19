@@ -382,11 +382,15 @@ jobs:
           if ($campaignText -notmatch "stat::number_of_executed_units:\s*[1-9][0-9]*") {
             throw "x86 MSVC Fuzzer did not report executed input units."
           }
-          if ($campaignText -notmatch "cov:\s*[1-9][0-9]*") {
-            throw "x86 MSVC Fuzzer did not report non-zero coverage."
+          # MSVC's Fuzzer reports discovered coverage features as "ft:", not
+          # libFuzzer's LLVM-specific "cov:" field. Validate the final DONE line.
+          $featureSummary = [regex]::Match($campaignText, "DONE\s+ft:\s*([1-9][0-9]*)")
+          if (-not $featureSummary.Success) {
+            throw "x86 MSVC Fuzzer did not report non-zero coverage features in its final DONE summary."
           }
+          $coverageFeatures = [UInt64]$featureSummary.Groups[1].Value
 
-          Write-Host "x86 MSVC Fuzzer summary: $executedRuns executions in $elapsedSeconds seconds."
+          Write-Host "x86 MSVC Fuzzer summary: $executedRuns executions in $elapsedSeconds seconds; $coverageFeatures coverage features."
           Get-Content $campaignLog -Tail 40 | ForEach-Object { Write-Host $_ }
           Write-Host "Full x86 campaign log: $campaignLog"
 

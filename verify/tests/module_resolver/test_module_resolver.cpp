@@ -161,13 +161,13 @@ TEST_CASE("Resolver rejects overflowing instruction and operand offsets", "[reso
     Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
     ProcessAddress address{process, Address{0x400100}};
 
-    auto bad_rel32 = resolve::rel32(address,
-        (std::numeric_limits<std::size_t>::max)(), 5);
+    auto bad_rel32 = resolve::rel32(
+        (std::numeric_limits<std::size_t>::max)(), 5)(address);
     REQUIRE_FALSE(bad_rel32.has_value());
     REQUIRE(bad_rel32.error().code == ErrorCode::InvalidArgument);
 
-    auto bad_instruction_length = resolve::rel32(address, 1,
-        (std::numeric_limits<std::size_t>::max)());
+    auto bad_instruction_length = resolve::rel32(
+        1, (std::numeric_limits<std::size_t>::max)())(address);
     REQUIRE_FALSE(bad_instruction_length.has_value());
     REQUIRE(bad_instruction_length.error().code == ErrorCode::InvalidArgument);
 }
