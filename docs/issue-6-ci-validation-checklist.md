@@ -49,7 +49,7 @@ Run the complete `[hook][native][unwind]` test group, not just the new cases.
 - [ ] An unwind CodeOffset equal to the preserved ENDBR64 prefix length is
   rejected; ENDBR cannot complete a stack-changing unwind operation.
 - [ ] Version-2 unwind metadata and reserved version-1 opcodes fail closed
-  before target bytes change.
+  before target bytes change (covered in the malformed-metadata regression case).
 - [ ] A stolen patch that crosses the source function end is rejected before
   target bytes change.
 - [ ] A truncated/unreadable extra unwind-code slot is rejected without an
@@ -64,7 +64,7 @@ Relevant regression tests (exact names):
 - `Native x64 trampoline maps far UWOP_SAVE_NONVOL and UWOP_ALLOC_LARGE`
 - `Native x64 trampoline maps far UWOP_SAVE_XMM128 and UWOP_ALLOC_LARGE`
 - `Native x64 trampoline maps UWOP_PUSH_MACHFRAME with and without error code`
-- `Native x64 unwind rejects unsupported, malformed, and prefix-boundary source metadata`
+- `Native x64 unwind rejects unsupported, malformed, and prefix-boundary source metadata` (EHANDLER, CHAININFO, instruction-interior offset, ENDBR boundary, version 2, reserved opcode)
 - `Native x64 trampoline maps ALLOC_LARGE and SET_FPREG together`
 - `Native x64 trampoline restores a saved nonvolatile XMM register`
 - `Native x64 unwind rejects a stolen patch that crosses the source function end`

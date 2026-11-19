@@ -28,14 +28,14 @@ Windows matrix. Do not treat skipped or unstarted checks as passing.
 | Work item | Status | Evidence / next step |
 |---|---|---|
 | x64 dynamic trampoline unwind registration | [x] Implemented | Stable RUNTIME_FUNCTION and UNWIND_INFO storage; register before publishing the target patch |
-| Version-1 unwind translation | [x] Implemented | Supported code offsets mapped through exact relocated instruction boundaries; multi-slot payloads copied |
+| Version-1 unwind translation | [x] Implemented | Supported code offsets mapped through exact relocated instruction boundaries; multi-slot payloads copied; offsets at/before preserved ENDBR rejected |
 | Fail-closed unwind validation | [x] Implemented | Unsupported version/opcodes, handler/chained records, malformed slot streams, non-entry targets, and unmappable offsets rejected |
 | Source metadata memory bounds | [x] Implemented | Validate runtime-function record, unwind header, and full unwind-code array are in committed readable memory |
 | Source function bounds | [x] Implemented | Reject stolen prologue ranges that extend past the registered source function before writing target bytes |
 | No-source-record policy | [x] Implemented | Only audited stack-neutral leaf subset accepted; unsupported dynamic prologues rejected |
 | Detach/unregister retry | [x] Implemented | On unregister failure, reinstate the patch and retain registration, allocation, registry ownership, and retryable token |
 | Explicit callable lease API | [x] Implemented | Hook::acquire(), get(), and target(); non-copyable, non-movable, thread-affine |
-| Expanded x64 unwind regression tests | [x] Added; CI pending | ALLOC_LARGE, PUSH_NONVOL, SAVE_NONVOL, SET_FPREG, SAVE_XMM128, function-boundary rejection, and unreadable-slot rejection |
+| Expanded x64 unwind regression tests | [x] Added; CI pending | ALLOC_LARGE (near/far), PUSH_NONVOL, SAVE_NONVOL (near/far), SET_FPREG, SAVE_XMM128 (near/far), PUSH_MACHFRAME (both OpInfo values), source bounds/readability, handler/chained/version2/reserved opcode and ENDBR-boundary rejection |
 | x86/x64 preprocessor separation | [x] Corrected; CI pending | Balanced x64-only guards; the x86 matrix must confirm x64 fixture exclusion |
 | Windows x86/x64 Debug/Release on current head | [ ] Deferred | Actions quota unavailable; see the separate CI checklist |
 | Five-minute Clang libFuzzer + ASan/UBSan on current head | [ ] Deferred | Previous run passed on an earlier commit, not this head |
@@ -129,14 +129,27 @@ protocol.
 - Native Hook Coverage-Guided Fuzz run #8 completed the bounded Windows x64
   clang-cl libFuzzer + ASan/UBSan campaign successfully on that same earlier
   commit; artifact native-hook-libfuzzer-8 was uploaded.
-- The expanded unwind tests, readable-metadata checks, function-bound checks,
-  and x86 preprocessor-guard correction were added after that green commit.
+- The expanded unwind tests, including far/multi-slot unwind operations,
+  PUSH_MACHFRAME, readable-metadata/function-bound checks, ENDBR boundary
+  rejection, version-2/reserved-opcode rejection, and x86 preprocessor-guard
+  correction were added after that green commit.
   They have not been validated on the current head.
 - The repository's Actions allowance is currently unavailable. Queued,
   skipped, cancelled, runner-less, or unsuccessful workflow records are not
   evidence of a passing test.
 - The current exact-head test gates and expected evidence are recorded in
   docs/issue-6-ci-validation-checklist.md.
+
+## Current exact pause point
+
+The latest source change is the strict ENDBR `CodeOffset` rejection and its
+six-case malformed-metadata regression test. Static audit of temporary
+allocation ownership and `RtlAddFunctionTable` failure cleanup is documented.
+No Windows validation has been run on the current head because the Actions
+quota is unavailable. Next work is a final source-level audit of the host
+admission/unload boundary and checking the current-head commit; when Actions is
+available, run the dedicated four-way matrix once, then the five-minute fuzz
+campaign separately. Do not mark CI checkboxes as passed before those runs.
 
 ## Definition of done
 
