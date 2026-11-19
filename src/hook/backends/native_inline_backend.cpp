@@ -628,6 +628,18 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
             static_cast<unsigned int>(opcode - 0xB8u) + ((rex & 0x01u) != 0u ? 8u : 0u);
         return is_volatile_gpr(reg);
     }
+    if (opcode == 0x80u || opcode == 0x81u || opcode == 0x83u) {
+        if (cursor >= instruction.length) {
+            return false;
+        }
+        const auto modrm = std::to_integer<std::uint8_t>(code[cursor]);
+        const unsigned int mod = (modrm >> 6u) & 0x03u;
+        const unsigned int rm_field =
+            (modrm & 0x07u) + ((rex & 0x01u) != 0u ? 8u : 0u);
+        // Group-1 immediate arithmetic is leaf-compatible only when it writes
+        // a volatile register, never RSP/RBP or a nonvolatile register.
+        return mod == 0x03u && is_volatile_gpr(rm_field);
+    }
     if (opcode <= 0x3Fu) {
         const unsigned int form = opcode & 0x07u;
         if (form == 0u || form == 1u || form == 2u || form == 3u) {
