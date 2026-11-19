@@ -391,7 +391,20 @@ class ColabActionsRunner:
             self.update_env(env); self.read_step_outputs(env, step); self.cleanup_env(env); return [result]
         except Exception as exc: return [StepResult(name, "FAIL", 0, 1, str(exc))]
     def execute(self, workflow_path, event_name="workflow_dispatch", inputs=None, ref="main"):
-        self.read_workflow(workflow_path); self.event_name = event_name; self.inputs = mp(inputs)
+        self.read_workflow(workflow_path); self.event_name = event_name; self.inputs = mp(inputs).copy()
+        if event_name == "workflow_dispatch":
+            for input_name, raw_config in self.dispatch_inputs().items():
+                config = mp(raw_config)
+                value = self.inputs.get(input_name, config.get("default", ""))
+                if value in (None, "") and config.get("default") not in (None, ""):
+                    value = config.get("default")
+                if truth(config.get("required")) and value in (None, ""):
+                    raise ValueError("Required workflow_dispatch input is missing: " + input_name)
+                if s(config.get("type")) == "choice" and value not in (None, ""):
+                    options = [s(option) for option in seq(config.get("options"))]
+                    if s(value) not in options:
+                        raise ValueError("Invalid choice for workflow_dispatch input " + input_name)
+                self.inputs[input_name] = value
         self.event_ref = ref if str(ref).startswith("refs/") else "refs/heads/" + str(ref); self.event_sha = self.git_sha()
         self.job_results = []; self.warnings = []; self.env_global = {}; self._run_failed = False
         if self.workflow.get("concurrency"): self.warnings.append("Concurrency groups are not emulated.")
