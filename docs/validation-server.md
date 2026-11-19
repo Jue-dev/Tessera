@@ -11,12 +11,14 @@ separate browser tab; the interface is not embedded in a notebook iframe.
 - Import a versioned JSON profile with **Load profile**.
 - Export the current repository, runtime, setup and test settings with
   **Export profile** to reuse them in another Colab session or project.
-- Clear the configuration with **Restore defaults**. The notebook starts blank.
+- **Restore defaults** clears all project, setup and test fields. The notebook starts blank.
 - Profiles include the Colab Secret *name*, never the secret/token value.
   Store credentials in Colab Secrets and review imported shell commands before
   running them.
-- The included default profile is configured for Tessera. A standalone copy is
-  available at
+- GitHub profile loading is configurable by repository (`owner/name`), file path,
+  branch/tag/commit ref, and optional Colab Secret name. Public repositories work
+  without a token; private repositories require a token with read access. Tessera's
+  profile is available at
   [`tessera.portable-validation.json`](../verify/portable/profiles/tessera.portable-validation.json).
 
 The schema is versioned with `schema_version: 1`. It supports project name,
