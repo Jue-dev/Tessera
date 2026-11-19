@@ -29,24 +29,43 @@ correct implementation and Windows tests.
 
 ### M1 — Unwind metadata model (x64 only)
 
-- Add a private representation for a generated trampoline's
-  `RUNTIME_FUNCTION` and `UNWIND_INFO` storage.
-- Keep metadata allocation separate from executable allocation and ensure both
-  are owned by the hook state.
-- Register with `RtlAddFunctionTable` only after code and metadata are fully
-  initialized and before publishing the trampoline.
-- Unregister with `RtlDeleteFunctionTable` only after successful detach and
-  call quiescence; if unregister fails, retain resources and fail safely.
-- Initially support only unwind operations that can be mapped exactly through
-  the relocation map. Reject chained records, language handlers, handler data,
-  unsupported unwind versions/opcodes, and ambiguous mappings before target
-  bytes are modified.
-- Do not synthesize unwind codes for instructions unless the backend can prove
-  the prologue operation and its relocated end offset.
+**Runtime implementation added; Windows execution validation pending.**
+
+- Each native hook state owns its stable `RUNTIME_FUNCTION` entry and its
+  `UNWIND_INFO` bytes in the trampoline allocation.
+- The backend resolves the source function with
+  `RtlLookupFunctionEntry`, requires the hook target to be the function entry,
+  and translates each copied unwind operation's `CodeOffset` through the
+  decoder/relocator instruction-boundary map.
+- Version-1 unwind operations are copied with their extra slots preserved.
+  Handler/chained records, unknown/version-2 operations, malformed streams,
+  non-boundary mappings, and non-entry targets fail before the target patch.
+- For code without a source runtime-function entry, only a small audited
+  stack-neutral leaf-instruction subset is accepted; other dynamic code fails
+  closed rather than receiving guessed unwind semantics.
+- `RtlAddFunctionTable` runs after trampoline code and metadata initialization
+  and before the entry patch is published.
+- Detach restores the target, drains the supported call lease path, and then
+  unregisters. If unregister fails, the entry patch is reinstated and the token
+  and metadata remain available for retry.
+- Added an x64 SEH integration test that raises a breakpoint from relocated
+  prologue code and checks the translated `UWOP_ALLOC_SMALL` offset. The test
+  must still pass in the actual Windows CI matrix before this milestone is
+  considered validated.
 
 ### M2 — Call admission and drain
 
-**Partial implementation:** `Hook::acquire()` now returns a non-copyable, non-movable scoped callable lease. Its `get()` exposes the current callable only while the lease is alive; lifecycle operations take the exclusive lock and wait for the lease. A deterministic test exercises explicit lease acquisition and remove/drain ordering. This is not a complete host admission barrier and cannot track pointers that escape the scope.
+**Partial implementation:** `Hook::acquire()` returns a non-copyable,
+non-movable scoped callable lease. Its `get()` exposes the current callable
+while the lease is alive; lifecycle operations take the exclusive lock and wait
+for the lease. A deterministic concurrent test exercises explicit lease
+acquisition and remove/drain ordering. This does not create a complete host
+admission barrier and cannot track pointers that escape the scope.
+
+Native detach also retains the function-table registration and allocation until
+the target patch is restored and the backend's thread-coordination check has
+completed. The host must still gate new target entries and quiesce direct/raw
+trampoline calls before removal or module unload.
 
 - Add an explicit RAII lease API for calls routed through Tessera. A lease
   exposes the callable pointer while retaining the lifecycle lock until its
