@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Colab-side GitHub Actions compatibility runner; not a security sandbox."""
 from __future__ import annotations
-import ast, fnmatch, glob, itertools, json, os, pathlib, re, shutil, subprocess, sys, tempfile, threading, time, zipfile
+import ast, fnmatch, glob, html, itertools, json, os, pathlib, re, shutil, subprocess, sys, tempfile, threading, time, zipfile
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 import yaml
@@ -78,6 +78,10 @@ class ColabActionsRunner:
         try:
             self.emit("Cloning " + full + " (" + (ref or "default") + ")")
             proc = subprocess.run(cmd, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=600)
+            if proc.returncode == 0 and ref and re.fullmatch(r"[0-9a-fA-F]{7,40}", ref):
+                proc = subprocess.run(["git", "fetch", "--depth", "1", "origin", ref], cwd=dest, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=600)
+                if proc.returncode == 0:
+                    proc = subprocess.run(["git", "checkout", "--detach", "FETCH_HEAD"], cwd=dest, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=180)
             if proc.returncode and ref and re.fullmatch(r"[0-9a-fA-F]{7,40}", ref):
                 shutil.rmtree(dest, ignore_errors=True)
                 base = ["git", "clone", "--no-tags"] + (["--depth", str(depth)] if depth else []) + [url, str(dest)]
@@ -505,7 +509,7 @@ def launch_ui():
     status = w.HTML("<b>Durum:</b> Hazır"); plan_out = w.Output(); logs = w.Output(layout=w.Layout(height="350px", overflow="auto")); report_out = w.Output()
     download = w.Button(description="Raporları indir", icon="download", disabled=True)
     state = {"runner":None,"workspace":None,"input_widgets":{},"cancel":None,"paths":None}
-    def say(msg, color="#d4a017"): status.value = "<b>Durum:</b> <span style='color:"+color+"'>"+msg+"</span>"
+    def say(msg, color="#d4a017"): status.value = "<b>Durum:</b> <span style='color:"+color+"'>"+html.escape(str(msg))+"</span>"
     def get_token():
         if not in_colab: return ""
         try: return userdata.get(secret.value.strip() or "GH_TOKEN") or ""
@@ -553,7 +557,7 @@ def launch_ui():
             elif kind=="boolean": control=w.Checkbox(value=truth(default),description=key)
             else: control=w.Text(value=default,description=key,layout=w.Layout(width="85%"))
             control.tooltip=desc; by_name[key]=control
-            controls.append(w.VBox([w.HTML("<small>"+desc+(" <b>(required)</b>" if truth(cfg.get("required")) else "")+"</small>"),control]))
+            controls.append(w.VBox([w.Label(desc + (" (required)" if truth(cfg.get("required")) else "")),control]))
         inputs_box.children=controls or [w.HTML("<i>Workflow input tanımlanmamış.</i>")]; state["input_widgets"]=by_name
     def selected_workflow(ch):
         runner=state["runner"]
