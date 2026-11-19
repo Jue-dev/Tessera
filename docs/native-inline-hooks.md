@@ -242,6 +242,10 @@ The Windows validation workflows run at multiple stages:
 and x64 Debug and Release build/test jobs. `.github/workflows/ci.yml` performs
 the full x86/x64 Debug and Release matrix, the `/GR-` quality gate (including
 fuzz/benchmark smoke targets), Detours integration, and MSVC static analysis.
-The full workflow runs for qualifying source/build pushes to `main`, version
-tags, manual dispatch, and its weekly schedule. A successful Debug smoke job
-does not replace the Release, Detours, or static-analysis checks.
+The separate `.github/workflows/native-hook-fuzz.yml` workflow runs a bounded
+five-minute Windows x64 Clang libFuzzer campaign with production-code
+coverage, ASan/UBSan, checked-in binary seeds, and uploaded corpus/crash
+artifacts. It is scheduled weekly and can be started manually; its first
+completed run still needs review before treating the campaign as validated.
+A successful PR smoke job does not replace the Release, Detours, static-analysis,
+long-running fuzz, or real application integration checks.
