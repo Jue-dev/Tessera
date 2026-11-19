@@ -60,7 +60,7 @@ jobs:
 
       - name: Generate PE test fixtures
         shell: pwsh
-        run: .\\verify\\windows\\generate_test_fixtures.ps1 -OutputDirectory .\\verify\\tests\\fixtures
+        run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
 
       - name: Configure (${{ matrix.preset }})
         run: cmake --preset ${{ matrix.preset }}
@@ -111,7 +111,7 @@ jobs:
         shell: pwsh
         run: |
           $resource = (clang-cl -print-resource-dir).Trim()
-          $runtimeDir = Join-Path $resource "lib\\windows"
+          $runtimeDir = Join-Path $resource "lib\windows"
           Write-Host "Clang resource directory: $resource"
           Write-Host "Runtime library directory: $runtimeDir"
           if (-not (Test-Path $runtimeDir)) { throw "Missing Clang Windows runtime directory: $runtimeDir" }
@@ -127,20 +127,20 @@ jobs:
       - name: Run bounded coverage-guided campaign
         shell: pwsh
         run: |
-          $seedSource = Join-Path $env:GITHUB_WORKSPACE "verify\\fuzz\\corpus\\native_hook"
-          $artifactRoot = Join-Path $env:GITHUB_WORKSPACE "artifacts\\native-hook-fuzz"
+          $seedSource = Join-Path $env:GITHUB_WORKSPACE "verify\fuzz\corpus\native_hook"
+          $artifactRoot = Join-Path $env:GITHUB_WORKSPACE "artifacts\native-hook-fuzz"
           $corpus = Join-Path $artifactRoot "corpus"
           $crashes = Join-Path $artifactRoot "crashes"
           New-Item -ItemType Directory -Path $corpus -Force | Out-Null
           New-Item -ItemType Directory -Path $crashes -Force | Out-Null
           Copy-Item -Path (Join-Path $seedSource "*") -Destination $corpus -Recurse -Force
-          $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz\\verify\\fuzz\\tessera_fuzz_native_hook.exe"
+          $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz\verify\fuzz\tessera_fuzz_native_hook.exe"
           if (-not (Test-Path $target)) { throw "Missing native-hook fuzzer: $target" }
           $resource = (clang-cl -print-resource-dir).Trim()
-          $asanDll = Join-Path $resource "lib\\windows\\clang_rt.asan_dynamic-x86_64.dll"
+          $asanDll = Join-Path $resource "lib\windows\clang_rt.asan_dynamic-x86_64.dll"
           if (-not (Test-Path $asanDll)) { throw "Missing ASan runtime DLL: $asanDll" }
           Copy-Item $asanDll (Split-Path $target -Parent) -Force
-          & $target $corpus "-max_total_time=${{ inputs.campaign_seconds }}" "-timeout=10" "-max_len=96" "-rss_limit_mb=4096" "-seed=20261119" "-print_final_stats=1" "-artifact_prefix=$crashes\\"
+          & $target $corpus "-max_total_time=${{ inputs.campaign_seconds }}" "-timeout=10" "-max_len=96" "-rss_limit_mb=4096" "-seed=20261119" "-print_final_stats=1" "-artifact_prefix=$crashes\"
           if ($LASTEXITCODE -ne 0) { throw "Coverage-guided native-hook fuzzing failed ($LASTEXITCODE)" }
 
       - name: Upload fuzz corpus and crash artifacts

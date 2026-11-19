@@ -12,8 +12,8 @@ on:
 permissions:
   contents: read
 
-# A newer commit on the same PR replaces an older smoke run instead of
-# creating an unbounded queue of Windows runners.
+# Manual dispatch runs the selected branch once; ordinary PR commits do not
+# start a Windows matrix and consume runner allowance.
 concurrency:
   group: tessera-pr-smoke-${{ github.ref }}
   cancel-in-progress: true
@@ -69,7 +69,7 @@ jobs:
         run: ctest --preset ${{ matrix.preset }} --output-on-failure
 
       - name: Run deterministic native-hook fuzz stress corpus
-        if: matrix.preset == 'x64-release'
+        if: matrix.preset == 'x64-release' && inputs.include_deterministic_fuzz
         shell: pwsh
         run: |
           $target = "artifacts/x64/Release/build/verify/fuzz/tessera_fuzz_native_hook.exe"
