@@ -793,7 +793,7 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
         }
 
         const auto* const source_info =
-            reinterpret_cast<const UNWIND_INFO*>(image_base + source_function->UnwindData);
+            reinterpret_cast<const NativeUnwindInfo*>(image_base + source_function->UnwindData);
         if ((source_info->VersionAndFlags & 0x07u) != 1u ||
             (source_info->VersionAndFlags >> 3u) != 0u) {
             return fail(ErrorCode::UnsupportedInstruction,
@@ -837,7 +837,7 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
                 }
                 std::memcpy(&unwind_info->UnwindCode[output_slot],
                             &source_info->UnwindCode[input_slot],
-                            slots * sizeof(UNWIND_CODE));
+                            slots * sizeof(NativeUnwindCode));
                 unwind_info->UnwindCode[output_slot].CodeOffset = mapped_offset;
                 if ((source_code.Operation & 0x0Fu) == kUnwindOpSetFpReg) {
                     copied_frame_setup = true;
