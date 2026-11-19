@@ -778,6 +778,7 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
         std::size_t input_slot = 0u;
         std::size_t output_slot = 0u;
         std::uint8_t previous_code_offset = (std::numeric_limits<std::uint8_t>::max)();
+        bool source_frame_setup = false;
         bool copied_frame_setup = false;
         while (input_slot < source_info->CountOfCodes) {
             const UNWIND_CODE& source_code = source_info->UnwindCode[input_slot];
@@ -792,6 +793,7 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
                             "The source unwind-code stream is malformed or uses an unsupported opcode");
             }
             previous_code_offset = source_code.CodeOffset;
+            source_frame_setup |= source_code.UnwindOp == UWOP_SET_FPREG;
 
             if (source_code.CodeOffset <= source_patch_end) {
                 std::uint8_t mapped_offset = 0u;
@@ -839,6 +841,12 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
             mapped_prolog_size = static_cast<std::uint8_t>(relocated_end);
         }
 
+        if ((source_info->FrameRegister != 0u) != source_frame_setup) {
+            return fail(ErrorCode::UnsupportedInstruction,
+                        "NativeInlineHook::unwind",
+                        0,
+                        "The source frame-register header and SET_FPREG operation disagree");
+        }
         if (copied_frame_setup) {
             if (!is_nonvolatile_gpr(source_info->FrameRegister)) {
                 return fail(ErrorCode::UnsupportedInstruction,
