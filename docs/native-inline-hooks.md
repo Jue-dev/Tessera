@@ -66,14 +66,18 @@ original_function = nullptr;
   The position-independent-code idiom `CALL $+5` (which materializes the
   original instruction pointer on the stack) is rejected because a relocated
   CALL would expose the trampoline address instead.
-- The native backend does not synthesize or register Windows x64
-  `RUNTIME_FUNCTION` / unwind metadata for generated trampoline code. Normal
-  execution leaves the trampoline after the relocated prologue and continues
-  in the original function, where the original image unwind metadata applies.
-  Exception unwinding or asynchronous stack walking while the instruction
-  pointer is still inside the generated trampoline prologue is not guaranteed.
-  Targets whose stolen prologues may fault or require reliable unwinding during
-  that brief window should use a backend that provides suitable unwind support.
+- On x64, each generated trampoline is registered with
+  `RtlAddFunctionTable` before the target entry patch is published and is
+  unregistered with `RtlDeleteFunctionTable` only after successful detach.
+  For targets with a source `RUNTIME_FUNCTION`, the backend translates
+  version-1 unwind-code offsets through the exact old-to-new instruction
+  boundary map and preserves the operation's additional slots. Targets must
+  be function entries. Handler/chained records, version-2 or unknown unwind
+  operations, malformed metadata, and offsets that do not map to relocated
+  instruction boundaries are rejected before the entry patch is changed.
+  When Windows has no source runtime-function entry, only a small verified
+  subset of stack-neutral leaf instructions is accepted; other dynamic code
+  fails closed. x86 does not use x64 runtime-function tables.
 - The native backend uses Tessera's private, bounded x86/x64 instruction
   decoder in `src/hook/backends/x86_instruction_decoder.hpp`. It is scoped to
   instruction-boundary and relocation metadata needed by native hooks; it is
@@ -166,14 +170,23 @@ original_function = nullptr;
   before the application has stored the trampoline pointer. Thread suspension
   also cannot determine whether application code is inside a detour callback
   that may call the trampoline later.
-  Calls made through `Hook::operator()` hold an internal shared call lease;
-  `remove()`, `install()`, and `release()` wait for those calls to finish
-  before changing the callable/trampoline lifetime. Attempting `install()` or
-  `remove()` from inside that same hook's leased invocation returns a conflict;
-  `release()` returns null and leaves ownership unchanged rather than
-  self-deadlocking. The lease does not track direct calls to the patched target
-  or calls through copied function pointers.
-  `original()` returns a non-owning raw function pointer and does not acquire
+  Calls made through `Hook::operator()` hold an internal shared call lease.
+  `Hook::acquire()` also exposes an explicit, non-copyable scoped lease for
+  multi-step call paths:
+  ```cpp
+  {
+      auto callable = hook->acquire();
+      const Fn original = callable.get();
+      const int result = original(42); // The lease remains held through the call.
+  }
+  ```
+  `remove()`, `install()`, and `release()` wait for these leases to finish.
+  Attempting `install()` or `remove()` from inside that same hook's leased
+  invocation returns a conflict; `release()` returns null and leaves ownership
+  unchanged rather than self-deadlocking. A scoped lease cannot track a pointer
+  that escapes its scope, direct calls to the patched target, or copied raw
+  function pointers.
+  `original()` remains a non-owning raw function pointer and does not acquire
   a lifetime lease. The application must stop new target calls, wait for every
   in-flight detour callback and every raw trampoline call to finish, and only
   then call `remove()`, destroy the hook, or unload the module containing the
