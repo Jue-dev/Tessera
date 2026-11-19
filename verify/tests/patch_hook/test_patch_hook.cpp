@@ -118,7 +118,9 @@ static_assert(sizeof(TestUnwindCode) == 2u);
 DWORD __cdecl invoke_breakpoint_trampoline(NativeHookFn trampoline) noexcept {
     __try {
         (void)trampoline(0);
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } __except (GetExceptionCode() == EXCEPTION_BREAKPOINT
+                    ? EXCEPTION_EXECUTE_HANDLER
+                    : EXCEPTION_CONTINUE_SEARCH) {
         return ::GetExceptionCode();
     }
     return ERROR_SUCCESS;
@@ -1002,17 +1004,17 @@ TEST_CASE("Native x64 trampoline maps ALLOC_LARGE and SET_FPREG together",
     source_info->frame_register_and_offset = 0x05u; // RBP, zero frame offset
     set_test_unwind_code(source_info, 0u,
                          {15u, static_cast<UCHAR>(1u)}); // UWOP_ALLOC_LARGE, OpInfo=0
-    set_test_unwind_code(source_info, 1u,
-                         {8u, static_cast<UCHAR>(3u)}); // UWOP_SET_FPREG
-    set_test_unwind_code(
-        source_info, 2u,
-        {5u, static_cast<UCHAR>(kTestUnwindOpPushNonVol | (5u << 4u))}); // push rbp
     const USHORT allocation_in_eight_byte_units = 0x20u;
     std::memcpy(reinterpret_cast<std::byte*>(source_info) +
                     kTestUnwindCodeOffset +
-                    3u * sizeof(TestUnwindCode),
+                    1u * sizeof(TestUnwindCode),
                 &allocation_in_eight_byte_units,
                 sizeof(allocation_in_eight_byte_units));
+    set_test_unwind_code(source_info, 2u,
+                         {8u, static_cast<UCHAR>(3u)}); // UWOP_SET_FPREG
+    set_test_unwind_code(
+        source_info, 3u,
+        {5u, static_cast<UCHAR>(kTestUnwindOpPushNonVol | (5u << 4u))}); // push rbp
 
     struct SourceFunctionTableGuard {
         RUNTIME_FUNCTION entry{};
