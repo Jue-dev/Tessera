@@ -77,7 +77,7 @@ The fixture is CI evidence, not proof of the application's actual call paths.
 - [x] Release job remains restricted to version-tag pushes.
 - [x] Removed obsolete source-archive import workflow.
 - [x] Removed redundant manual PR-smoke workflow; the full CI workflow now defines a PR trigger in this branch.
-- [ ] Verify the automatic PR CI trigger on the updated branch. The GitHub connector available in this session can inspect runs but cannot dispatch workflows; this PR branch's workflow trigger is not yet present on base `main`, so it cannot be triggered from this session.
+- [ ] Verify automatic PR CI after runner availability is restored. PR runs #44580306840, #44580343406, #44580504318, #44580545649, and #44580574758 were created but failed/cancelled before runner allocation (runner ID 0; no steps/logs available). The cause cannot be diagnosed from the available connector. The implementation's manual CI run #44566729475 remains green.
 - [x] No merge, release, or tag action performed.
 
 ## Current conclusion
