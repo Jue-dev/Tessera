@@ -42,11 +42,40 @@ constexpr std::size_t kTrampolineCodeCapacity = 256;
 constexpr std::size_t kTrampolineRelayOffset = kTrampolineCodeCapacity;
 constexpr std::size_t kAbsoluteJumpSize = 14;
 #if defined(TESSERA_HOOK_X64)
+// Windows SDKs consistently expose RUNTIME_FUNCTION and the registration
+// APIs, but not UNWIND_INFO/UNWIND_CODE in every SDK version. Keep the wire
+// format private and byte-oriented so the layout is SDK independent.
+struct NativeUnwindCode {
+    UCHAR CodeOffset = 0;
+    UCHAR Operation = 0; // low nibble: operation; high nibble: operation info.
+};
+
+struct NativeUnwindInfo {
+    UCHAR VersionAndFlags = 0; // low 3 bits: version; high 5 bits: flags.
+    UCHAR SizeOfProlog = 0;
+    UCHAR CountOfCodes = 0;
+    UCHAR FrameRegisterAndOffset = 0; // low 4 bits: register; high 4 bits: offset.
+    NativeUnwindCode UnwindCode[1]{};
+};
+
+static_assert(offsetof(NativeUnwindInfo, UnwindCode) == 4u);
+static_assert(sizeof(NativeUnwindCode) == 2u);
+
+constexpr unsigned int kUnwindOpPushNonVol = 0u;
+constexpr unsigned int kUnwindOpAllocLarge = 1u;
+constexpr unsigned int kUnwindOpAllocSmall = 2u;
+constexpr unsigned int kUnwindOpSetFpReg = 3u;
+constexpr unsigned int kUnwindOpSaveNonVol = 4u;
+constexpr unsigned int kUnwindOpSaveNonVolFar = 5u;
+constexpr unsigned int kUnwindOpSaveXmm128 = 8u;
+constexpr unsigned int kUnwindOpSaveXmm128Far = 9u;
+constexpr unsigned int kUnwindOpPushMachFrame = 10u;
+
 constexpr std::size_t kTrampolineUnwindInfoOffset =
     (kTrampolineRelayOffset + kAbsoluteJumpSize + 3u) & ~std::size_t{3u};
 constexpr std::size_t kMaximumUnwindInfoBytes =
-    (offsetof(UNWIND_INFO, UnwindCode) +
-     255u * sizeof(UNWIND_CODE) + 3u) & ~std::size_t{3u};
+    (offsetof(NativeUnwindInfo, UnwindCode) +
+     255u * sizeof(NativeUnwindCode) + 3u) & ~std::size_t{3u};
 constexpr std::size_t kTrampolineAllocationSize =
     kTrampolineUnwindInfoOffset + kMaximumUnwindInfoBytes;
 #else
@@ -670,44 +699,44 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
 }
 
 [[nodiscard]] bool unwind_slot_count(
-    const UNWIND_CODE& code,
+    const NativeUnwindCode& code,
     std::size_t& slot_count) noexcept {
-    const unsigned int op = code.UnwindOp;
-    const unsigned int info = code.OpInfo;
+    const unsigned int op = code.Operation & 0x0Fu;
+    const unsigned int info = code.Operation >> 4u;
     switch (op) {
-        case UWOP_PUSH_NONVOL:
+        case kUnwindOpPushNonVol:
             if (!is_nonvolatile_gpr(info)) return false;
             slot_count = 1u;
             return true;
-        case UWOP_ALLOC_LARGE:
+        case kUnwindOpAllocLarge:
             if (info == 0u) slot_count = 2u;
             else if (info == 1u) slot_count = 3u;
             else return false;
             return true;
-        case UWOP_ALLOC_SMALL:
+        case kUnwindOpAllocSmall:
             slot_count = 1u;
             return true;
-        case UWOP_SET_FPREG:
+        case kUnwindOpSetFpReg:
             if (info != 0u) return false;
             slot_count = 1u;
             return true;
-        case UWOP_SAVE_NONVOL:
+        case kUnwindOpSaveNonVol:
             if (!is_nonvolatile_gpr(info)) return false;
             slot_count = 2u;
             return true;
-        case UWOP_SAVE_NONVOL_FAR:
+        case kUnwindOpSaveNonVolFar:
             if (!is_nonvolatile_gpr(info)) return false;
             slot_count = 3u;
             return true;
-        case UWOP_SAVE_XMM128:
+        case kUnwindOpSaveXmm128:
             if (info < 6u || info > 15u) return false;
             slot_count = 2u;
             return true;
-        case UWOP_SAVE_XMM128_FAR:
+        case kUnwindOpSaveXmm128Far:
             if (info < 6u || info > 15u) return false;
             slot_count = 3u;
             return true;
-        case UWOP_PUSH_MACHFRAME:
+        case kUnwindOpPushMachFrame:
             if (info > 1u) return false;
             slot_count = 1u;
             return true;
@@ -723,7 +752,7 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
     std::size_t entry_prefix_size,
     const DecodedBlock& block) noexcept {
     auto* const allocation = static_cast<std::byte*>(state.allocation);
-    auto* const unwind_info = reinterpret_cast<UNWIND_INFO*>(
+    auto* const unwind_info = reinterpret_cast<NativeUnwindInfo*>(
         allocation + kTrampolineUnwindInfoOffset);
     std::memset(unwind_info, 0, kMaximumUnwindInfoBytes);
 
@@ -740,12 +769,10 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
                         0,
                         "No source unwind record exists and the stolen instructions are not provably leaf-safe");
         }
-        unwind_info->Version = 1u;
-        unwind_info->Flags = 0u;
+        unwind_info->VersionAndFlags = 1u;
         unwind_info->SizeOfProlog = 0u;
         unwind_info->CountOfCodes = 0u;
-        unwind_info->FrameRegister = 0u;
-        unwind_info->FrameOffset = 0u;
+        unwind_info->FrameRegisterAndOffset = 0u;
     } else {
         if (image_base > (std::numeric_limits<DWORD64>::max)() - source_function->BeginAddress ||
             image_base > (std::numeric_limits<DWORD64>::max)() - source_function->EndAddress ||
@@ -767,7 +794,8 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
 
         const auto* const source_info =
             reinterpret_cast<const UNWIND_INFO*>(image_base + source_function->UnwindData);
-        if (source_info->Version != 1u || source_info->Flags != 0u) {
+        if ((source_info->VersionAndFlags & 0x07u) != 1u ||
+            (source_info->VersionAndFlags >> 3u) != 0u) {
             return fail(ErrorCode::UnsupportedInstruction,
                         "NativeInlineHook::unwind",
                         0,
@@ -781,7 +809,7 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
         bool source_frame_setup = false;
         bool copied_frame_setup = false;
         while (input_slot < source_info->CountOfCodes) {
-            const UNWIND_CODE& source_code = source_info->UnwindCode[input_slot];
+            const NativeUnwindCode& source_code = source_info->UnwindCode[input_slot];
             std::size_t slots = 0u;
             if (!unwind_slot_count(source_code, slots) ||
                 slots > static_cast<std::size_t>(source_info->CountOfCodes) - input_slot ||
@@ -793,7 +821,7 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
                             "The source unwind-code stream is malformed or uses an unsupported opcode");
             }
             previous_code_offset = source_code.CodeOffset;
-            source_frame_setup |= source_code.UnwindOp == UWOP_SET_FPREG;
+            source_frame_setup |= (source_code.Operation & 0x0Fu) == kUnwindOpSetFpReg;
 
             if (source_code.CodeOffset <= source_patch_end) {
                 std::uint8_t mapped_offset = 0u;
@@ -811,7 +839,7 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
                             &source_info->UnwindCode[input_slot],
                             slots * sizeof(UNWIND_CODE));
                 unwind_info->UnwindCode[output_slot].CodeOffset = mapped_offset;
-                if (source_code.UnwindOp == UWOP_SET_FPREG) {
+                if ((source_code.Operation & 0x0Fu) == kUnwindOpSetFpReg) {
                     copied_frame_setup = true;
                 }
                 output_slot += slots;
@@ -841,25 +869,23 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
             mapped_prolog_size = static_cast<std::uint8_t>(relocated_end);
         }
 
-        if ((source_info->FrameRegister != 0u) != source_frame_setup) {
+        if (((source_info->FrameRegisterAndOffset & 0x0Fu) != 0u) != source_frame_setup) {
             return fail(ErrorCode::UnsupportedInstruction,
                         "NativeInlineHook::unwind",
                         0,
                         "The source frame-register header and SET_FPREG operation disagree");
         }
         if (copied_frame_setup) {
-            if (!is_nonvolatile_gpr(source_info->FrameRegister)) {
+            if (!is_nonvolatile_gpr((source_info->FrameRegisterAndOffset & 0x0Fu))) {
                 return fail(ErrorCode::UnsupportedInstruction,
                             "NativeInlineHook::unwind",
                             0,
                             "The source frame-register description is invalid");
             }
-            unwind_info->FrameRegister = source_info->FrameRegister;
-            unwind_info->FrameOffset = source_info->FrameOffset;
+            unwind_info->FrameRegisterAndOffset = source_info->FrameRegisterAndOffset;
         }
 
-        unwind_info->Version = 1u;
-        unwind_info->Flags = 0u;
+        unwind_info->VersionAndFlags = 1u;
         unwind_info->SizeOfProlog = mapped_prolog_size;
         unwind_info->CountOfCodes = static_cast<UCHAR>(output_slot);
     }
