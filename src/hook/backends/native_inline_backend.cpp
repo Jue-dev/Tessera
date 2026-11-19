@@ -872,13 +872,9 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
 }
 
 [[nodiscard]] Status register_trampoline_unwind(
-    NativeHookState& state,
-    std::size_t entry_prefix_size,
-    const DecodedBlock& block) noexcept {
-    const auto prepared = prepare_trampoline_unwind(state, entry_prefix_size, block);
-    if (!prepared) {
-        return prepared;
-    }
+    NativeHookState& state) noexcept {
+    // The UNWIND_INFO bytes must already be finalized while the trampoline
+    // allocation is writable. This function only publishes the read-only data.
     if (!::RtlAddFunctionTable(
             &state.unwind_function,
             1u,
@@ -1506,6 +1502,16 @@ public:
         }
 #endif
 
+#if defined(TESSERA_HOOK_X64)
+        // Build the unwind bytes while the allocation is still PAGE_READWRITE.
+        // Registration itself is delayed until after the code/data are finalized.
+        auto unwind_prepare_status = prepare_trampoline_unwind(
+            *state, block.entry_prefix_size, block);
+        if (!unwind_prepare_status) {
+            return std::unexpected(unwind_prepare_status.error());
+        }
+#endif
+
         DWORD trampoline_protection = 0;
         if (!::VirtualProtect(state->allocation,
                               state->allocation_size,
@@ -1531,8 +1537,7 @@ public:
 #if defined(TESSERA_HOOK_X64)
         // Register unwind metadata before any entry patch can publish the
         // trampoline to another thread or to HookCore.
-        auto unwind_status = register_trampoline_unwind(
-            *state, block.entry_prefix_size, block);
+        auto unwind_status = register_trampoline_unwind(*state);
         if (!unwind_status) {
             return std::unexpected(unwind_status.error());
         }
