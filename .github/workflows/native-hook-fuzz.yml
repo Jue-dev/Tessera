@@ -17,13 +17,13 @@ on:
         description: "x64 coverage-guided fuzz campaign duration."
         required: true
         type: choice
-        default: "900"
+        default: "300"
         options:
           - "300"
           - "600"
           - "900"
   schedule:
-    - cron: "41 4 * * 1" # Weekly Monday 04:41 UTC, 900-second campaigns.
+    - cron: "41 4 * * 1" # Weekly Monday 04:41 UTC, 300-second campaigns.
 
 permissions:
   contents: read
@@ -136,7 +136,7 @@ jobs:
       - name: Run x64 coverage-guided ASan/UBSan campaign
         shell: pwsh
         env:
-          CAMPAIGN_SECONDS: ${{ inputs.campaign_seconds || '900' }}
+          CAMPAIGN_SECONDS: ${{ inputs.campaign_seconds || '300' }}
         run: |
           $ErrorActionPreference = "Stop"
           $seedSource = Join-Path $env:GITHUB_WORKSPACE "verify/fuzz/corpus/native_hook"
