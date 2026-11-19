@@ -1,145 +1,53 @@
 # Issue #6 — implementation progress and validation status
 
-This is the implementation record for native x86/x64 inline-hook unwind and
-call-lifecycle safety. The separate, executable validation checklist is
-[issue-6-ci-validation-checklist.md](issue-6-ci-validation-checklist.md).
-The PR stays in draft and Issue #6 stays open until every required gate has
-current-head evidence.
+This record covers native x86/x64 inline-hook unwind and call-lifecycle safety. The validation checklist is [issue-6-ci-validation-checklist.md](issue-6-ci-validation-checklist.md).
 
-## CI / Actions usage policy
+## Implementation
 
-Actions validation is manual-only for this PR. The existing
-`.github/workflows/ci.yml` is the full matrix/quality gate and has no PR or
-schedule trigger; it can be manually dispatched with the PR branch selected.
-The focused `.github/workflows/native-hook-fuzz.yml` is also manual-only,
-configurable (60/300/900 seconds), and has no schedule. PR open/ready/
-synchronize/reopened and branch-push events do not start jobs. The redundant
-PR-smoke workflow was removed.
+- x64 trampoline unwind metadata is generated and registered before the target patch is published.
+- Version-1 unwind operations are validated and mapped only at relocated instruction boundaries. Unsupported handlers/chained records, opcodes, malformed slot streams, non-entry targets, and unsupported prologues fail closed.
+- Source runtime-function and unwind data are bounds/readability checked. Stolen prologues may not exceed the source function.
+- Targets without unwind records are accepted only for the audited stack-neutral leaf subset.
+- Detach/unregister failure restores the target patch and preserves retryable state.
+- `Hook::acquire()` supplies a non-copyable, non-movable, thread-affine callable lease. Raw pointers returned by `original()` remain untracked and require host quiescence.
+- Regression coverage includes unwind opcode/slot variants, malformed metadata, rollback, unregister retry, and a DLL fixture for admission/drain/detach/unload order.
 
-The main CI workflow runs on relevant main-branch source pushes or manual
-dispatch; scheduled runs are disabled and release publication remains tag-only.
-The focused fuzzer has a manual dispatch only and uploads its corpus/crash
-artifacts.
+## Workflow policy
 
-This reduces duplicate jobs and accidental quota consumption. Keep the PR
-draft while implementation is in progress. Do not treat skipped, unstarted,
-or older-head checks as passing.
+The full `.github/workflows/ci.yml` matrix is configured in this branch for automatic relevant pull-request validation and relevant pushes to `main`, plus manual dispatch. Release publication remains version-tag-only. The focused native-hook fuzz workflow remains manual-only with bounded 60/300/900-second campaigns.
 
-## Progress summary
+The redundant PR-smoke workflow and obsolete source-archive import workflow were removed from this branch. The PR trigger is a branch change and has not yet been verified by an automatic run; the current base branch does not contain that trigger. The available GitHub connector can read workflow runs but cannot dispatch workflows.
 
-| Work item | Status | Evidence / next step |
-|---|---|---|
-| x64 dynamic trampoline unwind registration | [x] Implemented | Stable RUNTIME_FUNCTION and UNWIND_INFO storage; register before publishing the target patch |
-| Version-1 unwind translation | [x] Implemented | Supported code offsets mapped through exact relocated instruction boundaries; multi-slot payloads copied via bounded byte spans; offsets at/before preserved ENDBR rejected |
-| Fail-closed unwind validation | [x] Implemented | Unsupported version/opcodes, handler/chained records, malformed slot streams, non-entry targets, and unmappable offsets rejected |
-| Source metadata memory bounds | [x] Implemented | Validate runtime-function record, four-byte unwind header, and full unwind-code byte span in committed readable memory |
-| Source function bounds | [x] Implemented | Reject stolen prologue ranges that extend past the registered source function before writing target bytes |
-| No-source-record policy | [x] Implemented | Only audited stack-neutral leaf subset accepted; unsupported dynamic prologues rejected |
-| Detach/unregister retry | [x] Implemented and tested | On unregister failure, reinstate the patch and retain registration, allocation, registry ownership, and retryable token; exact-head CI regression passed |
-| Explicit callable lease API | [x] Implemented | Hook::acquire(), get(), and target(); non-copyable, non-movable, thread-affine |
-| Actions quota workflow cleanup | [x] Implemented | Removed automatic PR smoke; full CI and sustained fuzz are manual-only; disabled scheduled fuzz; retained tag-only release |
-| Expanded x64 unwind regression tests | [x] CI passed | ALLOC_LARGE (near/far), PUSH_NONVOL, SAVE_NONVOL (near/far), SET_FPREG, SAVE_XMM128 (near/far), PUSH_MACHFRAME (both OpInfo values), source bounds/readability, handler/chained/version2/reserved opcode and ENDBR-boundary rejection |
-| Unwind slot storage bounds | [x] Corrected and CI passed | Removed `UnwindCode[1]` trailing-array indexing; source and destination slots are read/written using bounded byte spans and `memcpy` |
-| x86/x64 preprocessor separation | [x] Corrected and CI passed | Balanced x64-only guards; exact-head x86 Debug/Release matrix passed |
-| Windows x86/x64 Debug/Release on current head | [x] CI passed | Exact-head x86/x64 Debug/Release matrix and CTest passed |
-| Clang libFuzzer + ASan/UBSan on current head | [x] 900-second campaign passed | Exact-head x64 campaign run #24; 14,666,829 executions, 2,651 new units, no crash/sanitizer finding; artifact inspected |
-| Full /GR-, Detours, /analyze, SDK packaging gates | [x] CI passed | Exact-head quality gate and Detours x86/x64 integration passed |
-| Host admission/drain/module-unload fixture | [x] CI passed; real host acceptance remains | A real detour DLL is held active while the exclusive admission gate is blocked; test releases/drains the callback, removes the hook, unloads the DLL, then verifies the original target still runs. x86 export decoration is resolved explicitly |
-| Allocation and RtlAddFunctionTable failure injection | [x] Static failure-path audit | unique_ptr owns temporary state; registration flag is set only after RtlAddFunctionTable succeeds; all failures before target write unwind and release unpublished state. No API-injection harness yet |
-| Final independent audit | [ ] Remaining | Re-check bytes, page protections, token, registry, unwind registration, and lifetime on every failure edge |
+## Current-head test evidence
 
-## Failure-path ownership audit
+Validated implementation commit: `313d96f503ac835d602499b7350270d5198d71a0`.
 
-The backend's attach path is failure-atomic before the first target write:
+- Windows CI [run #19 / 44566729475](https://github.com/Jue-dev/Tessera/actions/runs/44566729475) passed the x86/x64 Debug/Release matrix, CTest, SDK staging, Detours x86/x64, no-RTTI quality gate, MSVC `/analyze`, and packaging. Release publication skipped as expected.
+- x64 Clang libFuzzer + ASan/UBSan [run #24 / 44566681404](https://github.com/Jue-dev/Tessera/actions/runs/44566681404) completed 900 seconds: 14,666,829 executions, 2,651 new units, 978 coverage counters, 1,999 features, and no crash/sanitizer finding.
+- Artifact review found 797 corpus files and no crash reproducer files.
+- x86 sustained coverage-guided fuzzing was not run. x86 Debug/Release CI, Detours integration, and deterministic fuzz smoke passed.
 
-- The `NativeHookState` remains owned by a local `std::unique_ptr` until the
-  patch has committed, the active registry entry has been inserted, and the
-  returned `HookToken` takes ownership.
-- A failed `VirtualAlloc` returns before any target bytes or target page
-  protection are changed. Any later relocation, metadata-validation,
-  trampoline-protection, or cache-flush failure returns while the same
-  `unique_ptr` still owns the state and allocation.
-- `RtlAddFunctionTable` is called before thread suspension and before
-  `write_target_bytes`. The `unwind_registered` bit is set only after the API
-  returns success. If registration fails, the destructor sees the bit clear
-  and releases the unpublished allocation; the target bytes and target page
-  protection are untouched.
-- Registry capacity is reserved before target modification. The registry
-  entry is inserted only after the patch transaction succeeds, so failed
-  attachment cannot leave an active-range owner behind.
-- If registration succeeds but a later pre-patch step fails, state destruction
-  first calls `RtlDeleteFunctionTable`; it frees the allocation only after
-  successful deregistration. If Windows refuses deregistration, the process
-  fails fast instead of freeing memory still visible to the unwinder.
-- Patch-write failures use the rollback transaction. Recoverable failures
-  return only after original bytes and page protection are restored;
-  unprovable rollback is fail-fast. Detach/unregister failure is covered by
-  the deterministic retry test.
+These runs validate the implementation commit, not subsequent workflow/documentation-only commits.
 
-This is a static ownership/control-flow proof, not injected Windows API
-failure testing. Deterministic injection remains a possible future enhancement;
-the exact-head Windows acceptance run is still required.
+## Failure-path audit
 
-## Implementation contract
+The reviewed attach path keeps unpublished `NativeHookState` in `unique_ptr` until patch commit, registry insertion, and token ownership transfer. Registry capacity is reserved before target modification. Unwind registration occurs before patch publication and its state flag is set only on success. Recoverable patch failures roll back original bytes and protection; uncertain rollback fails fast. Detach unregister failure reinstalls the patch and retains the token/allocation/registry ownership for retry.
 
-### x64 unwind metadata
+This is source-level review, not deterministic Windows API failure injection. Allocation, protection, cache-flush, and function-table registration failure injection remain incomplete. An independent reviewer audit of every failure edge is also outstanding.
 
-Each x64 trampoline owns its dynamic function-table entry and version-1 unwind
-record in its near allocation. The table is registered after the generated
-code/metadata are finalized and before the target patch is made visible.
+## Host integration contract
 
-For an existing source RUNTIME_FUNCTION, the hook target must be the
-function entry. The backend validates the source record and unwind bytes before
-reading them, checks the stolen range against the source function bounds, and
-maps supported CodeOffset values only when they coincide with relocated
-instruction boundaries. A CodeOffset at or before the preserved ENDBR prefix is
-rejected because the landing pad cannot complete an unwind operation. Extra
-slots are retained. Unsupported versions,
-opcodes, malformed records, exception/termination handler flags, chained
-records, and non-mappable offsets fail closed before target modification.
+The fixture proves a controlled admission gate, active callback drain, successful detach, DLL unload, and original-target call. It does not prove that the real application gates all target calls, callbacks, or raw/escaped trampoline pointers. The host must stop admitting calls, drain every use, check successful `remove()`, and only then unload detour code. A Toolhelp thread snapshot is not a thread-creation barrier.
 
-When no source runtime-function record exists, only the audited stack-neutral
-leaf subset is accepted. Tessera does not synthesize unwind semantics for
-stack-changing or non-leaf dynamic code. x86 does not use x64
-RUNTIME_FUNCTION tables.
+## Remaining acceptance gates
 
-Detach restores the target and checks the supported backend coordination path
-before unregistering the dynamic table. On unregister failure, the hook patch
-is reinstated and the token, table, registry ownership, and allocation remain
-available for retry. Memory is not freed while Windows may still consult it.
+- [ ] Independent review of all failure edges and rollback ownership.
+- [ ] Deterministic Windows API failure injection for allocation, function-table registration, protection, and cache-flush failures.
+- [ ] Real host admission/drain/unload integration.
+- [ ] Fresh CI for workflow/documentation commits in this branch.
 
-### Callable lease and host ownership
+## Status
 
-Hook::acquire() returns a non-copyable, non-movable, thread-affine scoped
-lease. get() exposes the current original/trampoline callable; target()
-exposes the target entry so a caller can acquire the lease before entering the
-detour. The Hook must outlive its lease, and the lease must be destroyed on the
-acquiring thread.
+The implementation commit's Windows CI matrix, full quality gates, and sustained 900-second x64 sanitizer campaign are **PASS**. PR #7 remains draft and Issue #6 remains open. No merge or release has been performed.
 
-The lease cannot track pointers that escape its scope, direct target calls
-made without acquiring it, or any external call path not controlled by the
-host. original() remains a raw non-owning pointer for compatibility.
-Therefore the host must stop admitting calls, drain every target call,
-callback, and raw/escaped trampoline call, verify successful remove(), and
-only then destroy hook state or unload the detour module. A Toolhelp thread
-snapshot is not a thread-creation barrier and is not a replacement for this
-protocol.
-
-## Validation evidence
-
-- Exact PR head validated: `313d96f503ac835d602499b7350270d5198d71a0`.
-- Current-head CI run [#44566729475](https://github.com/Jue-dev/Tessera/actions/runs/44566729475) succeeded: x86/x64 Debug/Release matrix, CTest, SDK staging, Detours x86/x64, no-RTTI quality gate, MSVC /analyze, and package checks. Release publication skipped as expected.
-- The current-head run validates the expanded unwind tests, source-metadata bounds checks, ENDBR boundary rejection, bounded unwind-slot serialization, unregister retry, patch rollback tests, and DLL unload-order fixture at aggregate CTest level.
-- Artifacts were uploaded for all four SDK configurations.
-- The separate five-minute Clang libFuzzer + ASan/UBSan campaign has **not** been run on this exact head. The earlier campaign is not current-head evidence.
-- A green CI run is not proof of real host integration: the fixture verifies a controlled admission/drain sequence, but the application must gate every target entry and raw/escaped trampoline use.
-
-## Current status
-
-The Windows CI matrix and full quality gates are green on the exact PR head. Remaining work is a source-level independent failure-path audit, real host admission/drain/unload acceptance, and current-head sustained sanitizer campaign if Actions quota permits. The separate checklist is refreshed to reflect evidence and remaining gates.
-
-The PR remains draft and Issue #6 remains open. No merge or release has been performed.
-
-## Definition of done
-
-Do not close Issue #6 until the current-head Windows matrix and required fuzz validation have evidence, full quality gates are reviewed, host-side admission/module-unload integration is validated, and the final failure-path audit is complete or remaining limitations are explicitly accepted.
+Do not close Issue #6 until the remaining acceptance gates are completed or explicitly accepted.
