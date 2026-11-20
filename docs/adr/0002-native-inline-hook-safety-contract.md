@@ -46,6 +46,14 @@ call-lifecycle tracking.
 7. **Retain retryable ownership on failed teardown.** If detach, rollback, or
    unwind-table unregistration cannot complete safely, the operation must not
    report success or discard the state needed for a retry.
+9. **Limit native-hook deployment to one backend image per process.** The
+   process-wide hook mutex serializes transactions but the active-hook registry
+   is module-local. Independent Tessera backend copies in separate loaded
+   modules do not share registry state and can therefore fail to detect
+   overlapping ownership. Until a shared process registry exists, only one
+   loaded native-hook backend image per process is supported; this boundary is
+   documented, not claimed to be runtime-enforced. See
+   [Native inline hooks](../native-inline-hooks.md#deployment-boundary-one-backend-image-per-process).
 8. **Retain page-protection restoration ownership.** A failed protection
    restoration during a memory write is represented by a process-bound retry
    ticket in `WriteReport`. The ticket preserves the exact affected range and
