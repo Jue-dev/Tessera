@@ -457,21 +457,23 @@ Result<WriteReport> MemoryWriter::write_with_report(Address address,
 
         if (slice.needs_protect_change) {
             auto restore_res = backend.protect(slice.slice_begin, slice.slice_size, restore_prot);
-            if (!restore_res && !report.protection_restore_warning) {
-                report.protection_restore_warning = make_error(
-                    ErrorCode::ProtectionRestoreFailed,
-                    restore_res.error().operation,
-                    restore_res.error().native,
-                    "Failed to restore original page protection after write");
+            if (!restore_res) {
                 report.pending_protection_restores.push_back(PendingProtectionRestore{
                     .range = AddressRange{slice.slice_begin, slice.slice_size},
                     .original_protection = restore_prot,
                 });
-                diagnostics::notify(process_.observer(),
-                                    DiagnosticSeverity::Warning,
-                                    "MemoryWriter",
-                                    "Failed to restore page protection; retry ownership is retained in WriteReport",
-                                    report.protection_restore_warning);
+                if (!report.protection_restore_warning) {
+                    report.protection_restore_warning = make_error(
+                        ErrorCode::ProtectionRestoreFailed,
+                        restore_res.error().operation,
+                        restore_res.error().native,
+                        "Failed to restore original page protection after write");
+                    diagnostics::notify(process_.observer(),
+                                        DiagnosticSeverity::Warning,
+                                        "MemoryWriter",
+                                        "Failed to restore page protection; retry ownership is retained in WriteReport",
+                                        report.protection_restore_warning);
+                }
             }
         }
 
