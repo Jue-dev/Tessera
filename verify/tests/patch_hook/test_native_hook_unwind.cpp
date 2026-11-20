@@ -1,4 +1,5 @@
 #include "patch_hook_test_support.hpp"
+#include "hook/backends/native_unwind.hpp"
 
 
 #if defined(_M_X64) || defined(__x86_64__)
@@ -1397,3 +1398,31 @@ TEST_CASE("Native x64 unwind rejects unsupported, malformed, and prefix-boundary
 }
 #endif
 
+
+
+#if defined(_M_X64) || defined(__x86_64__)
+TEST_CASE("Native x64 unwind registration failure does not publish ownership",
+          "[hook][native][unwind][failure]") {
+    using namespace tessera;
+
+    ExecutableRegionGuard region{
+        ::VirtualAlloc(nullptr, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)};
+    REQUIRE(region.address != nullptr);
+
+    // An inverted runtime-function range is rejected by the Windows dynamic
+    // function-table API. The wrapper must preserve that failure and leave
+    // unwind_registered false so teardown never deletes an unpublished entry.
+    RUNTIME_FUNCTION invalid_entry{};
+    invalid_entry.BeginAddress = 0x200u;
+    invalid_entry.EndAddress = 0x100u;
+    invalid_entry.UnwindData = 0x300u;
+    bool registered = false;
+
+    const auto status = detail::native_hook::register_trampoline_unwind(
+        invalid_entry, registered, region.address);
+    REQUIRE_FALSE(status.has_value());
+    REQUIRE(status.error().code == ErrorCode::IoError);
+    REQUIRE(status.error().operation == "RtlAddFunctionTable");
+    REQUIRE_FALSE(registered);
+}
+#endif
