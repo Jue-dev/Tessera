@@ -10,6 +10,7 @@
 #include "tessera/core/error.hpp"
 #include "tessera/core/result.hpp"
 #include "tessera/memory/process_address.hpp"
+#include "tessera/memory/memory_writer.hpp"
 #include "tessera/pattern/pattern.hpp"
 
 namespace tessera {
@@ -77,6 +78,7 @@ private:
     ProcessAddress target_;
     std::vector<std::byte> new_bytes_{};
     std::vector<std::byte> original_bytes_{};
+    std::optional<WriteReport> pending_protection_report_{};
     PatchOptions options_{};
     PatchState state_ = PatchState::Created;
 };
