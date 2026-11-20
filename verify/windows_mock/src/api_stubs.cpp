@@ -17,6 +17,16 @@ int module_calls = 0;
 DWORD last_error = NO_ERROR;
 int thread_next_error = static_cast<int>(ERROR_NO_MORE_FILES);
 DWORD last_open_thread_access = 0;
+DWORD snapshot_error = NO_ERROR;
+DWORD thread_first_error = NO_ERROR;
+DWORD open_thread_error = NO_ERROR;
+int snapshot_calls = 0;
+int thread_first_calls = 0;
+int open_thread_calls = 0;
+int close_handle_calls = 0;
+int thread_count = 1;
+int thread_next_calls = 0;
+int suspend_thread_fail_on_call = 0;
 DWORD suspend_thread_error = NO_ERROR;
 DWORD get_thread_context_error = NO_ERROR;
 int suspend_thread_calls = 0;
@@ -41,6 +51,16 @@ void reset() noexcept {
     last_error = NO_ERROR;
     thread_next_error = static_cast<int>(ERROR_NO_MORE_FILES);
     last_open_thread_access = 0;
+    snapshot_error = NO_ERROR;
+    thread_first_error = NO_ERROR;
+    open_thread_error = NO_ERROR;
+    snapshot_calls = 0;
+    thread_first_calls = 0;
+    open_thread_calls = 0;
+    close_handle_calls = 0;
+    thread_count = 1;
+    thread_next_calls = 0;
+    suspend_thread_fail_on_call = 0;
     suspend_thread_error = NO_ERROR;
     get_thread_context_error = NO_ERROR;
     suspend_thread_calls = 0;
@@ -70,7 +90,7 @@ HANDLE GetCurrentProcess() noexcept { return reinterpret_cast<HANDLE>(static_cas
 DWORD GetCurrentProcessId() noexcept { return 42; }
 HANDLE GetCurrentThread() noexcept { return reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(2)); }
 DWORD GetCurrentThreadId() noexcept { return 41; }
-BOOL CloseHandle(HANDLE) noexcept { return TRUE; }
+BOOL CloseHandle(HANDLE) noexcept { ++winmock::close_handle_calls; return TRUE; }
 BOOL IsWow64Process2(HANDLE, USHORT* process_machine, USHORT* native_machine) noexcept {
     *process_machine = winmock::process_machine;
     *native_machine = winmock::native_machine;
@@ -180,24 +200,54 @@ DWORD GetModuleFileNameExW(HANDLE, HMODULE module, LPWSTR buffer, DWORD capacity
     return static_cast<DWORD>(length);
 }
 HMODULE GetModuleHandleW(LPCWCH) noexcept { return reinterpret_cast<HMODULE>(static_cast<std::uintptr_t>(0x111)); }
-HANDLE CreateToolhelp32Snapshot(DWORD, DWORD) noexcept { return reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(0x70)); }
+HANDLE CreateToolhelp32Snapshot(DWORD, DWORD) noexcept {
+    ++winmock::snapshot_calls;
+    if (winmock::snapshot_error != NO_ERROR) {
+        SetLastError(winmock::snapshot_error);
+        return INVALID_HANDLE_VALUE;
+    }
+    return reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(0x70));
+}
 BOOL Thread32First(HANDLE, THREADENTRY32* entry) noexcept {
+    ++winmock::thread_first_calls;
+    winmock::thread_next_calls = 0;
+    if (winmock::thread_first_error != NO_ERROR) {
+        SetLastError(winmock::thread_first_error);
+        return FALSE;
+    }
     entry->dwSize = sizeof(THREADENTRY32);
     entry->th32ThreadID = 77;
     entry->th32OwnerProcessID = GetCurrentProcessId();
     return TRUE;
 }
-BOOL Thread32Next(HANDLE, THREADENTRY32*) noexcept {
+BOOL Thread32Next(HANDLE, THREADENTRY32* entry) noexcept {
+    ++winmock::thread_next_calls;
+    if (winmock::thread_count > 1 && winmock::thread_next_calls == 1) {
+        entry->dwSize = sizeof(THREADENTRY32);
+        entry->th32ThreadID = 78;
+        entry->th32OwnerProcessID = GetCurrentProcessId();
+        return TRUE;
+    }
     SetLastError(static_cast<DWORD>(winmock::thread_next_error));
     return FALSE;
 }
 HANDLE OpenThread(DWORD desired_access, BOOL, DWORD) noexcept {
+    ++winmock::open_thread_calls;
     winmock::last_open_thread_access = desired_access;
+    if (winmock::open_thread_error != NO_ERROR) {
+        SetLastError(winmock::open_thread_error);
+        return nullptr;
+    }
     return reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(0x71));
 }
 DWORD SuspendThread(HANDLE) noexcept {
     ++winmock::suspend_thread_calls;
-    if (winmock::suspend_thread_error != NO_ERROR) { SetLastError(winmock::suspend_thread_error); return static_cast<DWORD>(-1); }
+    if (winmock::suspend_thread_error != NO_ERROR ||
+        (winmock::suspend_thread_fail_on_call != 0 &&
+         winmock::suspend_thread_calls == winmock::suspend_thread_fail_on_call)) {
+        SetLastError(winmock::suspend_thread_error != NO_ERROR ? winmock::suspend_thread_error : ERROR_ACCESS_DENIED);
+        return static_cast<DWORD>(-1);
+    }
     return 0;
 }
 BOOL GetThreadContext(HANDLE, CONTEXT* context) noexcept {

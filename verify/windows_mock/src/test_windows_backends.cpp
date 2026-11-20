@@ -88,6 +88,40 @@ int main() {
           "ModuleCatalog rejects non-HMODULE-aligned byte counts");
 
     winmock::reset();
+    winmock::snapshot_error = ERROR_ACCESS_DENIED;
+    auto snapshot_failure = ScopedThreadList::collect_other_threads(ThreadPolicy::SuspendOthersStrict);
+    check(!snapshot_failure && snapshot_failure.error().operation == "CreateToolhelp32Snapshot" &&
+              snapshot_failure.error().native == ERROR_ACCESS_DENIED,
+          "strict thread policy reports snapshot creation failure");
+
+    winmock::reset();
+    winmock::thread_first_error = ERROR_ACCESS_DENIED;
+    auto first_failure = ScopedThreadList::collect_other_threads(ThreadPolicy::SuspendOthersStrict);
+    check(!first_failure && first_failure.error().operation == "Thread32First" &&
+              first_failure.error().native == ERROR_ACCESS_DENIED && winmock::close_handle_calls == 1,
+          "strict thread policy reports Thread32First failure and closes snapshot");
+
+    winmock::reset();
+    winmock::open_thread_error = ERROR_ACCESS_DENIED;
+    auto open_failure = ScopedThreadList::collect_other_threads(ThreadPolicy::SuspendOthersStrict);
+    check(!open_failure && open_failure.error().operation == "OpenThread" &&
+              open_failure.error().native == ERROR_ACCESS_DENIED && winmock::close_handle_calls == 1,
+          "strict thread policy reports OpenThread failure and closes snapshot");
+
+    winmock::reset();
+    winmock::open_thread_error = ERROR_ACCESS_DENIED;
+    auto best_effort_open_failure = ScopedThreadList::collect_other_threads(ThreadPolicy::SuspendOthersBestEffort);
+    check(best_effort_open_failure && best_effort_open_failure->handles().empty() &&
+              winmock::close_handle_calls == 1,
+          "best-effort thread policy tolerates OpenThread failure and closes snapshot");
+
+    winmock::reset();
+    winmock::open_thread_error = ERROR_INVALID_PARAMETER;
+    auto exited_thread = ScopedThreadList::collect_other_threads(ThreadPolicy::SuspendOthersStrict);
+    check(exited_thread && exited_thread->handles().empty(),
+          "strict thread policy tolerates thread-exited OpenThread race");
+
+    winmock::reset();
     winmock::thread_next_error = static_cast<int>(ERROR_ACCESS_DENIED);
     auto strict_threads = ScopedThreadList::collect_other_threads(ThreadPolicy::SuspendOthersStrict);
     check(!strict_threads && strict_threads.error().code == ErrorCode::ThreadEnumerationFailed &&
@@ -147,6 +181,16 @@ int main() {
         ThreadPolicy::SuspendOthersBestEffort);
     check(best_effort_suspend_failure.has_value() && winmock::suspend_thread_calls == 1,
           "best-effort native thread policy tolerates injected SuspendThread failure");
+
+    winmock::reset();
+    winmock::thread_count = 2;
+    winmock::suspend_thread_fail_on_call = 2;
+    auto partial_suspend_failure = tessera::detail::native_hook::SuspendedThreads::acquire(
+        ThreadPolicy::SuspendOthersStrict);
+    check(!partial_suspend_failure && partial_suspend_failure.error().operation == "SuspendThread" &&
+              winmock::thread_next_calls == 2 && winmock::suspend_thread_calls == 2 &&
+              winmock::resume_thread_calls == 1 && winmock::close_handle_calls == 3,
+          "strict partial-suspend failure resumes prior threads and closes both thread handles plus snapshot");
 
     winmock::reset();
     winmock::get_thread_context_error = ERROR_ACCESS_DENIED;
