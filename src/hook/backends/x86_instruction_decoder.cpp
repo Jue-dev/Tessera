@@ -528,6 +528,14 @@ struct Encoding {
             encoding.immediate = Immediate::operand;
         }
 
+        // MOV between general-purpose and control/debug registers uses
+        // register-direct ModRM only. Treat memory-form ModRM values as
+        // unsupported instead of consuming a displacement and inventing a
+        // longer instruction boundary.
+        if (map == 1 && opcode2 >= 0x20 && opcode2 <= 0x23 && modrm_mod != 3) {
+            return false;
+        }
+
         if (modrm_mod != 3) {
             const bool address16 = mode == Mode::x86 && address_override;
             if (address16) {
