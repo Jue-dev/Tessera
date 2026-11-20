@@ -82,6 +82,7 @@ void reset() noexcept {
     thread_count = 1;
     snapshot_thread_count = 1;
     create_thread_during_suspend = false;
+    create_threads_during_suspend_count = 0;
     thread_next_calls = 0;
     suspend_thread_fail_on_call = 0;
     suspend_thread_error = NO_ERROR;
