@@ -68,6 +68,8 @@ void reset() noexcept {
     suspend_thread_calls = 0;
     get_thread_context_calls = 0;
     resume_thread_calls = 0;
+    resume_thread_error = NO_ERROR;
+    wait_for_single_object_result = WAIT_OBJECT_0;
     detour_update_error = NO_ERROR;
     detour_attach_error = NO_ERROR;
     detour_detach_error = NO_ERROR;
