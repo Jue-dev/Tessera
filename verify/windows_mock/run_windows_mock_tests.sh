@@ -20,6 +20,7 @@ SOURCES=(
   src/platform/windows/memory_backend.cpp
   src/platform/windows/module_backend.cpp
   src/platform/windows/thread_backend.cpp
+  src/hook/backends/native_thread_suspension.cpp
   src/hook/backends/detours_backend.cpp
 )
 idx=0
