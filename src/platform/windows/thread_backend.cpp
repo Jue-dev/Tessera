@@ -10,6 +10,22 @@
 
 namespace tessera::platform::windows {
 
+namespace {
+[[noreturn]] void fail_stop_cleanup(const char* operation, DWORD error) noexcept {
+    std::fprintf(stderr,
+                 "Tessera: %s failed during owned handle cleanup (error=%lu)\n",
+                 operation,
+                 static_cast<unsigned long>(error));
+    std::terminate();
+}
+
+void close_owned_handle(HANDLE handle) noexcept {
+    if (handle != nullptr && !::CloseHandle(handle)) {
+        fail_stop_cleanup("CloseHandle", ::GetLastError());
+    }
+}
+} // namespace
+
 ScopedThreadList::ScopedThreadList(ScopedThreadList&& other) noexcept
     : handles_(std::move(other.handles_)) {}
 
@@ -28,7 +44,7 @@ ScopedThreadList::~ScopedThreadList() noexcept {
 void ScopedThreadList::close_all() noexcept {
     for (void* h : handles_) {
         if (h != nullptr) {
-            ::CloseHandle(static_cast<HANDLE>(h));
+            close_owned_handle(static_cast<HANDLE>(h));
         }
     }
     handles_.clear();
@@ -60,7 +76,7 @@ Result<ScopedThreadList> ScopedThreadList::collect_other_threads(
     te.dwSize = sizeof(te);
     if (!::Thread32First(snap, &te)) {
         const DWORD err = ::GetLastError();
-        ::CloseHandle(snap);
+        close_owned_handle(snap);
         if (policy == ThreadPolicy::SuspendOthersStrict) {
             return fail(ErrorCode::ThreadEnumerationFailed, "Thread32First", err);
         }
@@ -85,14 +101,14 @@ Result<ScopedThreadList> ScopedThreadList::collect_other_threads(
                     } catch (...) {
                         // Ownership transfers to the list only after push_back
                         // succeeds; close the just-opened handle on allocation failure.
-                        (void)::CloseHandle(th);
+                        close_owned_handle(th);
                         throw;
                     }
                 } else {
                     const DWORD err = ::GetLastError();
                     // ERROR_INVALID_PARAMETER indicates the thread already exited between snapshot and OpenThread.
                     if (err != ERROR_INVALID_PARAMETER && policy == ThreadPolicy::SuspendOthersStrict) {
-                        ::CloseHandle(snap);
+                        close_owned_handle(snap);
                         return fail(ErrorCode::ThreadEnumerationFailed,
                                     "OpenThread",
                                     err,
@@ -110,23 +126,23 @@ Result<ScopedThreadList> ScopedThreadList::collect_other_threads(
             }
         }
     } catch (const std::bad_alloc&) {
-        ::CloseHandle(snap);
+        close_owned_handle(snap);
         return fail(ErrorCode::OutOfMemory, "ScopedThreadList::collect_other_threads");
     } catch (...) {
-        ::CloseHandle(snap);
+        close_owned_handle(snap);
         throw;
     }
 
     const DWORD enumeration_error = ::GetLastError();
     if (enumeration_error != ERROR_NO_MORE_FILES && policy == ThreadPolicy::SuspendOthersStrict) {
-        ::CloseHandle(snap);
+        close_owned_handle(snap);
         return fail(ErrorCode::ThreadEnumerationFailed,
                     "Thread32Next",
                     enumeration_error,
                     "Strict thread policy aborted because thread enumeration ended unexpectedly");
     }
 
-    ::CloseHandle(snap);
+    close_owned_handle(snap);
     return list;
 }
 
@@ -149,10 +165,10 @@ ProcessWideHookLock::ProcessWideHookLock() noexcept {
 
 ProcessWideHookLock::~ProcessWideHookLock() noexcept {
     if (mutex_handle_ != nullptr) {
-        if (acquired_) {
-            ::ReleaseMutex(static_cast<HANDLE>(mutex_handle_));
+        if (acquired_ && !::ReleaseMutex(static_cast<HANDLE>(mutex_handle_))) {
+            fail_stop_cleanup("ReleaseMutex", ::GetLastError());
         }
-        ::CloseHandle(static_cast<HANDLE>(mutex_handle_));
+        close_owned_handle(static_cast<HANDLE>(mutex_handle_));
     }
 }
 
