@@ -133,3 +133,65 @@ TEST_CASE("Diagnostics formatting and observer notification", "[diagnostics]") {
     REQUIRE(obs.count == 1);
     REQUIRE(obs.last_severity == DiagnosticSeverity::Warning);
 }
+
+TEST_CASE("Core checked_math covers narrow integer and signed-offset boundaries", "[core]") {
+    using namespace tessera;
+    constexpr auto max_u8 = (std::numeric_limits<std::uint8_t>::max)();
+    REQUIRE(checked_add<std::uint8_t>(static_cast<std::uint8_t>(max_u8 - 1u), 1u).value() == max_u8);
+    REQUIRE_FALSE(checked_add<std::uint8_t>(max_u8, 1u).has_value());
+    REQUIRE(checked_sub<std::uint8_t>(max_u8, max_u8).value() == 0);
+    REQUIRE_FALSE(checked_sub<std::uint8_t>(0u, 1u).has_value());
+    REQUIRE(checked_mul<std::uint8_t>(15u, 17u).value() == 255u);
+    REQUIRE_FALSE(checked_mul<std::uint8_t>(16u, 17u).has_value());
+    REQUIRE(checked_offset<std::uint64_t>(0x100u, 0x7FFF).value() == 0x80FFu);
+    REQUIRE(checked_offset<std::uint64_t>(0x8000u, -0x7FFF).value() == 1u);
+    REQUIRE_FALSE(checked_offset<std::uint64_t>((std::numeric_limits<std::uint64_t>::max)(), 1).has_value());
+}
+
+TEST_CASE("Core Result, FunctionRef, enum flags, and Error edge contracts", "[core]") {
+    using namespace tessera;
+
+    Status success = ok();
+    REQUIRE(success.has_value());
+
+    Result<int> value = 7;
+    const Result<int>& const_value = value;
+    const auto transformed = const_value | [](const int& input) { return input * 3; };
+    REQUIRE(transformed.has_value());
+    REQUIRE(*transformed == 21);
+
+    Result<int> failed = fail(ErrorCode::IoError, "read", 5u, "disk unavailable");
+    const auto propagated = failed | [](int input) { return input + 1; };
+    REQUIRE_FALSE(propagated.has_value());
+    REQUIRE(propagated.error().code == ErrorCode::IoError);
+    REQUIRE(propagated.error().native == 5u);
+    REQUIRE(propagated.error().detail == "disk unavailable");
+
+    FunctionRef<int(int)> empty{nullptr};
+    REQUIRE_FALSE(empty.valid());
+
+    const auto increment = +[](int input) -> int { return input + 1; };
+    FunctionRef<int(int)> function{increment};
+    REQUIRE(function.valid());
+    REQUIRE(function(41) == 42);
+
+    TestFlags flags = TestFlags::Alpha;
+    flags |= TestFlags::Beta;
+    REQUIRE(flags == (TestFlags::Alpha | TestFlags::Beta));
+    flags &= ~TestFlags::Alpha;
+    REQUIRE(flags == TestFlags::Beta);
+    flags ^= TestFlags::Gamma;
+    REQUIRE(flags == (TestFlags::Beta | TestFlags::Gamma));
+    REQUIRE(has_flag(flags, TestFlags::Beta | TestFlags::Gamma));
+    REQUIRE_FALSE(has_flag(flags, TestFlags::None));
+    REQUIRE_FALSE(any_flag(flags, TestFlags::None));
+
+    const Error first = make_error(ErrorCode::NotFound, "lookup", 2u, "missing");
+    const Error same = make_error(ErrorCode::NotFound, "lookup", 2u, "missing");
+    const Error different = make_error(ErrorCode::NotFound, "lookup", 3u, "missing");
+    REQUIRE(first == same);
+    REQUIRE_FALSE(first == different);
+    REQUIRE(error_code_name(ErrorCode::Conflict) == "Conflict");
+    REQUIRE(error_code_name(static_cast<ErrorCode>(0xFFFFFFFFu)) == "Unknown");
+}
+
