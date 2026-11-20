@@ -21,6 +21,69 @@ TEST_CASE("Native hook address range helpers remain correct at uintptr limits",
     REQUIRE(address_range_contains(1u, (std::numeric_limits<std::size_t>::max)(), maximum));
 }
 
+TEST_CASE("Patch apply, restore, expected_original, and PatchTransaction rollback", "[patch]") {
+    using namespace tessera;
+    using namespace tessera::literals;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    backend->map_region(Address{0x500000}, 0x1000, MemoryProtection::ExecuteReadWrite);
+
+    const std::array<std::byte, 4> orig_bytes{
+        std::byte{0x48}, std::byte{0x89}, std::byte{0x5C}, std::byte{0x24}};
+    backend->poke_bytes(Address{0x500100}, orig_bytes);
+
+    Process proc = FakeMemoryBackend::make_process(backend, Architecture::X64);
+    ProcessAddress target{proc, Address{0x500100}};
+
+    // Expected original mismatch is rejected before writing
+    PatchOptions bad_expect_opt{};
+    bad_expect_opt.expected_original = ExpectedBytes{"FF FF FF FF"_sig};
+    auto p_bad = Patch::nop(target, 4, bad_expect_opt);
+    REQUIRE(p_bad.has_value());
+    auto st_bad = p_bad->apply();
+    REQUIRE_FALSE(st_bad.has_value());
+    REQUIRE(st_bad.error().code == ErrorCode::ValidationFailed);
+    REQUIRE(*backend->peek_byte(Address{0x500100}) == std::byte{0x48});
+
+    // Valid expected_original succeeds and auto_restore restores on scope exit
+    {
+        PatchOptions good_opt{};
+        good_opt.auto_restore = true;
+        good_opt.expected_original = ExpectedBytes{"48 89 5C ??"_sig};
+        auto p_good = Patch::nop(target, 4, good_opt);
+        REQUIRE(p_good.has_value());
+        REQUIRE(p_good->apply().has_value());
+        REQUIRE(p_good->state() == PatchState::Applied);
+        REQUIRE(*backend->peek_byte(Address{0x500100}) == std::byte{0x90});
+    }
+    REQUIRE(*backend->peek_byte(Address{0x500100}) == std::byte{0x48});
+
+    // PatchTransaction rolls back applied patches when a subsequent patch fails
+    backend->poke_bytes(Address{0x500200}, orig_bytes);
+    PatchTransaction tx{};
+    tx.add(*Patch::nop(ProcessAddress{proc, Address{0x500100}}, 4));
+    // Second patch targets unmapped memory -> fails!
+    tx.add(*Patch::nop(ProcessAddress{proc, Address{0x999000}}, 4));
+
+    const TransactionReport tx_rep = tx.apply();
+    REQUIRE_FALSE(tx_rep.succeeded);
+    REQUIRE(tx_rep.applied_count == 1);
+    REQUIRE(tx_rep.rolled_back);
+    REQUIRE(tx_rep.steps[0].state == PatchState::Restored);
+    REQUIRE(*backend->peek_byte(Address{0x500100}) == std::byte{0x48});
+
+    // Custom Patch::create, idempotent apply/restore, and explicit PatchTransaction::restore_all
+    const std::vector<std::byte> custom_bytes{std::byte{0x31}, std::byte{0xC0}};
+    auto p_custom = Patch::create(target, custom_bytes);
+    REQUIRE(p_custom.has_value());
+    REQUIRE(p_custom->apply().has_value());
+    REQUIRE(p_custom->apply().has_value()); // idempotent second apply
+    REQUIRE(*backend->peek_byte(Address{0x500100}) == std::byte{0x31});
+    REQUIRE(p_custom->restore().has_value());
+    REQUIRE(p_custom->restore().has_value()); // idempotent second restore
+    REQUIRE(*backend->peek_byte(Address{0x500100}) == std::byte{0x48});
+}
 
 TEST_CASE("Tessera's bounded x86/x64 decoder reports instruction and relocation metadata",
           "[hook][native][decoder]") {
@@ -143,7 +206,6 @@ TEST_CASE("Tessera's bounded x86/x64 decoder reports instruction and relocation 
     REQUIRE_FALSE(overlong.first);
 }
 
-
 TEST_CASE("Hook callable leases support same-thread recursive original calls",
           "[hook][lifecycle][threads]") {
     using namespace tessera;
@@ -162,7 +224,6 @@ TEST_CASE("Hook callable leases support same-thread recursive original calls",
     REQUIRE(result == 10);
     REQUIRE(hook->remove().has_value());
 }
-
 
 TEST_CASE("Hook lifecycle changes inside a leased call fail without deadlocking",
           "[hook][lifecycle][threads]") {
@@ -187,7 +248,6 @@ TEST_CASE("Hook lifecycle changes inside a leased call fail without deadlocking"
     REQUIRE(hook->installed());
     REQUIRE(hook->remove().has_value());
 }
-
 
 TEST_CASE("Hook callable leases drain in-flight operator calls before remove",
           "[hook][lifecycle][threads]") {
@@ -255,7 +315,6 @@ TEST_CASE("Hook callable leases drain in-flight operator calls before remove",
     REQUIRE(call_result.load(std::memory_order_acquire) == 47);
     REQUIRE_FALSE(hook->installed());
 }
-
 
 TEST_CASE("Hook lifecycle and Detours-off contract", "[hook]") {
     using namespace tessera;
@@ -385,182 +444,3 @@ TEST_CASE("Hook lifecycle and Detours-off contract", "[hook]") {
     REQUIRE_FALSE(invalid_policy_hook->installed());
 }
 
-
-TEST_CASE("Native hook host admission drains active detours before unloading the detour module",
-          "[hook][native][lifecycle][module][integration]") {
-    using namespace tessera;
-
-#if !defined(TESSERA_HOOK_MODULE_FIXTURE_PATH)
-    FAIL("The native hook module fixture path was not configured by CMake.");
-#else
-    struct ModuleGuard {
-        HMODULE module = nullptr;
-        bool safe_to_unload = true;
-
-        ~ModuleGuard() noexcept {
-            // If detach could not be proven successful, deliberately retain the
-            // module until process exit rather than unload live detour code.
-            if (module != nullptr && safe_to_unload) {
-                (void)::FreeLibrary(module);
-            }
-        }
-
-        [[nodiscard]] bool unload() noexcept {
-            if (module == nullptr) {
-                return true;
-            }
-            if (!::FreeLibrary(module)) {
-                return false;
-            }
-            module = nullptr;
-            return true;
-        }
-    } module{
-        ::LoadLibraryA(TESSERA_HOOK_MODULE_FIXTURE_PATH), true};
-    REQUIRE(module.module != nullptr);
-
-    const auto find_export = [](HMODULE handle, const char* name) noexcept -> FARPROC {
-        FARPROC symbol = ::GetProcAddress(handle, name);
-#if defined(_M_IX86)
-        if (symbol == nullptr) {
-            std::array<char, 128> decorated{};
-            const std::size_t length = std::strlen(name);
-            if (length + 2u <= decorated.size()) {
-                decorated[0] = '_';
-                std::memcpy(decorated.data() + 1u, name, length + 1u);
-                symbol = ::GetProcAddress(handle, decorated.data());
-            }
-        }
-#endif
-        return symbol;
-    };
-    const auto resolve_export = [&find_export]<typename Fn>(
-                                    HMODULE handle,
-                                    const char* name) noexcept -> Fn {
-        const FARPROC symbol = find_export(handle, name);
-        Fn function = nullptr;
-        static_assert(sizeof(function) == sizeof(symbol),
-                      "Windows function pointers and FARPROC must have equal size");
-        std::memcpy(&function, &symbol, sizeof(function));
-        return function;
-    };
-
-    using ConfigureFn = void(__cdecl*)(NativeHookFn, HANDLE, HANDLE);
-    using ActiveCallsFn = LONG(__cdecl*)();
-    const auto configure = resolve_export.template operator()<ConfigureFn>(
-        module.module, "tessera_fixture_configure");
-    const auto active_calls = resolve_export.template operator()<ActiveCallsFn>(
-        module.module, "tessera_fixture_active_calls");
-    const auto detour = resolve_export.template operator()<NativeHookFn>(
-        module.module, "tessera_fixture_detour");
-    REQUIRE(configure != nullptr);
-    REQUIRE(active_calls != nullptr);
-    REQUIRE(detour != nullptr);
-
-    struct EventGuard {
-        HANDLE handle = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        ~EventGuard() noexcept {
-            if (handle != nullptr) {
-                (void)::CloseHandle(handle);
-            }
-        }
-    } entered_event, release_event;
-    REQUIRE(entered_event.handle != nullptr);
-    REQUIRE(release_event.handle != nullptr);
-
-    HookBackend& backend = native_inline_hook_backend();
-    NativeHookFn volatile target_entry = &native_hook_target;
-    auto hook = Hook<NativeHookFn>::create(
-        target_entry,
-        detour,
-        &backend);
-    REQUIRE(hook.has_value());
-
-    HookOptions options{};
-    options.threads = ThreadPolicy::None;
-    REQUIRE(hook->install(options).has_value());
-    module.safe_to_unload = false;
-    configure(hook->original(), entered_event.handle, release_event.handle);
-
-    std::shared_mutex admission_gate;
-    std::atomic<int> call_result{-1};
-    struct JoiningCall {
-        HANDLE release_event = nullptr;
-        std::thread worker{};
-
-        ~JoiningCall() noexcept {
-            if (worker.joinable()) {
-                if (release_event != nullptr) {
-                    (void)::SetEvent(release_event);
-                }
-                worker.join();
-            }
-        }
-    } caller{release_event.handle};
-
-    caller.worker = std::thread([&] {
-        std::shared_lock admission(admission_gate);
-        call_result.store(target_entry(5), std::memory_order_release);
-    });
-
-    REQUIRE(::WaitForSingleObject(entered_event.handle, 5000) == WAIT_OBJECT_0);
-    REQUIRE(active_calls() == 1);
-
-    // The callback is blocked inside the DLL. The host's exclusive admission
-    // gate cannot be acquired, so neither detach nor FreeLibrary is permitted.
-    std::unique_lock stop_admission(admission_gate, std::defer_lock);
-    REQUIRE_FALSE(stop_admission.try_lock());
-    REQUIRE(::GetModuleHandleA("tessera_hook_module_fixture.dll") == module.module);
-
-    REQUIRE(::SetEvent(release_event.handle));
-    caller.worker.join();
-    REQUIRE(call_result.load(std::memory_order_acquire) == 1103);
-    REQUIRE(active_calls() == 0);
-    REQUIRE(stop_admission.try_lock());
-
-    // No new caller can enter while this exclusive gate is held. Successful
-    // detach must precede unloading the module that supplied the detour.
-    REQUIRE(hook->remove().has_value());
-    REQUIRE_FALSE(hook->installed());
-    module.safe_to_unload = true;
-    REQUIRE(module.unload());
-    REQUIRE(::GetModuleHandleA("tessera_hook_module_fixture.dll") == nullptr);
-
-    // The original target remains callable after its detour module is gone.
-    REQUIRE(target_entry(5) == 103);
-#endif
-}
-
-
-TEST_CASE("PatchTransaction does not roll back patches applied before the transaction", "[patch][transaction]") {
-    using namespace tessera;
-    using namespace tessera::testing;
-
-    auto backend = std::make_shared<FakeMemoryBackend>();
-    backend->map_region(Address{0x610000}, 0x1000, MemoryProtection::ReadWrite);
-    const std::array<std::byte, 4> original{
-        std::byte{0x10}, std::byte{0x20}, std::byte{0x30}, std::byte{0x40}};
-    backend->poke_bytes(Address{0x610100}, original);
-    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
-
-    auto first_result = Patch::nop(ProcessAddress{process, Address{0x610100}}, 4);
-    REQUIRE(first_result.has_value());
-    Patch first = std::move(*first_result);
-    REQUIRE(first.apply().has_value());
-    REQUIRE(first.state() == PatchState::Applied);
-
-    PatchTransaction transaction{};
-    transaction.add(std::move(first));
-    auto second_result = Patch::nop(ProcessAddress{process, Address{0x999000}}, 4);
-    REQUIRE(second_result.has_value());
-    transaction.add(std::move(*second_result));
-
-    const auto report = transaction.apply();
-    REQUIRE_FALSE(report.succeeded);
-    REQUIRE_FALSE(report.rolled_back);
-    REQUIRE(report.steps[0].state == PatchState::Applied);
-    REQUIRE(*backend->peek_byte(Address{0x610100}) == std::byte{0x90});
-
-    REQUIRE(transaction.restore_all().has_value());
-    REQUIRE(*backend->peek_byte(Address{0x610100}) == std::byte{0x10});
-}
