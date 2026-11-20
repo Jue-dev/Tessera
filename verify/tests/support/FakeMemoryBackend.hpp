@@ -32,6 +32,8 @@ public:
         bool fail_restore_protect = false;
         std::uint32_t restore_failures_remaining = 0;
         std::uint32_t protect_call_count = 0;
+        std::optional<std::uint32_t> fail_protect_on_attempt{};
+        std::uint32_t protect_attempt_count = 0;
     };
 
     FakeMemoryBackend() = default;
@@ -236,6 +238,11 @@ public:
         auto* reg = self->find_region_mut(address);
         if (reg == nullptr || reg->state != MemoryState::Committed) {
             return fail(ErrorCode::ProtectionFailed, "FakeMemoryBackend::protect", 487);
+        }
+        const std::uint32_t protect_attempt = reg->protect_attempt_count++;
+        if (reg->fail_protect_on_attempt.has_value() &&
+            protect_attempt == *reg->fail_protect_on_attempt) {
+            return fail(ErrorCode::ProtectionFailed, "FakeMemoryBackend::protect(indexed)", 5);
         }
         if (reg->fail_protect) {
             return fail(ErrorCode::ProtectionFailed, "FakeMemoryBackend::protect", 5);
