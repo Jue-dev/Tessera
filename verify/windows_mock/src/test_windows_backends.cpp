@@ -324,13 +324,9 @@ int main() {
     winmock::fail_native_api = winmock::NativeApi::GetModuleInformation;
     winmock::fail_native_api_on_call = 1;
     auto info_api_failure = ModuleCatalog::snapshot(*process);
-    std::printf("DEBUG info snapshot=%d size=%zu calls=%d fail=%d local=%d\\n",
-                static_cast<int>(info_api_failure.has_value()),
-                info_api_failure ? info_api_failure->size() : 0u,
-                winmock::native_api_call_count, winmock::fail_native_api_on_call,
-                static_cast<int>(process->is_local()));
     check(info_api_failure && info_api_failure->size() == 1 &&
-              info_api_failure->front().name() == u"beta.dll" &&
+              info_api_failure->front().base().value() ==
+                  0x100000 + static_cast<std::uintptr_t>(0x222) * 0x10000 &&
               winmock::native_api_call_log[1].call == winmock::NativeApi::GetModuleInformation,
           "GetModuleInformation failure skips only the affected module");
 
@@ -338,24 +334,18 @@ int main() {
     winmock::fail_native_api = winmock::NativeApi::GetModuleBaseNameW;
     winmock::fail_native_api_on_call = 1;
     auto base_name_api_failure = ModuleCatalog::snapshot(*process);
-    std::printf("DEBUG basename snapshot=%d size=%zu calls=%d\\n",
-                static_cast<int>(base_name_api_failure.has_value()),
-                base_name_api_failure ? base_name_api_failure->size() : 0u,
-                winmock::native_api_call_count);
     check(base_name_api_failure && base_name_api_failure->size() == 1 &&
-              base_name_api_failure->front().name() == u"beta.dll",
+              base_name_api_failure->front().base().value() ==
+                  0x100000 + static_cast<std::uintptr_t>(0x222) * 0x10000,
           "GetModuleBaseNameW failure skips only the affected module");
 
     winmock::reset();
     winmock::fail_native_api = winmock::NativeApi::GetModuleFileNameExW;
     winmock::fail_native_api_on_call = 1;
     auto path_api_failure = ModuleCatalog::snapshot(*process);
-    std::printf("DEBUG path snapshot=%d size=%zu calls=%d\\n",
-                static_cast<int>(path_api_failure.has_value()),
-                path_api_failure ? path_api_failure->size() : 0u,
-                winmock::native_api_call_count);
     check(path_api_failure && path_api_failure->size() == 2 &&
-              path_api_failure->front().name() == u"alpha.dll" &&
+              path_api_failure->front().base().value() ==
+                  0x100000 + static_cast<std::uintptr_t>(0x111) * 0x10000 &&
               path_api_failure->front().full_path().empty(),
           "GetModuleFileNameExW failure leaves optional path empty without fabricating path data");
 
@@ -369,7 +359,9 @@ int main() {
 
     winmock::reset();
     auto local_main_module = ModuleCatalog::main_module(*process);
-    check(local_main_module && local_main_module->name() == u"alpha.dll" &&
+    check(local_main_module &&
+              local_main_module->base().value() ==
+                  0x100000 + static_cast<std::uintptr_t>(0x111) * 0x10000 &&
               winmock::native_api_call_count == 4 &&
               winmock::native_api_call_log[0].call == winmock::NativeApi::GetModuleHandleW &&
               winmock::native_api_call_log[1].call == winmock::NativeApi::GetModuleInformation &&
