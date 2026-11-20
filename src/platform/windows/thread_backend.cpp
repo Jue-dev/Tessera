@@ -106,7 +106,7 @@ Result<ScopedThreadList> ScopedThreadList::collect_other_threads(
                     const DWORD err = ::GetLastError();
                     // ERROR_INVALID_PARAMETER indicates the thread already exited between snapshot and OpenThread.
                     if (err != ERROR_INVALID_PARAMETER && policy == ThreadPolicy::SuspendOthersStrict) {
-                        ::CloseHandle(snap);
+                        close_owned_handle(snap);
                         return fail(ErrorCode::ThreadEnumerationFailed,
                                     "OpenThread",
                                     err,
@@ -124,23 +124,23 @@ Result<ScopedThreadList> ScopedThreadList::collect_other_threads(
             }
         }
     } catch (const std::bad_alloc&) {
-        ::CloseHandle(snap);
+        close_owned_handle(snap);
         return fail(ErrorCode::OutOfMemory, "ScopedThreadList::collect_other_threads");
     } catch (...) {
-        ::CloseHandle(snap);
+        close_owned_handle(snap);
         throw;
     }
 
     const DWORD enumeration_error = ::GetLastError();
     if (enumeration_error != ERROR_NO_MORE_FILES && policy == ThreadPolicy::SuspendOthersStrict) {
-        ::CloseHandle(snap);
+        close_owned_handle(snap);
         return fail(ErrorCode::ThreadEnumerationFailed,
                     "Thread32Next",
                     enumeration_error,
                     "Strict thread policy aborted because thread enumeration ended unexpectedly");
     }
 
-    ::CloseHandle(snap);
+    close_owned_handle(snap);
     return list;
 }
 
