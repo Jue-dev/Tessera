@@ -34,8 +34,9 @@ UBSAN_OPTIONS=halt_on_error=1 \
 - Stable module enumeration, module image ranges, non-HMODULE-aligned sizes, and a module list that grows on every retry.
 - Strict versus best-effort `Thread32Next` error handling.
 - Native versus Detours thread-handle access masks, including the `THREAD_SET_CONTEXT` right required by Detours transaction commits.
+- Native thread suspension success, deterministic `SuspendThread` and `GetThreadContext` failures, strict/best-effort policy behavior, and resume cleanup after context-query failure.
 - Detours attach/detach success and `DetourUpdateThread` error propagation.
 
-The R8 validation logs record **19/19 checks passing** with GCC 14.2 and Clang 17, including AddressSanitizer and UndefinedBehaviorSanitizer runs; those historical logs are in `verify/portable/logs/windows_mock_R8/`. The current source contains 20 checks, including a newer assertion that distinguishes the native backend's read-only thread-context rights from the additional `THREAD_SET_CONTEXT` right required by Detours. The current 20-check source must be rerun to produce a fresh passing result; the archived R8 logs do not cover that additional assertion.
+The R8 validation logs record **19/19 checks passing** with GCC 14.2 and Clang 17, including AddressSanitizer and UndefinedBehaviorSanitizer runs; those historical logs are in `verify/portable/logs/windows_mock_R8/`. The current source includes deterministic native thread-suspension failure checks. Run the script to obtain a fresh result for the current source; archived R8 logs do not cover later additions.
 
 The executable under `bin/` was compiled with GCC and ASan/UBSan. The source runner rebuilds it from source; build outputs are written to `build/`.
