@@ -186,7 +186,10 @@ target_compile_definitions(tessera_test_patch_hook PRIVATE
 
 tessera_add_test(tessera_test_infra
     SOURCES
-        infra/test_infra.cpp
+        infra/test_utility.cpp
+        infra/test_filesystem.cpp
+        infra/test_json.cpp
+        infra/test_reflection.cpp
     LIBS
         tessera::core
         tessera::diagnostics
