@@ -131,7 +131,7 @@ TEST_CASE("JSON nested round trips preserve the complete value tree", "[json][ro
         layer.set("index", JsonValue{index});
         JsonValue array = JsonValue::make_array();
         array.push_back(std::move(nested));
-        array.push_back(JsonValue{static_cast<std::uint64_t>(index)});
+        array.push_back(JsonValue{index});
         layer.set("children", std::move(array));
         nested = std::move(layer);
     }

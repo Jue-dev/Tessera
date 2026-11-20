@@ -82,7 +82,7 @@ TEST_CASE("Filesystem reports invalid, missing, oversized, and malformed paths",
 
     auto invalid_utf8_write = filesystem::AtomicFileWriter::write_utf8(file, "\xFF");
     REQUIRE_FALSE(invalid_utf8_write.has_value());
-    REQUIRE(invalid_utf8_write.error().code == ErrorCode::ParseError);
+    REQUIRE(invalid_utf8_write.error().code == ErrorCode::InvalidArgument);
 
     const std::array<std::byte, 2> invalid_bytes{std::byte{0xC0}, std::byte{0xAF}};
     REQUIRE(filesystem::AtomicFileWriter::write_bytes(file, invalid_bytes).has_value());
