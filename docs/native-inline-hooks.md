@@ -13,7 +13,7 @@ when it cannot safely decode, relocate, patch, or restore a target.
 - `Hook::acquire()` provides a lock-backed callable lease. Install/remove waits
   for leased calls to drain. `original()` remains a raw, non-owning pointer and
   requires host-side admission/drain.
-- Owned Toolhelp snapshot/thread handles are checked on close. If `CloseHandle` fails, the backend logs the Win32 error and fails stop rather than silently dropping cleanup ownership.
+- Owned Toolhelp snapshot/thread handles and the process transaction mutex are checked during cleanup. If `CloseHandle` or `ReleaseMutex` fails, the backend logs the Win32 error and fails stop rather than silently dropping cleanup ownership.
 - Thread-policy snapshots do not stop concurrent thread creation. A thread
   created after snapshot capture is not part of that finite enumeration and can
   execute while the hook transaction is in progress. Strict, best-effort, and
