@@ -1,0 +1,1 @@
+{"formatVersion":1,"schemaVersion":1,"revision":0,"id":"bad-values","values":{"object":{"nested":true},"mixedArray":["ok",7,null]}}

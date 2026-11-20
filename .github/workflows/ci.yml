@@ -198,18 +198,34 @@ jobs:
       - name: Run Fuzz & Benchmark Smoke Targets (verify/fuzz & verify/bench)
         shell: pwsh
         run: |
-          $targets = @(
-            "build-nortti/verify/fuzz/Release/tessera_fuzz_pattern.exe",
-            "build-nortti/verify/fuzz/Release/tessera_fuzz_pe.exe",
-            "build-nortti/verify/fuzz/Release/tessera_fuzz_json.exe",
-            "build-nortti/verify/fuzz/Release/tessera_fuzz_native_hook.exe",
-            "build-nortti/verify/bench/Release/tessera_bench.exe"
+          $fuzzTargets = @(
+            @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_pattern.exe"; Corpus = "verify/fuzz/corpus/pattern" },
+            @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_pe.exe"; Corpus = "verify/fuzz/corpus/pe" },
+            @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_json.exe"; Corpus = "verify/fuzz/corpus/json" },
+            @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_profile_json.exe"; Corpus = "verify/fuzz/corpus/profile_json" },
+            @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_rtti_discovery.exe"; Corpus = "verify/fuzz/corpus/rtti_discovery" },
+            @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_native_hook.exe"; Corpus = "verify/fuzz/corpus/native_hook" }
           )
-          foreach ($target in $targets) {
-            if (-not (Test-Path $target)) { throw "Missing Release smoke target: $target" }
+          foreach ($entry in $fuzzTargets) {
+            $target = $entry.Path
+            $corpus = $entry.Corpus
+            if (-not (Test-Path $target)) { throw "Missing Release fuzz smoke target: $target" }
+            if (-not (Test-Path $corpus)) { throw "Missing fuzz seed corpus: $corpus" }
+            Write-Host "Running $target with seed corpus $corpus"
+            & $target $corpus "-runs=100"
+            if ($LASTEXITCODE -ne 0) { throw "Fuzz smoke failed ($LASTEXITCODE): $target" }
+          }
+
+          $benchmarkTargets = @(
+            "build-nortti/verify/bench/Release/tessera_bench.exe",
+            "build-nortti/verify/bench/Release/tessera_decoder_bench.exe",
+            "build-nortti/verify/bench/Release/tessera_pe_bench.exe"
+          )
+          foreach ($target in $benchmarkTargets) {
+            if (-not (Test-Path $target)) { throw "Missing Release benchmark smoke target: $target" }
             Write-Host "Running $target"
             & $target
-            if ($LASTEXITCODE -ne 0) { throw "Smoke target failed ($LASTEXITCODE): $target" }
+            if ($LASTEXITCODE -ne 0) { throw "Benchmark smoke failed ($LASTEXITCODE): $target" }
           }
 
       - name: Verify CMake Install Package (Single tessera.lib)

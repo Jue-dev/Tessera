@@ -28,16 +28,16 @@ cmake --build --preset x64-debug
 ctest --preset x64-debug --output-on-failure
 
 # 2. Diğer projelere aktarım için hazır SDK paketini (dist/TesseraSDK + Tessera.props) oluşturma
-.\scripts\export_sdk.bat
+.\scripts\export_sdk.ps1
 
 # 3. Gereksiz derleme/IDE/geçici dosyaları temizleme (-DryRun ile silmeden önizleme)
-.\scripts\clean.bat -DryRun
-.\scripts\clean.bat
+.\scripts\clean.ps1 -DryRun
+.\scripts\clean.ps1
 ```
 
 ## Diğer Projelere Aktarım
 
-- **Visual Studio (`.sln` / `.vcxproj`):** `.\scripts\export_sdk.bat` çalıştırdıktan sonra oluşan `dist/TesseraSDK/Tessera.props` dosyasını Visual Studio *Property Manager -> Add Existing Property Sheet* ile projenize ekleyin; `include/` yolu ve tek parça `tessera.lib` otomatik bağlanır.
+- **Visual Studio (`.sln` / `.vcxproj`):** `.\scripts\export_sdk.ps1` çalıştırdıktan sonra oluşan `dist/TesseraSDK/Tessera.props` dosyasını Visual Studio *Property Manager -> Add Existing Property Sheet* ile projenize ekleyin; `include/` yolu ve tek parça `tessera.lib` otomatik bağlanır.
 - **CMake (`find_package`):**
   ```cmake
   list(APPEND CMAKE_PREFIX_PATH "C:/path/to/Tessera/dist/TesseraSDK/x64/Release")

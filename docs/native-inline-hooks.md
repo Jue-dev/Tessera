@@ -17,29 +17,29 @@ when it cannot safely decode, relocate, patch, or restore a target.
   best-effort, and no-suspension modes have different safety guarantees; none
   substitutes for host quiescence.
 
-## Fuzz validation
+## Current CI and fuzz validation
 
-The PR workflow runs independent x86 and x64 coverage-guided campaigns:
+Latest exact-head validation: commit
+`059660d6b644c87b3d3b8438362abffd0cc83409`.
 
-- x86: MSVC Fuzzer + ASan, 32-bit PE (`I386 / 0x014c).
-- x64: LLVM libFuzzer + ASan/UBSan, 64-bit PE (`AMD64 / 0x8664`).
+- [Full CI matrix](https://github.com/Jue-dev/Tessera/actions/runs/44739402959):
+  x64/x86 Debug and Release, full CTest (13/13 suites per configuration),
+  Detours x64/x86, MSVC `/analyze`, and `/GR-` quality gate passed.
+- The quality gate consumed all six checked-in fuzz corpora with `-runs=100`,
+  ran all three benchmark targets, and completed SDK install/package checks.
+- [Native-hook fuzz campaigns](https://github.com/Jue-dev/Tessera/actions/runs/44739402840):
+  x86 MSVC Fuzzer + ASan completed 4,097,386 executions / 301 seconds;
+  x64 LLVM libFuzzer + ASan/UBSan completed 7,084,210 executions / 301 seconds.
+  No crash or sanitizer finding was reported.
+- x64 trampoline unwind extraction into `native_unwind.cpp` was compiled and
+  covered by the exact-head matrix.
 
-Exact-head campaign results on commit `f3b40519`:
+These are exact-head CI and fuzz results, not a blanket production-safety
+certification. Remaining fault-injection, page-protection recovery, cross-image
+coordination, and concurrency-boundary work is tracked in
+[Issue #24](https://github.com/Jue-dev/Tessera/issues/24).
 
-| Architecture | Duration | Executions | Coverage | Peak RSS | Result |
-|---|---:|---:|---:|---:|---|
-| x86 | 301 sec | 5,117,733 | 1,151 features | 523 MB | PASS |
-| x64 | 301 sec | 4,790,089 | 942 counters / 1,956 features | 531 MB | PASS |
+## Architecture decision record
 
-No crash or sanitizer report was produced by either campaign. These fuzz
-campaigns validate the instrumented attach/detach lifecycle and restoration;
-they do not execute arbitrary fuzz-generated trampolines.
-
-## Current validation status
-
-The fuzz jobs above passed on `f3b40519`. Full CTest did not yet pass on that
-commit: x86 remote process region enumeration, a resolver invalid-length test,
-and the x86/x64 branching-virtual-base RTTI fixture failed. See
-`docs/issue-6-audit-findings.md` for details and the next diagnostic steps.
-
-**This PR is still draft. Do not merge based on fuzz success alone.**
+See [ADR 0002](adr/0002-native-inline-hook-safety-contract.md) for the safety
+contract, supported boundaries, and validation caveats.

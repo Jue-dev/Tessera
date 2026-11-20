@@ -21,11 +21,13 @@ Available presets:
 - `x64-release`
 - `x86-debug`
 - `x86-release`
+- `x64-asan` (optional sanitizer configuration)
+- `x64-analyze` (optional MSVC static-analysis configuration)
 
 ## Installing the SDK
 
 ```powershell
-cmake --install out/build/x64-release --prefix out/install/x64-release
+cmake --install artifacts/x64/Release/build --prefix artifacts/x64/Release/install
 ```
 
 Downstream projects can then consume Tessera via:
@@ -34,3 +36,37 @@ Downstream projects can then consume Tessera via:
 find_package(Tessera CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE tessera::tessera)
 ```
+
+## Benchmarks
+
+Benchmark targets are opt-in and do not replace correctness tests. Configure and build them separately:
+
+```powershell
+cmake -S . -B build-bench -G Ninja -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_BENCH=ON
+cmake --build build-bench --target tessera_bench tessera_decoder_bench tessera_pe_bench
+.\build-bench\verify\bench\tessera_bench.exe
+.\build-bench\verify\bench\tessera_decoder_bench.exe
+.\build-bench\verify\bench\tessera_pe_bench.exe
+```
+
+- `tessera_bench`: pattern scan and RTTI/Python discovery.
+- `tessera_decoder_bench`: bounded x64 instruction decoding.
+- `tessera_pe_bench`: deterministic PE32+ raw-image parsing and accessors.
+
+## Workspace helper scripts
+
+- `scripts/clean.ps1` is the workspace cleanup entry point; use `-DryRun` to preview removals.
+- `scripts/export_sdk.ps1` builds and exports the SDK. The redundant `.bat` forwarding wrappers were removed; invoke these PowerShell scripts from a PowerShell prompt.
+
+## Fuzz targets
+
+Fuzz harnesses are optional and are excluded from the normal SDK build. Configure a standalone build with:
+
+```powershell
+cmake -S . -B build-fuzz -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_FUZZ=ON -DTESSERA_ENABLE_LIBFUZZER=OFF
+cmake --build build-fuzz --target tessera_fuzz_pe tessera_fuzz_json tessera_fuzz_pattern tessera_fuzz_profile_json tessera_fuzz_rtti_discovery
+```
+
+This standalone mode is useful for deterministic harness smoke checks; it does not enable coverage-guided fuzzing. For Clang/libFuzzer with ASan/UBSan, configure with a Clang toolchain and set both `TESSERA_ENABLE_LIBFUZZER=ON` and `TESSERA_STATIC_RUNTIME=ON` (the Windows LLVM runtime requires `/MT`). On native MSVC x86, use `TESSERA_ENABLE_MSVC_FUZZER=ON` (and `TESSERA_ENABLE_ASAN=ON`) because the distributed Windows LLVM package does not provide the i386 libFuzzer archive. The exact Windows x86/x64 campaign setup, runtime checks, duration controls, and artifact collection are maintained in [native-hook-fuzz.yml](../.github/workflows/native-hook-fuzz.yml); its PowerShell steps live under [native-hook-fuzz scripts](../.github/scripts/native-hook-fuzz/).
+
+The seed corpora are checked in under `verify/fuzz/corpus/`. See [the fuzz guide](../verify/fuzz/README.md) for target coverage and campaign details.

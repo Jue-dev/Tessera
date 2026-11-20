@@ -5,7 +5,14 @@
 #include <span>
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-    const std::span<const std::byte> raw(reinterpret_cast<const std::byte*>(data), size);
+    if (data == nullptr && size != 0) {
+        return 0;
+    }
+    const std::byte empty_input{};
+    const auto* const bytes = data != nullptr
+                                 ? reinterpret_cast<const std::byte*>(data)
+                                 : &empty_input;
+    const std::span<const std::byte> raw(bytes, size);
     auto pe = tessera::PeImage::from_raw_bytes(raw);
     if (pe.has_value()) {
         (void)pe->exports();

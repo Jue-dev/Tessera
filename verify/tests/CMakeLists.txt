@@ -145,7 +145,12 @@ tessera_add_test(tessera_test_module_resolver
 
 tessera_add_test(tessera_test_patch_hook
     SOURCES
-        patch_hook/test_patch_hook.cpp
+        patch_hook/test_patch_hook_core.cpp
+        patch_hook/test_native_hook_unwind.cpp
+        patch_hook/test_native_hook_relocation.cpp
+        patch_hook/test_native_hook_backend.cpp
+        patch_hook/test_native_hook_lifecycle.cpp
+        patch_hook/test_patch_transactions.cpp
     LIBS
         tessera::core
         tessera::diagnostics
@@ -180,18 +185,24 @@ target_compile_definitions(tessera_test_patch_hook PRIVATE
     TESSERA_HOOK_MODULE_FIXTURE_PATH=\"$<TARGET_FILE:tessera_hook_module_fixture>\"
 )
 
-tessera_add_test(tessera_test_infra
-    SOURCES
-        infra/test_infra.cpp
-    LIBS
-        tessera::core
-        tessera::diagnostics
-        tessera::utility
-        tessera::filesystem
-        tessera::json
-        tessera::logging
-        tessera::profiling
-        tessera::reflection
+tessera_add_test(tessera_test_utility
+    SOURCES infra/test_utility.cpp
+    LIBS tessera::core tessera::diagnostics tessera::utility
+)
+
+tessera_add_test(tessera_test_filesystem
+    SOURCES infra/test_filesystem.cpp
+    LIBS tessera::core tessera::diagnostics tessera::utility tessera::filesystem
+)
+
+tessera_add_test(tessera_test_json
+    SOURCES infra/test_json.cpp
+    LIBS tessera::core tessera::diagnostics tessera::utility tessera::json
+)
+
+tessera_add_test(tessera_test_reflection
+    SOURCES infra/test_reflection.cpp
+    LIBS tessera::core tessera::diagnostics tessera::utility tessera::logging tessera::profiling tessera::reflection
 )
 
 tessera_add_test(tessera_test_profile_targets

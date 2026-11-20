@@ -1,0 +1,3 @@
+Tessera RTTI discovery fuzz seed
+__type_descriptor__
+.?AVTesseraFuzzType@@

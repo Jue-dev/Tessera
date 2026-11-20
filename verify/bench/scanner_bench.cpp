@@ -1,5 +1,7 @@
 #include "tessera/tessera.hpp"
 
+#include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -8,6 +10,7 @@
 #include <vector>
 
 #include "FakeMemoryBackend.hpp"
+
 
 int main() {
     using namespace tessera;
@@ -67,6 +70,7 @@ int main() {
               << "  Min (us)   : " << disc_metrics.min.count() / 1000.0 << "\n"
               << "  Mean (us)  : " << disc_metrics.mean.count() / 1000.0 << "\n"
               << "  Max (us)   : " << disc_metrics.max.count() / 1000.0 << "\n";
+
 
     return 0;
 }

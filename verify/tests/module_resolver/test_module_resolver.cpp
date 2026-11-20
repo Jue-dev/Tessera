@@ -170,3 +170,71 @@ TEST_CASE("Resolver rejects overflowing instruction and operand offsets", "[reso
     REQUIRE_FALSE(bad_instruction_length.has_value());
     REQUIRE(bad_instruction_length.error().code == ErrorCode::InvalidArgument);
 }
+
+TEST_CASE("PE parser rejects malformed headers and reports missing sections and exports", "[module][pe][safety]") {
+    using namespace tessera;
+
+    std::vector<std::byte> bytes(0x400);
+    const auto put16 = [&](std::size_t offset, std::uint16_t value) {
+        bytes[offset] = static_cast<std::byte>(value & 0xFFu);
+        bytes[offset + 1] = static_cast<std::byte>((value >> 8u) & 0xFFu);
+    };
+    const auto put32 = [&](std::size_t offset, std::uint32_t value) {
+        for (std::size_t i = 0; i < 4; ++i) {
+            bytes[offset + i] = static_cast<std::byte>((value >> (i * 8u)) & 0xFFu);
+        }
+    };
+    const auto put64 = [&](std::size_t offset, std::uint64_t value) {
+        for (std::size_t i = 0; i < 8; ++i) {
+            bytes[offset + i] = static_cast<std::byte>((value >> (i * 8u)) & 0xFFu);
+        }
+    };
+
+    put16(0x00, 0x5A4D);
+    put32(0x3C, 0x80);
+    put32(0x80, 0x00004550);
+    put16(0x84, 0x8664);
+    put16(0x86, 1);
+    put32(0x88, 0x12345678);
+    put16(0x94, 0xF0);
+    put16(0x98, 0x020B);
+    put32(0x98 + 16, 0x1000);
+    put64(0x98 + 24, 0x140000000ull);
+    put32(0x98 + 32, 0x1000);
+    put32(0x98 + 36, 0x200);
+    put32(0x98 + 56, 0x2000);
+    put32(0x98 + 60, 0x200);
+    put32(0x98 + 108, 16);
+
+    constexpr std::size_t section = 0x188;
+    bytes[section] = std::byte{'.'};
+    bytes[section + 1] = std::byte{'t'};
+    bytes[section + 2] = std::byte{'e'};
+    bytes[section + 3] = std::byte{'x'};
+    bytes[section + 4] = std::byte{'t'};
+    put32(section + 8, 0x100);
+    put32(section + 12, 0x1000);
+    put32(section + 16, 0x200);
+    put32(section + 20, 0x200);
+    put32(section + 36, 0x60000020);
+
+    auto image = PeImage::from_raw_bytes(bytes);
+    REQUIRE(image.has_value());
+    REQUIRE(image->find_section(".text").has_value());
+    REQUIRE_FALSE(image->find_section(".missing").has_value());
+    REQUIRE_FALSE(image->find_export("MissingExport").has_value());
+
+    auto malformed_lfanew = bytes;
+    malformed_lfanew[0x3C] = std::byte{0xF0};
+    malformed_lfanew[0x3D] = std::byte{0xFF};
+    malformed_lfanew[0x3E] = std::byte{0xFF};
+    malformed_lfanew[0x3F] = std::byte{0xFF};
+    REQUIRE_FALSE(PeImage::from_raw_bytes(malformed_lfanew).has_value());
+
+    auto out_of_image_section = bytes;
+    out_of_image_section[section + 12] = std::byte{0x00};
+    out_of_image_section[section + 13] = std::byte{0x30};
+    out_of_image_section[section + 14] = std::byte{0x00};
+    out_of_image_section[section + 15] = std::byte{0x00};
+    REQUIRE_FALSE(PeImage::from_raw_bytes(out_of_image_section).has_value());
+}
