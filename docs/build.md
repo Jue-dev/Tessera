@@ -136,9 +136,9 @@ The dedicated presets keep optional tools out of the default SDK build:
 # Build the benchmark executables
 cmake --preset x64-bench
 cmake --build --preset x64-bench
-.`artifacts\x64\Bench\build\verify\bench\tessera_bench.exe`
-.`artifacts\x64\Bench\build\verify\bench\tessera_decoder_bench.exe`
-.`artifacts\x64\Bench\build\verify\bench\tessera_pe_bench.exe`
+ .\artifacts\x64\Bench\build\verify\bench\tessera_bench.exe
+ .\artifacts\x64\Bench\build\verify\bench\tessera_decoder_bench.exe
+ .\artifacts\x64\Bench\build\verify\bench\tessera_pe_bench.exe
 
 # Build standalone fuzz harnesses (no libFuzzer runtime)
 cmake --preset x64-fuzz-smoke
