@@ -320,3 +320,23 @@ TEST_CASE("ProtectionScope retains restoration ownership after a failed restore"
     REQUIRE_FALSE(scope.active());
     REQUIRE(region.protection == MemoryProtection::Read);
 }
+
+TEST_CASE("MemoryReader reports an unterminated string after a short backend read",
+          "[memory][strings]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    auto& region = backend->map_region(
+        Address{0x2A000}, 0x1000, MemoryProtection::Read);
+    const std::array<std::byte, 2> prefix{std::byte{'A'}, std::byte{'B'}};
+    backend->poke_bytes(Address{0x2A000}, prefix);
+    region.readable_prefix_limit = prefix.size();
+
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
+    MemoryReader reader{process};
+
+    const auto result = reader.read_cstring(Address{0x2A000}, 16);
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().code == ErrorCode::PartialTransfer);
+}
