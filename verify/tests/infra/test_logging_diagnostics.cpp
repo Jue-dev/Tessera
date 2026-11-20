@@ -96,11 +96,11 @@ TEST_CASE("Diagnostics format errors and notify observers", "[diagnostics]") {
     diagnostics::notify(&observer, DiagnosticSeverity::Error, "test", "lookup failed");
     diagnostics::notify(nullptr, DiagnosticSeverity::Info, "test", "ignored");
     REQUIRE(observer.events_.size() == 3);
-    REQUIRE(observer.events[0].severity == DiagnosticSeverity::Info);
-    REQUIRE(observer.events[1].category == "test");
-    REQUIRE(observer.events[1].message == "missing optional field");
-    REQUIRE(observer.events[1].error.has_value());
-    REQUIRE(observer.events[2].severity == DiagnosticSeverity::Error);
+    REQUIRE(observer.events_[0].severity == DiagnosticSeverity::Info);
+    REQUIRE(observer.events_[1].category == "test");
+    REQUIRE(observer.events_[1].message == "missing optional field");
+    REQUIRE(observer.events_[1].error.has_value());
+    REQUIRE(observer.events_[2].severity == DiagnosticSeverity::Error);
 }
 
 TEST_CASE("LoggerDiagnosticObserver maps diagnostic severity and formats attached errors",
