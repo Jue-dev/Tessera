@@ -71,6 +71,91 @@ int main() {
     auto partial = memory_reader.read_partial(Address{0x1000}, partial_buffer);
     check(partial && *partial == 2, "Windows memory backend reports partial ReadProcessMemory transfer");
 
+    // Deterministic Windows memory API failures exercise MemoryWriter's
+    // protection, rollback, and instruction-cache recovery branches.
+    winmock::reset();
+    winmock::virtual_protect_fail_on_call = 1;
+    auto initial_protection_failure =
+        memory_writer.write_with_report(Address{0x1004}, replacement_bytes);
+    check(initial_protection_failure && initial_protection_failure->write_error &&
+              initial_protection_failure->write_error->operation == "VirtualProtectEx" &&
+              initial_protection_failure->write_error->code == ErrorCode::ProtectionFailed &&
+              initial_protection_failure->bytes_written == 0 &&
+              winmock::write_process_memory_calls == 0 &&
+              winmock::process_memory[4] == std::byte{4} &&
+              winmock::process_memory_protect == PAGE_EXECUTE_READ,
+          "initial VirtualProtectEx failure prevents writes and preserves original bytes");
+
+    winmock::reset();
+    winmock::write_process_memory_fail_on_call = 1;
+    auto write_failure = memory_writer.write_with_report(Address{0x1004}, replacement_bytes);
+    check(write_failure && write_failure->write_error &&
+              write_failure->write_error->operation == "WriteProcessMemory" &&
+              write_failure->write_error->code == ErrorCode::AccessDenied &&
+              write_failure->bytes_written == 0 && !write_failure->rollback_error &&
+              winmock::process_memory[4] == std::byte{4} &&
+              winmock::process_memory_protect == PAGE_EXECUTE_READ,
+          "zero-byte WriteProcessMemory failure restores page protection without rollback");
+
+    winmock::reset();
+    winmock::write_process_memory_fail_on_call = 1;
+    winmock::write_process_memory_partial_bytes = 1;
+    auto partial_write = memory_writer.write_with_report(Address{0x1004}, replacement_bytes);
+    check(partial_write && partial_write->write_error &&
+              partial_write->write_error->code == ErrorCode::PartialTransfer &&
+              partial_write->rolled_back && !partial_write->rollback_error &&
+              winmock::process_memory[4] == std::byte{4} &&
+              winmock::process_memory[5] == std::byte{5} &&
+              winmock::process_memory[6] == std::byte{6} &&
+              winmock::process_memory_protect == PAGE_EXECUTE_READ,
+          "partial WriteProcessMemory transfer is rolled back and protection restored");
+
+    winmock::reset();
+    winmock::write_process_memory_fail_on_call = 1;
+    winmock::write_process_memory_fail_on_call_2 = 2;
+    winmock::write_process_memory_partial_bytes = 1;
+    auto rollback_failure = memory_writer.write_with_report(Address{0x1004}, replacement_bytes);
+    check(rollback_failure && rollback_failure->write_error &&
+              rollback_failure->rollback_error && !rollback_failure->rolled_back &&
+              winmock::process_memory[4] == std::byte{0xA1} &&
+              winmock::process_memory[5] == std::byte{5} &&
+              winmock::process_memory_protect == PAGE_EXECUTE_READ,
+          "rollback WriteProcessMemory failure is surfaced without claiming rollback success");
+
+    winmock::reset();
+    winmock::virtual_protect_fail_on_call = 2;
+    auto restore_report = memory_writer.write_with_report(Address{0x1004}, replacement_bytes);
+    const bool restore_ticket_created =
+        restore_report && restore_report->pending_protection_restores.size() == 1 &&
+        restore_report->protection_restore_warning.has_value() &&
+        winmock::process_memory_protect == PAGE_EXECUTE_READWRITE;
+    winmock::virtual_protect_fail_on_call = 3;
+    auto restore_retry_failure = restore_report
+        ? memory_writer.restore_pending_protections(*restore_report)
+        : Status{std::unexpected(make_error(ErrorCode::InternalError, "test"))};
+    const bool restore_ticket_retained =
+        restore_report && !restore_retry_failure &&
+        restore_report->pending_protection_restores.size() == 1;
+    winmock::virtual_protect_fail_on_call = 0;
+    auto restore_retry_success = restore_report
+        ? memory_writer.restore_pending_protections(*restore_report)
+        : Status{std::unexpected(make_error(ErrorCode::InternalError, "test"))};
+    check(restore_ticket_created && restore_ticket_retained && restore_retry_success &&
+              restore_report->pending_protection_restores.empty() &&
+              !restore_report->protection_restore_warning &&
+              winmock::process_memory_protect == PAGE_EXECUTE_READ,
+          "protection restoration ticket survives retry failure and clears after successful retry");
+
+    winmock::reset();
+    winmock::flush_instruction_cache_fail_on_call = 1;
+    auto flush_failure = memory_writer.write_with_report(Address{0x1004}, replacement_bytes);
+    check(flush_failure && flush_failure->bytes_written == replacement_bytes.size() &&
+              flush_failure->icache_flush_error &&
+              flush_failure->icache_flush_error->operation == "FlushInstructionCache" &&
+              flush_failure->icache_flush_error->code == ErrorCode::IoError &&
+              winmock::process_memory_protect == PAGE_EXECUTE_READ,
+          "FlushInstructionCache failure is surfaced after write and protection restoration");
+
     winmock::reset();
     auto modules = ModuleCatalog::snapshot(*process);
     check(modules.has_value() && modules->size() == 2, "stable ModuleCatalog snapshot returns both modules");
