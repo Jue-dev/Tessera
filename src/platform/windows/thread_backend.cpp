@@ -15,7 +15,7 @@ void close_owned_handle(HANDLE handle) noexcept {
     if (handle != nullptr && !::CloseHandle(handle)) {
         const DWORD error = ::GetLastError();
         std::fprintf(stderr,
-                     "Tessera: CloseHandle failed for an owned thread-enumeration handle (error=%lu)\\n",
+                     "Tessera: CloseHandle failed for an owned thread-enumeration handle (error=%lu)\n",
                      static_cast<unsigned long>(error));
         // Dropping an owned snapshot/thread handle after a failed close silently
         // leaks process resources. The cleanup invariant is therefore fail-stop.
