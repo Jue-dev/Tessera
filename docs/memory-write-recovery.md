@@ -32,7 +32,7 @@ The rollback path reuses an existing ticket when the first write pass could not 
 
 ## Status-only convenience API
 
-`MemoryWriter::write` returns `Status`, so it cannot return a caller-owned report. It performs one immediate retry for a transient protection-restore failure before returning. If the failure persists, it returns an error. Callers that need explicit retry ownership and inspection of partial/rollback state must use `write_with_report`.
+`MemoryWriter::write` returns `Status`, so it cannot return a caller-owned report. It performs one immediate retry for a transient protection-restore failure before returning. If the failure persists, it returns an error. Callers that need explicit retry ownership and inspection of partial/rollback state must use `write_with_report`. `ProcessAddress` exposes matching `write_with_report()` and `restore_pending_protections()` forwarding methods for the same workflow.
 
 ## Failure policy
 
