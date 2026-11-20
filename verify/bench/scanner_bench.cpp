@@ -133,34 +133,5 @@ int main() {
               << "  Max (us)   : " << disc_metrics.max.count() / 1000.0 << "\n";
 
 
-    // 3. Bounded x64 instruction decoding (private hook decoder).
-    constexpr std::array<std::byte, 7> instruction{
-        std::byte{0x48}, std::byte{0x8B}, std::byte{0x05}, std::byte{0x34},
-        std::byte{0x12}, std::byte{0x00}, std::byte{0x00}};
-    const auto decoder_metrics = profiling::run_benchmark(10000, [&]() {
-        detail::x86::DecodedInstruction decoded{};
-        if (!detail::x86::decode_instruction(
-                instruction.data(), instruction.size(), detail::x86::Mode::x64, decoded) ||
-            decoded.length != instruction.size() || !decoded.has_rip_relative_operand) {
-            std::abort();
-        }
-    });
-    print_metrics("Benchmark 3: x64 instruction decoder (RIP-relative MOV)", decoder_metrics);
-
-    // 4. Raw PE32+ parse and section/directory accessor benchmark.
-    const auto pe_bytes = make_benchmark_pe64();
-    const auto pe_metrics = profiling::run_benchmark(1000, [&]() {
-        auto image = PeImage::from_raw_bytes(pe_bytes);
-        if (!image.has_value() || image->sections().size() != 1) {
-            std::abort();
-        }
-        (void)image->sections();
-        (void)image->exports();
-        (void)image->imports();
-        (void)image->exception_functions();
-        (void)image->code_view();
-    });
-    print_metrics("Benchmark 4: PE32+ raw parse (one section, 1 KiB image)", pe_metrics);
-
     return 0;
 }
