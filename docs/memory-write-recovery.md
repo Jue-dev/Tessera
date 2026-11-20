@@ -26,6 +26,10 @@ The retry operation removes only tickets whose restoration succeeded. A failed t
 
 The rollback path reuses an existing ticket when the first write pass could not restore a page. It must not treat the temporary elevated protection as the original protection or create a second ticket that could later re-elevate the page.
 
+## Patch lifecycle integration
+
+`Patch` retains the `WriteReport` when apply/restore leaves pending protection tickets. A later `Patch::restore()` or automatic destructor cleanup retries those tickets before proceeding with byte restoration. This prevents the patch wrapper from silently dropping the retry ownership returned by `MemoryWriter`.
+
 ## Status-only convenience API
 
 `MemoryWriter::write` returns `Status`, so it cannot return a caller-owned report. It performs one immediate retry for a transient protection-restore failure before returning. If the failure persists, it returns an error. Callers that need explicit retry ownership and inspection of partial/rollback state must use `write_with_report`.
