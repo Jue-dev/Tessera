@@ -186,6 +186,8 @@ BOOL IsWow64Process2(HANDLE handle, USHORT* process_machine, USHORT* native_mach
     return TRUE;
 }
 void GetNativeSystemInfo(SYSTEM_INFO* info) noexcept {
+    (void)winmock::record_native_api_call(winmock::NativeApi::GetNativeSystemInfo, nullptr,
+            reinterpret_cast<std::uintptr_t>(info));
     info->wProcessorArchitecture = PROCESSOR_ARCHITECTURE_AMD64;
     info->lpMaximumApplicationAddress = reinterpret_cast<void*>(0x7fffffffffffULL);
 }
