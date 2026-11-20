@@ -17,6 +17,24 @@ when it cannot safely decode, relocate, patch, or restore a target.
   best-effort, and no-suspension modes have different safety guarantees; none
   substitutes for host quiescence.
 
+## Deployment boundary: one backend image per process
+
+The process-wide hook mutex serializes patch transactions across cooperating
+Tessera images, but it does **not** make the active-hook registry shared. That
+registry is a function-local static in each loaded backend image. If two
+independently loaded DLLs each contain their own Tessera native-hook backend,
+each image can observe an empty local registry while the other image already
+owns an overlapping patch range.
+
+Therefore, the supported deployment boundary is **one loaded Tessera native
+hook backend image per process**. Do not statically embed or load independent
+copies of the backend into multiple DLLs in the same process. The mutex alone
+must not be interpreted as cross-image registry coordination. This limitation
+is documented rather than runtime-enforced: reliable detection of every
+independent or statically embedded copy is not currently available. A future
+shared process registry is required before multi-image deployments can be
+supported.
+
 ## Current CI and fuzz validation
 
 Latest exact-head validation: commit
