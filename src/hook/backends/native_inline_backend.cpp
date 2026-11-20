@@ -422,66 +422,30 @@ struct NativeHookState {
     return ok();
 }
 
-void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept {
-    destination[0] = std::byte{0xFF};
-    destination[1] = std::byte{0x25};
-    for (std::size_t i = 2; i < 6; ++i) {
-        destination[i] = std::byte{0};
+[[nodiscard]] bool remap_internal_destination(std::int64_t original_begin,
+                                                     const DecodedBlock& block,
+                                                     std::uintptr_t trampoline_address,
+                                                     std::int64_t& destination) noexcept {
+    const std::int64_t original_end =
+        original_begin + static_cast<std::int64_t>(block.length);
+    if (destination < original_begin || destination >= original_end) {
+        return true;
     }
-    const std::uint64_t address = static_cast<std::uint64_t>(target);
-    std::memcpy(destination + 6, &address, sizeof(address));
-}
 
-[[nodiscard]] bool write_unwind_safe_tail(std::byte* destination,
-                                       std::uintptr_t instruction_address,
-                                       std::uintptr_t target) noexcept {
-#if defined(TESSERA_HOOK_X64)
-    // JE target; JNE target. Exactly one branch is taken for every flag state.
-    // Unlike an unconditional JMP, neither instruction is an x64 epilog marker,
-    // so RtlVirtualUnwind applies the trampoline's unwind metadata at this tail.
-    destination[0] = std::byte{0x0F};
-    destination[1] = std::byte{0x84};
-    destination[6] = std::byte{0x0F};
-    destination[7] = std::byte{0x85};
-    const std::int64_t first_displacement =
-        static_cast<std::int64_t>(target) -
-        static_cast<std::int64_t>(instruction_address + 6u);
-    const std::int64_t second_displacement =
-        static_cast<std::int64_t>(target) -
-        static_cast<std::int64_t>(instruction_address + 12u);
-    if (first_displacement < (std::numeric_limits<std::int32_t>::min)() ||
-        first_displacement > (std::numeric_limits<std::int32_t>::max)() ||
-        second_displacement < (std::numeric_limits<std::int32_t>::min)() ||
-        second_displacement > (std::numeric_limits<std::int32_t>::max)()) {
-        return false;
+    const auto target_offset = static_cast<std::size_t>(destination - original_begin);
+    for (std::size_t i = 0; i < block.instruction_count; ++i) {
+        const DecodedInstruction& candidate = block.instructions[i];
+        if (candidate.offset == target_offset) {
+            destination = static_cast<std::int64_t>(
+                trampoline_address + candidate.trampoline_offset);
+            return true;
+        }
     }
-    const auto first_relative = static_cast<std::int32_t>(first_displacement);
-    const auto second_relative = static_cast<std::int32_t>(second_displacement);
-    std::memcpy(destination + 2, &first_relative, sizeof(first_relative));
-    std::memcpy(destination +(std::byte* destination,
-                                       std::uintptr_t instruction_address,
-                                       std::uintptr_t target) noexcept {
-    destination[0] = std::byte{0xE9};
-#if defined(TESSERA_HOOK_X64)
-    const std::int64_t displacement =
-        static_cast<std::int64_t>(target) -
-        static_cast<std::int64_t>(instruction_address + 5
-    const std::int64_t displacement =
-        destination - static_cast<std::int64_t>(next_instruction);
-    if (displacement < (std::numeric_limits<std::int32_t>::min)() ||
-        displacement > (std::numeric_limits<std::int32_t>::max)()) {
-        return false;
-    }
-    const auto value = static_cast<std::int32_t>(displacement);
-    std::memcpy(field, &value, sizeof(value));
-#else
-    const auto value = static_cast<std::uint32_t>(destination) -
-                       static_cast<std::uint32_t>(next_instruction);
-    std::memcpy(field, &value, sizeof(value));
-#endif
-    return true;
-}
 
+    // A branch into the middle of an instruction cannot be mapped after
+    // relocation has changed instruction offsets.
+    return false;
+}
 
 #if defined(TESSERA_HOOK_X64)
 
@@ -515,7 +479,38 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
         code[1] == std::byte{0xF1} &&
         code[2] == std::byte{0x7C} &&
         code[3] == std::byte{0x48} &&
-        code8_t>(code[cursor++]);
+        code[4] == std::byte{0x58} &&
+        code[5] == std::byte{0xC0}) {
+        return true;
+    }
+
+    std::size_t cursor = 0;
+    std::uint8_t rex = 0;
+    while (cursor < instruction.length) {
+        const auto value = std::to_integer<std::uint8_t>(code[cursor]);
+        if (value >= 0x40u && value <= 0x4Fu) {
+            rex = value;
+            ++cursor;
+            continue;
+        }
+        if (value == 0x66u || value == 0x67u ||
+            value == 0x2Eu || value == 0x36u ||
+            value == 0x3Eu || value == 0x26u ||
+            value == 0x64u || value == 0x65u) {
+            rex = 0u; // A later legacy prefix makes an earlier REX ineffective.
+            ++cursor;
+            continue;
+        }
+        if (value == 0xF0u || value == 0xF2u || value == 0xF3u) {
+            return false;
+        }
+        break;
+    }
+    if (cursor >= instruction.length) {
+        return false;
+    }
+
+    const auto opcode = std::to_integer<std::uint8_t>(code[cursor++]);
     if (opcode == 0x90u || opcode == 0xCCu || opcode == 0xC3u) {
         return true;
     }
@@ -566,7 +561,26 @@ void write_absolute_jump(std::byte* destination, std::uintptr_t target) noexcept
         const unsigned int form = opcode & 0x07u;
         if (form == 0u || form == 1u || form == 2u || form == 3u) {
             if (opcode >= 0x38u) {
-                return
+                return true; // CMP never writes its operand.
+            }
+            if (cursor >= instruction.length) {
+                return false;
+            }
+            const auto modrm = std::to_integer<std::uint8_t>(code[cursor]);
+            const unsigned int mod = (modrm >> 6u) & 0x03u;
+            const unsigned int reg_field =
+                ((modrm >> 3u) & 0x07u) + ((rex & 0x04u) != 0u ? 8u : 0u);
+            const unsigned int rm_field =
+                (modrm & 0x07u) + ((rex & 0x01u) != 0u ? 8u : 0u);
+            if ((form & 0x02u) != 0u) {
+                return is_volatile_gpr(reg_field);
+            }
+            return mod == 0x03u && is_volatile_gpr(rm_field);
+        }
+        if (form == 4u || form == 5u) {
+            return true; // Accumulator-immediate arithmetic only writes RAX/EAX.
+        }
+    }
 
     // Only register-destination forms are accepted below. Memory writes,
     // stack operations, calls, and writes to nonvolatile registers are not
