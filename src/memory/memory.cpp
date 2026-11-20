@@ -324,6 +324,33 @@ Result<bool> MemoryReader::is_executable(AddressRange range) const noexcept {
 
 // ---- MemoryWriter -----------------------------------------------------------
 
+Status MemoryWriter::restore_pending_protections(WriteReport& report) const noexcept {
+    const IMemoryBackend& backend = memory_backend(process_);
+    std::optional<Error> first_error;
+    auto it = report.pending_protection_restores.begin();
+    while (it != report.pending_protection_restores.end()) {
+        auto restored = backend.protect(
+            it->range.begin(), it->range.size(), it->original_protection);
+        if (restored) {
+            it = report.pending_protection_restores.erase(it);
+            continue;
+        }
+        if (!first_error) {
+            first_error = make_error(
+                ErrorCode::ProtectionRestoreFailed,
+                restored.error().operation,
+                restored.error().native,
+                "Retrying a pending page-protection restoration failed");
+        }
+        ++it;
+    }
+    if (first_error) {
+        return std::unexpected(*first_error);
+    }
+    report.protection_restore_warning.reset();
+    return ok();
+}
+
 Result<WriteReport> MemoryWriter::write_with_report(Address address,
                                                     std::span<const std::byte> data,
                                                     WriteOptions options) const {
@@ -395,8 +422,19 @@ Result<WriteReport> MemoryWriter::write_with_report(Address address,
         return fail(ErrorCode::OutOfMemory, "MemoryWriter::write_with_report");
     }
 
-    // Pass 2: Write region by region, elevating and restoring page protection per slice
+    // Reserve restoration tickets before touching memory. Once a page is made
+    // writable, recording a failed restoration must not itself allocate/fail.
     WriteReport report{};
+    if (slices.size() > report.pending_protection_restores.max_size() / 2) {
+        return fail(ErrorCode::OutOfMemory, "MemoryWriter::write_with_report");
+    }
+    try {
+        report.pending_protection_restores.reserve(slices.size() * 2);
+    } catch (const std::bad_alloc&) {
+        return fail(ErrorCode::OutOfMemory, "MemoryWriter::write_with_report");
+    }
+
+    // Pass 2: Write region by region, elevating and restoring page protection per slice
     std::size_t offset = 0;
 
     for (const auto& slice : slices) {
@@ -425,10 +463,14 @@ Result<WriteReport> MemoryWriter::write_with_report(Address address,
                     restore_res.error().operation,
                     restore_res.error().native,
                     "Failed to restore original page protection after write");
+                report.pending_protection_restores.push_back(PendingProtectionRestore{
+                    .range = AddressRange{slice.slice_begin, slice.slice_size},
+                    .original_protection = restore_prot,
+                });
                 diagnostics::notify(process_.observer(),
                                     DiagnosticSeverity::Warning,
                                     "MemoryWriter",
-                                    "Failed to restore page protection",
+                                    "Failed to restore page protection; retry ownership is retained in WriteReport",
                                     report.protection_restore_warning);
             }
         }
@@ -475,12 +517,18 @@ Result<WriteReport> MemoryWriter::write_with_report(Address address,
                 std::span<const std::byte>(backup_bytes.data() + rb_offset, to_restore));
             if (slice.needs_protect_change) {
                 auto restore_result = backend.protect(slice.slice_begin, to_restore, restore_prot);
-                if (!restore_result && !report.rollback_error) {
-                    report.rollback_error = make_error(
-                        ErrorCode::ProtectionRestoreFailed,
-                        restore_result.error().operation,
-                        restore_result.error().native,
-                        "Failed to restore page protection during rollback");
+                if (!restore_result) {
+                    report.pending_protection_restores.push_back(PendingProtectionRestore{
+                        .range = AddressRange{slice.slice_begin, to_restore},
+                        .original_protection = restore_prot,
+                    });
+                    if (!report.rollback_error) {
+                        report.rollback_error = make_error(
+                            ErrorCode::ProtectionRestoreFailed,
+                            restore_result.error().operation,
+                            restore_result.error().native,
+                            "Failed to restore page protection during rollback");
+                    }
                 }
             }
             if (!w || *w != to_restore) {
