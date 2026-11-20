@@ -145,17 +145,14 @@ cmake --preset x64-fuzz-smoke
 cmake --build --preset x64-fuzz-smoke
 ```
 
-Replay each harness against its matching seed directory with `-runs=100`:
+Replay every checked-in corpus with the helper script (run from the repository root):
 
-| Harness | Corpus |
-| --- | --- |
-| `tessera_fuzz_pattern` | `verify/fuzz/corpus/pattern` |
-| `tessera_fuzz_pe` | `verify/fuzz/corpus/pe` |
-| `tessera_fuzz_json` | `verify/fuzz/corpus/json` |
-| `tessera_fuzz_profile_json` | `verify/fuzz/corpus/profile_json` |
-| `tessera_fuzz_python_bridge` | `verify/fuzz/corpus/python_bridge` |
-| `tessera_fuzz_scanner` | `verify/fuzz/corpus/scanner` |
-| `tessera_fuzz_rtti_discovery` | `verify/fuzz/corpus/rtti_discovery` |
-| `tessera_fuzz_native_hook` (Windows) | `verify/fuzz/corpus/native_hook` |
+```powershell
+.\scripts\run-fuzz-smoke.ps1
+# Optional: longer bounded replay
+.\scripts\run-fuzz-smoke.ps1 -Runs 500
+```
+
+The script checks that each executable and corpus exists, runs every harness with the requested iteration limit, and fails immediately on a non-zero exit code. It skips the native-hook target only when that Windows-only executable is absent.
 
 Run the fuzz executables from the repository root so the corpus paths above resolve. The native-hook harness is generated only on Windows. For coverage-guided campaigns, use the dedicated Clang/libFuzzer or MSVC-fuzzer configuration documented in [the fuzz guide](../verify/fuzz/README.md); the standalone preset is a deterministic smoke/replay configuration, not a substitute for those campaigns.
