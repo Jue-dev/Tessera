@@ -375,7 +375,9 @@ TEST_CASE("Patch destructor reports a final pending protection retry failure",
         REQUIRE(region.protection == MemoryProtection::ReadWrite);
     }
 
-    REQUIRE(observer.warning_count == 1);
+    // MemoryWriter reports the initial restore failure; Patch reports the
+    // final destructor retry failure. Both warnings must be observable.
+    REQUIRE(observer.warning_count == 2);
     REQUIRE(observer.last_category == "Patch");
     REQUIRE(observer.last_message.find("retry ownership") != std::string_view::npos);
     REQUIRE(region.protection == MemoryProtection::ReadWrite);
