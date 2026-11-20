@@ -17,6 +17,22 @@ struct MemoryApiCallRecord {
 extern std::array<MemoryApiCallRecord, 32> memory_api_call_log;
 extern int memory_api_call_count;
 
+enum class NativeApi { OpenProcess, GetProcessId, IsWow64Process2, GetExitCodeProcess, ReadProcessMemory, VirtualQueryEx, EnumProcessModulesEx, GetModuleInformation, GetModuleBaseNameW, GetModuleFileNameExW, GetModuleHandleW };
+struct NativeApiCallRecord {
+    NativeApi call{};
+    std::uintptr_t handle{};
+    std::uintptr_t argument1{};
+    std::uintptr_t argument2{};
+    std::uintptr_t argument3{};
+};
+extern std::array<NativeApiCallRecord, 64> native_api_call_log;
+extern int native_api_call_count;
+extern NativeApi fail_native_api;
+extern int fail_native_api_on_call;
+extern DWORD fail_native_api_error;
+bool record_native_api_call(NativeApi call, HANDLE handle, std::uintptr_t a1 = 0,
+                            std::uintptr_t a2 = 0, std::uintptr_t a3 = 0) noexcept;
+
 enum class ModuleMode { Stable, Growing, Misaligned };
 extern ModuleMode module_mode;
 extern int module_calls;
