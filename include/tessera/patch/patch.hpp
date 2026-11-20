@@ -43,6 +43,7 @@ enum class PatchState : std::uint8_t {
 };
 
 // Move-only byte patch with original-byte verification, backup, and optional RAII restoration.
+// Outstanding page-protection restoration reports remain owned by the Patch until retried.
 class [[nodiscard]] Patch {
 public:
     [[nodiscard]] static Result<Patch> create(ProcessAddress target,
