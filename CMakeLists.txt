@@ -252,6 +252,7 @@ tessera_add_module(
         src/rtti/rtti.cpp
         src/rtti/discovery.cpp
         src/rtti/python_bridge.cpp
+        src/rtti/python_bridge_tables.cpp
         src/rtti/python_environment.cpp
     PUBLIC_HEADERS
         include/tessera/rtti/rtti.hpp
