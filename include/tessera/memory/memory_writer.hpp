@@ -21,6 +21,8 @@ struct WriteOptions {
 };
 
 struct PendingProtectionRestore {
+    // Retain the exact Process state whose pages were elevated.
+    Process process;
     AddressRange range{};
     MemoryProtection original_protection = MemoryProtection::None;
 };
