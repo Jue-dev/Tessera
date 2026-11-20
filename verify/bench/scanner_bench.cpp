@@ -5,7 +5,11 @@
 #include <iostream>
 #include <memory>
 #include <optional>
-#include <vector>\n#include <array>\n#include <cstdint>\n\n#include "hook/backends/x86_instruction_decoder.hpp"
+#include <vector>
+#include <array>
+#include <cstdint>
+
+#include "hook/backends/x86_instruction_decoder.hpp"
 
 #include "FakeMemoryBackend.hpp"
 
