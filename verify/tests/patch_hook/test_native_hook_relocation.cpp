@@ -1,4 +1,20 @@
 #include "patch_hook_test_support.hpp"
+#include "hook/backends/native_trampoline.hpp"
+
+namespace {
+int g_native_trampoline_allocation_calls = 0;
+
+LPVOID WINAPI fail_native_trampoline_allocation(
+    LPVOID, SIZE_T, DWORD, DWORD) noexcept {
+    ++g_native_trampoline_allocation_calls;
+    return nullptr;
+}
+
+void WINAPI one_step_native_trampoline_system_info(LPSYSTEM_INFO info) noexcept {
+    info->dwAllocationGranularity = 0x70000000u;
+}
+} // namespace
+
 
 TEST_CASE("Native inline backend relocates x64 RIP-relative code and restores the target", "[hook][native]") {
     using namespace tessera;
@@ -940,3 +956,31 @@ TEST_CASE("Native instruction decoder rejects unsupported and ambiguous encoding
     CHECK_FALSE(rejects({0x07}, Mode::x86));
     CHECK_FALSE(rejects({0x27}, Mode::x86));
 }
+
+#if defined(_M_X64) || defined(__x86_64__)
+TEST_CASE("Native x64 trampoline allocation reports exhaustion after bounded near candidates",
+          "[hook][native][allocation][failure]") {
+    using namespace tessera::detail::native_hook;
+    g_native_trampoline_allocation_calls = 0;
+    void* const allocation = allocate_trampoline(
+        static_cast<std::uintptr_t>(0x100000000ull),
+        0x1000u,
+        &fail_native_trampoline_allocation,
+        &one_step_native_trampoline_system_info);
+    REQUIRE(allocation == nullptr);
+    REQUIRE(g_native_trampoline_allocation_calls == 2);
+}
+#elif defined(_M_IX86) || defined(__i386__)
+TEST_CASE("Native x86 trampoline allocation reports VirtualAlloc failure",
+          "[hook][native][allocation][failure]") {
+    using namespace tessera::detail::native_hook;
+    g_native_trampoline_allocation_calls = 0;
+    void* const allocation = allocate_trampoline(
+        static_cast<std::uintptr_t>(0x100000u),
+        0x1000u,
+        &fail_native_trampoline_allocation,
+        &one_step_native_trampoline_system_info);
+    REQUIRE(allocation == nullptr);
+    REQUIRE(g_native_trampoline_allocation_calls == 1);
+}
+#endif

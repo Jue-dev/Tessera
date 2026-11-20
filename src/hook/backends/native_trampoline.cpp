@@ -16,16 +16,19 @@
 namespace tessera::detail::native_hook {
 
 [[nodiscard]] void* allocate_trampoline(std::uintptr_t target,
-                                        std::size_t allocation_size) noexcept {
+                          std::size_t allocation_size,
+                          VirtualAllocFn virtual_alloc,
+                          GetSystemInfoFn get_system_info) noexcept {
 #if defined(TESSERA_HOOK_X86)
     (void)target;
-    return ::VirtualAlloc(nullptr,
-                          allocation_size,
-                          MEM_RESERVE | MEM_COMMIT,
-                          PAGE_READWRITE);
+    (void)get_system_info;
+    return virtual_alloc(nullptr,
+                         allocation_size,
+                         MEM_RESERVE | MEM_COMMIT,
+                         PAGE_READWRITE);
 #else
     SYSTEM_INFO system_info{};
-    ::GetSystemInfo(&system_info);
+    get_system_info(&system_info);
     const std::uintptr_t granularity =
         static_cast<std::uintptr_t>(system_info.dwAllocationGranularity);
     if (granularity == 0) {
@@ -37,7 +40,7 @@ namespace tessera::detail::native_hook {
     for (std::uintptr_t distance = granularity; distance <= kSearchRadius; distance += granularity) {
         if (aligned_target <= (std::numeric_limits<std::uintptr_t>::max)() - distance) {
             const std::uintptr_t candidate = aligned_target + distance;
-            void* allocation = ::VirtualAlloc(reinterpret_cast<void*>(candidate),
+            void* allocation = virtual_alloc(reinterpret_cast<void*>(candidate),
                                               allocation_size,
                                               MEM_RESERVE | MEM_COMMIT,
                                               PAGE_READWRITE);
@@ -47,7 +50,7 @@ namespace tessera::detail::native_hook {
         }
         if (aligned_target > distance) {
             const std::uintptr_t candidate = aligned_target - distance;
-            void* allocation = ::VirtualAlloc(reinterpret_cast<void*>(candidate),
+            void* allocation = virtual_alloc(reinterpret_cast<void*>(candidate),
                                               allocation_size,
                                               MEM_RESERVE | MEM_COMMIT,
                                               PAGE_READWRITE);
