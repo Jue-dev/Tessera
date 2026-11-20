@@ -11,11 +11,19 @@
 namespace tessera::platform::windows {
 
 namespace {
+[[noreturn]] void fail_stop_cleanup(const char* operation, DWORD error) noexcept {
+    std::fprintf(stderr,
+                 "Tessera: %s failed during owned handle cleanup (error=%lu)\\n",
+                 operation,
+                 static_cast<unsigned long>(error));
+    std::terminate();
+}
+
 void close_owned_handle(HANDLE handle) noexcept {
     if (handle != nullptr && !::CloseHandle(handle)) {
         const DWORD error = ::GetLastError();
         std::fprintf(stderr,
-                     "Tessera: CloseHandle failed for an owned thread-enumeration handle (error=%lu)\n",
+                     "Tessera: CloseHandle failed for an owned Windows handle (error=%lu)\n",
                      static_cast<unsigned long>(error));
         // Dropping an owned snapshot/thread handle after a failed close silently
         // leaks process resources. The cleanup invariant is therefore fail-stop.
@@ -163,10 +171,10 @@ ProcessWideHookLock::ProcessWideHookLock() noexcept {
 
 ProcessWideHookLock::~ProcessWideHookLock() noexcept {
     if (mutex_handle_ != nullptr) {
-        if (acquired_) {
-            ::ReleaseMutex(static_cast<HANDLE>(mutex_handle_));
+        if (acquired_ && !::ReleaseMutex(static_cast<HANDLE>(mutex_handle_))) {
+            fail_stop_cleanup("ReleaseMutex", ::GetLastError());
         }
-        ::CloseHandle(static_cast<HANDLE>(mutex_handle_));
+        close_owned_handle(static_cast<HANDLE>(mutex_handle_));
     }
 }
 
