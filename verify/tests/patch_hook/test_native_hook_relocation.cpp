@@ -836,3 +836,68 @@ TEST_CASE("Native inline relocator decodes VEX and EVEX instructions without exe
     REQUIRE(std::memcmp(code + 2048, instructions.data(), instructions.size()) == 0);
 }
 
+
+
+TEST_CASE("Native instruction decoder reports bounded instruction and relative operand semantics",
+          "[hook][native][decoder][table]") {
+    using tessera::detail::x86::DecodedInstruction;
+    using tessera::detail::x86::Mode;
+    using tessera::detail::x86::decode_instruction;
+
+    const auto expect = [](std::initializer_list<std::uint8_t> input,
+                           Mode mode,
+                           std::uint8_t expected_length,
+                           bool expected_relative = false,
+                           std::uint8_t expected_relative_offset = 0,
+                           std::uint8_t expected_relative_size = 0,
+                           bool expected_rip_relative = false,
+                           std::uint8_t expected_rip_offset = 0) {
+        std::array<std::byte, 15> bytes{};
+        std::size_t count = 0;
+        for (const auto value : input) {
+            bytes[count++] = static_cast<std::byte>(value);
+        }
+
+        DecodedInstruction decoded{};
+        REQUIRE(decode_instruction(bytes.data(), count, mode, decoded));
+        CHECK(decoded.length == expected_length);
+        CHECK(decoded.has_relative_operand == expected_relative);
+        CHECK(decoded.relative_offset == expected_relative_offset);
+        CHECK(decoded.relative_size == expected_relative_size);
+        CHECK(decoded.has_rip_relative_operand == expected_rip_relative);
+        CHECK(decoded.rip_displacement_offset == expected_rip_offset);
+    };
+
+    // Prefix + ModRM + SIB + disp8.
+    expect({0x48, 0x8B, 0x44, 0x8D, 0x10}, Mode::x64, 5);
+    // RIP-relative disp32 starts after the ModRM byte.
+    expect({0x48, 0x8B, 0x05, 0x11, 0x22, 0x33, 0x44},
+           Mode::x64, 7, false, 0, 0, true, 3);
+    // Operand-size override changes MOV r16, imm16 length.
+    expect({0x66, 0xB8, 0x34, 0x12}, Mode::x86, 4);
+    // REX.W MOV r64, imm64.
+    expect({0x48, 0xB8, 1, 2, 3, 4, 5, 6, 7, 8}, Mode::x64, 10);
+    // Short and near relative branches expose their exact displacement fields.
+    expect({0x75, 0xFE}, Mode::x64, 2, true, 1, 1);
+    expect({0x0F, 0x85, 1, 2, 3, 4}, Mode::x64, 6, true, 2, 4);
+    expect({0xE8, 1, 2, 3, 4}, Mode::x86, 5, true, 1, 4);
+    // Address-size override selects 16-bit addressing in 32-bit mode.
+    expect({0x67, 0x8B, 0x06, 0x34, 0x12}, Mode::x86, 5);
+    // REP prefix is retained as part of the instruction boundary.
+    expect({0xF3, 0x90}, Mode::x64, 2);
+
+    const std::array<std::byte, 3> truncated_rip{
+        std::byte{0x48}, std::byte{0x8B}, std::byte{0x05}};
+    DecodedInstruction decoded{};
+    CHECK_FALSE(decode_instruction(
+        truncated_rip.data(), truncated_rip.size(), Mode::x64, decoded));
+
+    const std::array<std::byte, 2> truncated_near_branch{
+        std::byte{0x0F}, std::byte{0x85}};
+    CHECK_FALSE(decode_instruction(
+        truncated_near_branch.data(), truncated_near_branch.size(), Mode::x64, decoded));
+
+    std::array<std::byte, 15> prefix_only{};
+    prefix_only.fill(std::byte{0x66});
+    CHECK_FALSE(decode_instruction(prefix_only.data(), prefix_only.size(), Mode::x64, decoded));
+}
