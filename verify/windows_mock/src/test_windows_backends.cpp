@@ -320,9 +320,10 @@ int main() {
     winmock::fail_native_api = winmock::NativeApi::GetModuleInformation;
     winmock::fail_native_api_on_call = 1;
     auto info_api_failure = ModuleCatalog::snapshot(*process);
-    check(info_api_failure && info_api_failure->empty() &&
+    check(info_api_failure && info_api_failure->size() == 1 &&
+              info_api_failure->front().name() == u"beta.dll" &&
               winmock::native_api_call_log[1].call == winmock::NativeApi::GetModuleInformation,
-          "GetModuleInformation failure never fabricates a module record");
+          "GetModuleInformation failure skips only the affected module");
 
     winmock::reset();
     winmock::fail_native_api = winmock::NativeApi::GetModuleBaseNameW;
@@ -331,6 +332,23 @@ int main() {
     check(base_name_api_failure && base_name_api_failure->size() == 1 &&
               base_name_api_failure->front().name() == u"beta.dll",
           "GetModuleBaseNameW failure skips only the affected module");
+
+    winmock::reset();
+    winmock::fail_native_api = winmock::NativeApi::GetModuleFileNameExW;
+    winmock::fail_native_api_on_call = 1;
+    auto path_api_failure = ModuleCatalog::snapshot(*process);
+    check(path_api_failure && path_api_failure->size() == 2 &&
+              path_api_failure->front().name() == u"alpha.dll" &&
+              path_api_failure->front().full_path().empty(),
+          "GetModuleFileNameExW failure leaves optional path empty without fabricating path data");
+
+    winmock::reset();
+    winmock::fail_native_api = winmock::NativeApi::GetModuleHandleW;
+    winmock::fail_native_api_on_call = 1;
+    auto main_handle_api_failure = ModuleCatalog::main_module(*process);
+    check(!main_handle_api_failure && main_handle_api_failure.error().operation == "GetModuleHandleW" &&
+              main_handle_api_failure.error().native == ERROR_ACCESS_DENIED,
+          "GetModuleHandleW indexed failure is surfaced as a missing main module");
 
     winmock::reset();
     auto local_main_module = ModuleCatalog::main_module(*process);
