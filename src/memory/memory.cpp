@@ -324,7 +324,7 @@ Result<bool> MemoryReader::is_executable(AddressRange range) const noexcept {
 
 // ---- MemoryWriter -----------------------------------------------------------
 
-Status MemoryWriter::restore_pending_protections(WriteReport& report) const noexcept {
+Status MemoryWriter::restore_pending_protections(WriteReport& report) const {
     const IMemoryBackend& backend = memory_backend(process_);
     std::optional<Error> first_error;
     auto it = report.pending_protection_restores.begin();
@@ -522,8 +522,8 @@ Result<WriteReport> MemoryWriter::write_with_report(Address address,
                         .range = AddressRange{slice.slice_begin, to_restore},
                         .original_protection = restore_prot,
                     });
-                    if (!report.rollback_error) {
-                        report.rollback_error = make_error(
+                    if (!report.protection_restore_warning) {
+                        report.protection_restore_warning = make_error(
                             ErrorCode::ProtectionRestoreFailed,
                             restore_result.error().operation,
                             restore_result.error().native,
