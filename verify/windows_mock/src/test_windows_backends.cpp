@@ -146,6 +146,34 @@ int main() {
               winmock::process_memory_protect == PAGE_EXECUTE_READ,
           "protection restoration ticket survives retry failure and clears after successful retry");
 
+    // Exercise a compound failure: the write partially commits, rollback
+    // fails, and page-protection restoration fails in the same transaction.
+    // The report must preserve both primary/rollback diagnostics and retain
+    // the exact protection ticket for an explicit later retry.
+    winmock::reset();
+    winmock::write_process_memory_fail_on_call = 1;
+    winmock::write_process_memory_fail_on_call_2 = 2;
+    winmock::write_process_memory_partial_bytes = 1;
+    winmock::virtual_protect_fail_on_call = 2;
+    auto compound_failure = memory_writer.write_with_report(Address{0x1004}, replacement_bytes);
+    const bool compound_failure_reported =
+        compound_failure && compound_failure->write_error &&
+        compound_failure->rollback_error &&
+        compound_failure->protection_restore_warning &&
+        !compound_failure->succeeded() &&
+        compound_failure->pending_protection_restores.size() == 1 &&
+        winmock::process_memory[4] == std::byte{0xA1} &&
+        winmock::process_memory_protect == PAGE_EXECUTE_READWRITE;
+    winmock::virtual_protect_fail_on_call = 0;
+    auto compound_restore = compound_failure
+        ? memory_writer.restore_pending_protections(*compound_failure)
+        : Status{std::unexpected(make_error(ErrorCode::IoError, "test"))};
+    check(compound_failure_reported && compound_restore &&
+              compound_failure->pending_protection_restores.empty() &&
+              !compound_failure->protection_restore_warning &&
+              winmock::process_memory_protect == PAGE_EXECUTE_READ,
+          "compound write, rollback, and protection failures preserve diagnostics and retry ownership");
+
     winmock::reset();
     winmock::flush_instruction_cache_fail_on_call = 1;
     auto flush_failure = memory_writer.write_with_report(Address{0x1004}, replacement_bytes);
