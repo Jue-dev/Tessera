@@ -24,6 +24,7 @@ extern DWORD close_handle_error;
 extern int thread_count;
 extern int snapshot_thread_count;
 extern bool create_thread_during_suspend;
+extern int create_threads_during_suspend_count;
 extern int thread_next_calls;
 extern int suspend_thread_fail_on_call;
 extern DWORD suspend_thread_error;
