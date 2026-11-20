@@ -283,8 +283,12 @@ TEST_CASE("MemoryWriter rollback retains the first original protection restore t
     // protection with the temporary ReadWrite protection.
     REQUIRE(writer.restore_pending_protections(*report).has_value());
     REQUIRE(report->pending_protection_restores.empty());
+    REQUIRE_FALSE(report->protection_restore_warning.has_value());
     REQUIRE(read_only.protection == MemoryProtection::Read);
-    REQUIRE(report->succeeded());
+    // The bytes/protection are recovered, but the original write operation
+    // still failed and remains visible in write_error.
+    REQUIRE(report->write_error.has_value());
+    REQUIRE_FALSE(report->succeeded());
 }
 
 TEST_CASE("ProtectionScope retains restoration ownership after a failed restore", "[memory][protection]") {
