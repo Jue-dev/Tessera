@@ -37,6 +37,11 @@ find_package(Tessera CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE tessera::tessera)
 ```
 
+## Workspace helper scripts
+
+- `scripts/clean.ps1` is the canonical workspace cleanup implementation; use `-DryRun` to preview removals. `scripts/clean.bat` remains as a thin Command Prompt compatibility entry point.
+- `scripts/export_sdk.ps1` is the canonical SDK export implementation; `scripts/export_sdk.bat` remains as a thin Command Prompt compatibility entry point. The README's Windows quick-start commands intentionally use these wrappers so they work from both PowerShell and classic Command Prompt workflows.
+
 ## Fuzz targets
 
 Fuzz harnesses are optional and are excluded from the normal SDK build. Configure a standalone build with:
