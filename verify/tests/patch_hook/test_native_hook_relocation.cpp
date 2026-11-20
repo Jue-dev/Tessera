@@ -949,13 +949,16 @@ TEST_CASE("Native instruction decoder rejects unsupported and ambiguous encoding
 
     // Control/debug-register MOV encodings require register-direct ModRM.
     // Memory-form ModRM bytes must be rejected rather than consuming disp8/disp32.
-    CHECK(rejects({0x0F, 0x20, 0x60, 0x80}, Mode::x86));
-    CHECK(rejects({0x0F, 0x21, 0x6B, 0x98}, Mode::x86));
-    CHECK(rejects({0x0F, 0x23, 0x89, 0xA0, 0x87, 0xDA, 0xE9}, Mode::x64));
-    CHECK(decodes_length({0x0F, 0x20, 0xC0}, Mode::x86, 3));
-    CHECK(decodes_length({0x0F, 0x21, 0xC0}, Mode::x86, 3));
-    CHECK(decodes_length({0x0F, 0x22, 0xC0}, Mode::x64, 3));
-    CHECK(decodes_length({0x0F, 0x23, 0xC0}, Mode::x64, 3));
+    for (const Mode mode : {Mode::x86, Mode::x64}) {
+        CHECK(rejects({0x0F, 0x20, 0x60, 0x80}, mode));
+        CHECK(rejects({0x0F, 0x21, 0x6B, 0x98}, mode));
+        CHECK(rejects({0x0F, 0x22, 0x80, 0xA0, 0x87, 0xDA}, mode));
+        CHECK(rejects({0x0F, 0x23, 0x89, 0xA0, 0x87, 0xDA, 0xE9}, mode));
+        CHECK(decodes_length({0x0F, 0x20, 0xC0}, mode, 3));
+        CHECK(decodes_length({0x0F, 0x21, 0xC0}, mode, 3));
+        CHECK(decodes_length({0x0F, 0x22, 0xC0}, mode, 3));
+        CHECK(decodes_length({0x0F, 0x23, 0xC0}, mode, 3));
+    }
 
     // Reserved legacy two-byte opcodes and the intentionally unsupported AMD XOP map.
     CHECK(rejects({0x0F, 0x0A}, Mode::x64));
