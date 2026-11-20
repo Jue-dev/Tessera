@@ -1,5 +1,6 @@
 #include "FakeMemoryBackend.hpp"
 #include "tessera/rtti/discovery.hpp"
+#include "tessera/rtti/rtti.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -40,6 +41,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
 
     (void)tessera::rtti::BinaryExplorer::scan_all_type_descriptors(process, range);
     (void)tessera::rtti::BinaryExplorer::scan_strings(process, range);
+    (void)tessera::rtti::RttiCatalog::discover_all(process, range);
     return 0;
 }
 
