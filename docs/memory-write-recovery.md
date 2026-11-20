@@ -37,3 +37,5 @@ The rollback path reuses an existing ticket when the first write pass could not 
 - Do not discard a `WriteReport` with pending tickets if the caller needs to retry restoration.
 - A failed rollback write remains a rollback error even if protection restoration is later recovered.
 - Persistent OS protection failures require caller escalation; retry does not imply the page was restored.
+
+The retry ticket is scoped to the exact slice passed to the memory backend. A caller must not widen, merge, or reconstruct the ticket range before retrying.
