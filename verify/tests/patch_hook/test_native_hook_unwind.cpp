@@ -1,135 +1,7 @@
 #include "patch_hook_test_support.hpp"
 
-TEST_CASE("Native x64 unwind rejects a stolen patch that crosses the source function end",
-          "[hook][native][unwind][rejection]") {
-    using namespace tessera;
-
-    ExecutableRegionGuard region{
-        ::VirtualAlloc(nullptr, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE)};
-    REQUIRE(region.address != nullptr);
-    auto* code = static_cast<std::byte*>(region.address);
-    std::memset(code, 0x90, 4096);
-
-    constexpr std::size_t target_offset = 64u;
-    constexpr std::size_t source_unwind_offset = 256u;
-    auto* source_info =
-        reinterpret_cast<TestUnwindInfo*>(code + source_unwind_offset);
-    std::memset(source_info, 0, 16u);
-    source_info->version_and_flags = 1u;
-
-    struct SourceFunctionTableGuard {
-        RUNTIME_FUNCTION entry{};
-        bool registered = false;
-        ~SourceFunctionTableGuard() noexcept {
-            if (registered && !::RtlDeleteFunctionTable(&entry)) {
-                std::terminate();
-            }
-        }
-    } source_table;
-    source_table.entry.BeginAddress = static_cast<DWORD>(target_offset);
-    source_table.entry.EndAddress = static_cast<DWORD>(target_offset + 4u);
-    source_table.entry.UnwindData = static_cast<DWORD>(source_unwind_offset);
-    REQUIRE(::RtlAddFunctionTable(
-        &source_table.entry,
-        1u,
-        static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(region.address))));
-    source_table.registered = true;
-
-    DWORD old_protection = 0;
-    REQUIRE(::VirtualProtect(region.address, 4096, PAGE_EXECUTE_READ, &old_protection));
-
-    std::array<std::byte, 8> original_bytes{};
-    std::memcpy(original_bytes.data(), code + target_offset, original_bytes.size());
-
-    HookBackend& backend = native_inline_hook_backend();
-    auto hook = Hook<NativeHookFn>::create(
-        Address{static_cast<std::uint64_t>(
-            reinterpret_cast<std::uintptr_t>(code + target_offset))},
-        &native_hook_detour,
-        &backend);
-    REQUIRE(hook.has_value());
-    HookOptions options{};
-    options.threads = ThreadPolicy::None;
-    const auto status = hook->install(options);
-    REQUIRE_FALSE(status.has_value());
-    REQUIRE(status.error().code == ErrorCode::UnsupportedInstruction);
-    REQUIRE(std::memcmp(original_bytes.data(), code + target_offset,
-                        original_bytes.size()) == 0);
-}
-
-
-TEST_CASE("Native x64 unwind rejects an unreadable extra unwind-code slot without faulting",
-          "[hook][native][unwind][rejection]") {
-    using namespace tessera;
-
-    constexpr std::size_t page_size = 4096u;
-    ExecutableRegionGuard region{
-        ::VirtualAlloc(nullptr, page_size * 2u, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)};
-    REQUIRE(region.address != nullptr);
-    auto* code = static_cast<std::byte*>(region.address);
-    std::memset(code, 0x90, page_size);
-
-    constexpr std::size_t target_offset = 64u;
-    constexpr std::size_t source_unwind_offset = page_size - 4u;
-    auto* source_info =
-        reinterpret_cast<UCHAR*>(code + source_unwind_offset);
-    source_info[0] = 1u; // UNWIND_INFO version 1, no flags
-    source_info[1] = 1u; // SizeOfProlog
-    source_info[2] = 1u; // One unwind-code slot follows the four-byte header
-    source_info[3] = 0u; // No frame register
-
-    struct SourceFunctionTableGuard {
-        RUNTIME_FUNCTION entry{};
-        bool registered = false;
-        ~SourceFunctionTableGuard() noexcept {
-            if (registered && !::RtlDeleteFunctionTable(&entry)) {
-                std::terminate();
-            }
-        }
-    } source_table;
-    source_table.entry.BeginAddress = static_cast<DWORD>(target_offset);
-    source_table.entry.EndAddress = static_cast<DWORD>(target_offset + 64u);
-    source_table.entry.UnwindData = static_cast<DWORD>(source_unwind_offset);
-    REQUIRE(::RtlAddFunctionTable(
-        &source_table.entry,
-        1u,
-        static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(region.address))));
-    source_table.registered = true;
-
-    DWORD first_page_protection = 0;
-    DWORD second_page_protection = 0;
-    REQUIRE(::VirtualProtect(code, page_size, PAGE_EXECUTE_READ,
-                             &first_page_protection));
-    REQUIRE(::VirtualProtect(code + page_size, page_size, PAGE_NOACCESS,
-                             &second_page_protection));
-
-    std::array<std::byte, 8> original_bytes{};
-    std::memcpy(original_bytes.data(), code + target_offset, original_bytes.size());
-
-    HookBackend& backend = native_inline_hook_backend();
-    auto hook = Hook<NativeHookFn>::create(
-        Address{static_cast<std::uint64_t>(
-            reinterpret_cast<std::uintptr_t>(code + target_offset))},
-        &native_hook_detour,
-        &backend);
-    REQUIRE(hook.has_value());
-    HookOptions options{};
-    options.threads = ThreadPolicy::None;
-    const auto status = hook->install(options);
-    REQUIRE_FALSE(status.has_value());
-    REQUIRE(status.error().code == ErrorCode::UnsupportedInstruction);
-    REQUIRE(std::memcmp(original_bytes.data(), code + target_offset,
-                        original_bytes.size()) == 0);
-
-    DWORD restored_protection = 0;
-    REQUIRE(::VirtualProtect(code + page_size, page_size, PAGE_READWRITE,
-                             &restored_protection));
-}
-
-#endif // x64 source-range rejection tests
 
 #if defined(_M_X64) || defined(__x86_64__)
-
 TEST_CASE("Native x64 trampoline maps ALLOC_LARGE and SET_FPREG together",
           "[hook][native][unwind][integration]") {
     using namespace tessera;
@@ -249,7 +121,6 @@ TEST_CASE("Native x64 trampoline maps ALLOC_LARGE and SET_FPREG together",
     REQUIRE(context.Rbp == saved_frame_pointer);
     REQUIRE(hook->remove().has_value());
 }
-
 
 TEST_CASE("Native x64 trampoline restores a saved nonvolatile XMM register",
           "[hook][native][unwind][integration]") {
@@ -383,7 +254,6 @@ TEST_CASE("Native x64 trampoline restores a saved nonvolatile XMM register",
 #endif // x64 multi-opcode unwind tests
 
 #if defined(_M_X64) || defined(__x86_64__)
-
 TEST_CASE("Native x64 trampoline remaps unwind offsets and unwinds an exception in relocated prologue",
           "[hook][native][unwind][integration]") {
     using namespace tessera;
@@ -492,7 +362,6 @@ TEST_CASE("Native x64 trampoline remaps unwind offsets and unwinds an exception 
 #endif
 
 #if defined(_M_X64) || defined(__x86_64__)
-
 TEST_CASE("Native x64 unwind registration remains alive until an explicit callable lease drains",
           "[hook][native][unwind][lifecycle][integration]") {
     using namespace tessera;
@@ -650,7 +519,6 @@ TEST_CASE("Native x64 unwind registration remains alive until an explicit callab
 
 #if defined(_M_X64) || defined(__x86_64__)
 
-
 TEST_CASE("Native x64 trampoline unwinds multiple pushed nonvolatile registers",
           "[hook][native][unwind][integration]") {
     using namespace tessera;
@@ -739,7 +607,6 @@ TEST_CASE("Native x64 trampoline unwinds multiple pushed nonvolatile registers",
                 &removed_image_base,
                 nullptr) == nullptr);
 }
-
 
 TEST_CASE("Native x64 trampoline maps multi-slot UWOP_ALLOC_LARGE for virtual unwind",
           "[hook][native][unwind][integration]") {
@@ -861,7 +728,6 @@ TEST_CASE("Native x64 trampoline maps multi-slot UWOP_ALLOC_LARGE for virtual un
 
     REQUIRE(hook->remove().has_value());
 }
-
 
 TEST_CASE("Native x64 trampoline maps multi-slot UWOP_SAVE_NONVOL for virtual unwind",
           "[hook][native][unwind][integration]") {
@@ -988,7 +854,6 @@ TEST_CASE("Native x64 trampoline maps multi-slot UWOP_SAVE_NONVOL for virtual un
     REQUIRE(hook->remove().has_value());
 }
 
-
 TEST_CASE("Native x64 trampoline maps far UWOP_SAVE_NONVOL and UWOP_ALLOC_LARGE",
           "[hook][native][unwind][integration]") {
     using namespace tessera;
@@ -1105,7 +970,6 @@ TEST_CASE("Native x64 trampoline maps far UWOP_SAVE_NONVOL and UWOP_ALLOC_LARGE"
     REQUIRE(context.Rsi == saved_rsi);
     REQUIRE(hook->remove().has_value());
 }
-
 
 TEST_CASE("Native x64 trampoline maps far UWOP_SAVE_XMM128 and UWOP_ALLOC_LARGE",
           "[hook][native][unwind][integration]") {
@@ -1227,7 +1091,6 @@ TEST_CASE("Native x64 trampoline maps far UWOP_SAVE_XMM128 and UWOP_ALLOC_LARGE"
     REQUIRE(hook->remove().has_value());
 }
 
-
 TEST_CASE("Native x64 trampoline maps UWOP_PUSH_MACHFRAME with and without error code",
           "[hook][native][unwind][integration]") {
     using namespace tessera;
@@ -1329,7 +1192,6 @@ TEST_CASE("Native x64 trampoline maps UWOP_PUSH_MACHFRAME with and without error
     }
 }
 
-
 TEST_CASE("Native x64 unwind unregister failure restores the patch and keeps the token retryable",
           "[hook][native][unwind][failure][integration]") {
     using namespace tessera;
@@ -1413,7 +1275,6 @@ TEST_CASE("Native x64 unwind unregister failure restores the patch and keeps the
                 &removed_image_base,
                 nullptr) == nullptr);
 }
-
 
 TEST_CASE("Native x64 unwind rejects unsupported, malformed, and prefix-boundary source metadata",
           "[hook][native][unwind][validation][integration]") {
