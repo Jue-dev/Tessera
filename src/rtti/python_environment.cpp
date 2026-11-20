@@ -1,4 +1,5 @@
 #include "tessera/rtti/python_bridge.hpp"
+#include "tessera/rtti/discovery.hpp"
 
 #include <algorithm>
 #include <array>
