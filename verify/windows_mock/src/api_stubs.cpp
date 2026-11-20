@@ -49,7 +49,16 @@ int detour_abort_calls = 0;
 std::array<std::byte, 64> process_memory{};
 DWORD process_memory_protect = PAGE_EXECUTE_READ;
 std::size_t max_read_chunk = static_cast<std::size_t>(-1);
+int write_process_memory_calls = 0;
+int write_process_memory_fail_on_call = 0;
+DWORD write_process_memory_error = ERROR_ACCESS_DENIED;
+std::size_t write_process_memory_partial_bytes = 0;
+int virtual_protect_calls = 0;
+int virtual_protect_fail_on_call = 0;
+DWORD virtual_protect_error = ERROR_ACCESS_DENIED;
 int flush_instruction_cache_calls = 0;
+int flush_instruction_cache_fail_on_call = 0;
+DWORD flush_instruction_cache_error = ERROR_ACCESS_DENIED;
 USHORT process_machine = IMAGE_FILE_MACHINE_UNKNOWN;
 USHORT native_machine = IMAGE_FILE_MACHINE_AMD64;
 
@@ -143,6 +152,7 @@ BOOL ReadProcessMemory(HANDLE, LPCVOID address, LPVOID buffer, SIZE_T requested,
     return TRUE;
 }
 BOOL WriteProcessMemory(HANDLE, LPVOID address, LPCVOID buffer, SIZE_T requested, SIZE_T* transferred) noexcept {
+    ++winmock::write_process_memory_calls;
     constexpr std::uintptr_t base = 0x1000;
     const auto value = reinterpret_cast<std::uintptr_t>(address);
     if (value < base || value - base >= winmock::process_memory.size()) {
@@ -151,7 +161,19 @@ BOOL WriteProcessMemory(HANDLE, LPVOID address, LPCVOID buffer, SIZE_T requested
         return FALSE;
     }
     const std::size_t offset = static_cast<std::size_t>(value - base);
-    const std::size_t count = (std::min)(requested, winmock::process_memory.size() - offset);
+    const std::size_t available = winmock::process_memory.size() - offset;
+    if (winmock::write_process_memory_fail_on_call != 0 &&
+        winmock::write_process_memory_calls == winmock::write_process_memory_fail_on_call) {
+        const std::size_t partial = (std::min)({requested, available,
+                                               winmock::write_process_memory_partial_bytes});
+        if (partial != 0) {
+            std::memcpy(winmock::process_memory.data() + offset, buffer, partial);
+        }
+        *transferred = partial;
+        SetLastError(winmock::write_process_memory_error);
+        return FALSE;
+    }
+    const std::size_t count = (std::min)(requested, available);
     std::memcpy(winmock::process_memory.data() + offset, buffer, count);
     *transferred = count;
     if (count != requested) { SetLastError(ERROR_PARTIAL_COPY); return FALSE; }
@@ -171,11 +193,25 @@ SIZE_T VirtualQueryEx(HANDLE, LPCVOID address, MEMORY_BASIC_INFORMATION* mbi, SI
     return sizeof(*mbi);
 }
 BOOL VirtualProtectEx(HANDLE, LPVOID, SIZE_T, DWORD new_protection, DWORD* old_protection) noexcept {
+    ++winmock::virtual_protect_calls;
+    if (winmock::virtual_protect_fail_on_call != 0 &&
+        winmock::virtual_protect_calls == winmock::virtual_protect_fail_on_call) {
+        SetLastError(winmock::virtual_protect_error);
+        return FALSE;
+    }
     *old_protection = winmock::process_memory_protect;
     winmock::process_memory_protect = new_protection;
     return TRUE;
 }
-BOOL FlushInstructionCache(HANDLE, LPCVOID, SIZE_T) noexcept { ++winmock::flush_instruction_cache_calls; return TRUE; }
+BOOL FlushInstructionCache(HANDLE, LPCVOID, SIZE_T) noexcept {
+    ++winmock::flush_instruction_cache_calls;
+    if (winmock::flush_instruction_cache_fail_on_call != 0 &&
+        winmock::flush_instruction_cache_calls == winmock::flush_instruction_cache_fail_on_call) {
+        SetLastError(winmock::flush_instruction_cache_error);
+        return FALSE;
+    }
+    return TRUE;
+}
 int CompareStringOrdinal(LPCWCH a, int alen, LPCWCH b, int blen, BOOL ignore_case) noexcept {
     if (alen != blen) return 0;
     for (int i = 0; i < alen; ++i) {
