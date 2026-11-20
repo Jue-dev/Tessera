@@ -61,16 +61,16 @@ call-lifecycle tracking.
 ## Validation and open obligations
 
 The latest exact-head validation for PR #23 completed successfully on commit
-`fb2fdc84dd409b3e8d52c9b04afd1008acf5d041`:
+`059660d6b644c87b3d3b8438362abffd0cc83409`:
 
-- [Full CI matrix](https://github.com/Jue-dev/Tessera/actions/runs/44736486572):
+- [Full CI matrix](https://github.com/Jue-dev/Tessera/actions/runs/44739402959):
   x64/x86 Debug and Release builds, full CTest (13/13 suites per configuration),
   x64/x86 Detours integration, MSVC `/analyze`, and the `/GR-` quality gate all
   passed. The quality gate also ran all six corpus-backed fuzz smoke targets,
   all three benchmark executables, and SDK install/package validation.
-- [Native-hook fuzz campaigns](https://github.com/Jue-dev/Tessera/actions/runs/44736487041):
-  x86 MSVC Fuzzer + ASan completed 3,916,127 executions in 301 seconds; x64
-  LLVM libFuzzer + ASan/UBSan completed 7,059,226 executions in 301 seconds.
+- [Native-hook fuzz campaigns](https://github.com/Jue-dev/Tessera/actions/runs/44739402840):
+  x86 MSVC Fuzzer + ASan completed 4,097,386 executions in 301 seconds; x64
+  LLVM libFuzzer + ASan/UBSan completed 7,084,210 executions in 301 seconds.
   Neither campaign reported a crash or sanitizer finding.
 - The x64 unwind metadata extraction in `native_unwind.cpp` was included in
   this exact-head build and analysis matrix.

@@ -20,16 +20,16 @@ when it cannot safely decode, relocate, patch, or restore a target.
 ## Current CI and fuzz validation
 
 Latest exact-head validation: commit
-`fb2fdc84dd409b3e8d52c9b04afd1008acf5d041`.
+`059660d6b644c87b3d3b8438362abffd0cc83409`.
 
-- [Full CI matrix](https://github.com/Jue-dev/Tessera/actions/runs/44736486572):
+- [Full CI matrix](https://github.com/Jue-dev/Tessera/actions/runs/44739402959):
   x64/x86 Debug and Release, full CTest (13/13 suites per configuration),
   Detours x64/x86, MSVC `/analyze`, and `/GR-` quality gate passed.
 - The quality gate consumed all six checked-in fuzz corpora with `-runs=100`,
   ran all three benchmark targets, and completed SDK install/package checks.
-- [Native-hook fuzz campaigns](https://github.com/Jue-dev/Tessera/actions/runs/44736487041):
-  x86 MSVC Fuzzer + ASan completed 3,916,127 executions / 301 seconds;
-  x64 LLVM libFuzzer + ASan/UBSan completed 7,059,226 executions / 301 seconds.
+- [Native-hook fuzz campaigns](https://github.com/Jue-dev/Tessera/actions/runs/44739402840):
+  x86 MSVC Fuzzer + ASan completed 4,097,386 executions / 301 seconds;
+  x64 LLVM libFuzzer + ASan/UBSan completed 7,084,210 executions / 301 seconds.
   No crash or sanitizer finding was reported.
 - x64 trampoline unwind extraction into `native_unwind.cpp` was compiled and
   covered by the exact-head matrix.
