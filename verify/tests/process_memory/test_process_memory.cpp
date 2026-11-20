@@ -158,7 +158,7 @@ TEST_CASE("FakeMemoryBackend reader, writer, rollback, and protection warnings",
 
     // A failed protection restore remains explicitly owned by WriteReport.
     // The caller can retry after the transient OS/backend failure is resolved.
-    r1.restore_failures_remaining = 1;
+    r1.restore_failures_remaining = 2;
     auto warn_rep = writer.write_with_report(
         Address{0x10000}, std::span<const std::byte>(cross_data.data(), 4));
     REQUIRE(warn_rep.has_value());
@@ -167,6 +167,13 @@ TEST_CASE("FakeMemoryBackend reader, writer, rollback, and protection warnings",
     REQUIRE(warn_rep->protection_restore_warning->code == ErrorCode::ProtectionRestoreFailed);
     REQUIRE(warn_rep->pending_protection_restores.size() == 1);
     REQUIRE(r1.protection == MemoryProtection::ReadWrite);
+
+    // A repeated failure must preserve the same retry ticket and keep the
+    // report unsuccessful until a later restoration actually succeeds.
+    auto repeated_failure = writer.restore_pending_protections(*warn_rep);
+    REQUIRE_FALSE(repeated_failure.has_value());
+    REQUIRE(warn_rep->pending_protection_restores.size() == 1);
+    REQUIRE_FALSE(warn_rep->succeeded());
 
     REQUIRE(writer.restore_pending_protections(*warn_rep).has_value());
     REQUIRE(warn_rep->pending_protection_restores.empty());
