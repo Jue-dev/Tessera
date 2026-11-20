@@ -285,19 +285,30 @@ int main() {
     for (int iteration = 0; iteration < 32; ++iteration) {
         winmock::reset();
         winmock::thread_count = 4;
+        winmock::create_threads_during_enumeration_count = 3;
         winmock::create_threads_during_suspend_count = 3;
-        auto repeated_snapshot_race = tessera::detail::native_hook::SuspendedThreads::acquire(
-            ThreadPolicy::SuspendOthersStrict);
-        const bool captured_only_snapshot_threads =
-            repeated_snapshot_race && winmock::snapshot_thread_count == 4 &&
-            winmock::thread_count == 7 && winmock::open_thread_calls == 4 &&
-            winmock::suspend_thread_calls == 4 && winmock::thread_next_calls == 4;
-        if (!captured_only_snapshot_threads) {
-            repeated_snapshot_race_ok = false;
-            break;
+        winmock::create_threads_during_context_count = 3;
+        {
+            auto repeated_snapshot_race = tessera::detail::native_hook::SuspendedThreads::acquire(
+                ThreadPolicy::SuspendOthersStrict);
+            const bool captured_only_snapshot_threads =
+                repeated_snapshot_race && winmock::snapshot_thread_count == 4 &&
+                winmock::thread_count == 13 && winmock::open_thread_calls == 4 &&
+                winmock::suspend_thread_calls == 4 && winmock::thread_next_calls == 4;
+            if (!captured_only_snapshot_threads) {
+                repeated_snapshot_race_ok = false;
+                break;
+            }
+            const auto context_status = repeated_snapshot_race->ensure_outside(
+                0x1000, 0x100, 0x2000, 0x100);
+            if (!context_status || winmock::get_thread_context_calls != 4 ||
+                winmock::thread_count != 13) {
+                repeated_snapshot_race_ok = false;
+                break;
+            }
+            repeated_snapshot_race->resume();
         }
-        repeated_snapshot_race->resume();
-        if (winmock::resume_thread_calls != 4) {
+        if (winmock::resume_thread_calls != 4 || winmock::close_handle_calls != 5) {
             repeated_snapshot_race_ok = false;
             break;
         }
