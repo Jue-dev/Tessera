@@ -54,8 +54,10 @@ public:
 
     // Performs 2-pass validated write across regions, restoring page protection and optionally
     // rolling back previously written bytes on mid-transfer failure.
-    // Returns WriteReport even when a mid-transfer or safety failure occurs so partial state is inspectable;
-    // returns unexpected(Error) if validation fails before any byte is touched.
+    // Returns WriteReport even when a mid-transfer or safety failure occurs so partial state is inspectable.
+    // Retain the report when protection restoration fails and retry it with
+    // restore_pending_protections(). The status-only write() convenience API
+    // performs one automatic retry but cannot expose persistent retry tickets.
     [[nodiscard]] Result<WriteReport> write_with_report(Address address,
                                                         std::span<const std::byte> data,
                                                         WriteOptions options = {}) const;
