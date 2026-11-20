@@ -57,12 +57,12 @@ call-lifecycle tracking.
    loaded native-hook backend image per process is supported; this boundary is
    documented, not claimed to be runtime-enforced. See
    [Native inline hooks](../native-inline-hooks.md#deployment-boundary-one-backend-image-per-process).
-9. **Fail stop when owned thread-handle cleanup fails.** `ScopedThreadList` owns
-   each Toolhelp snapshot and opened thread handle. If `CloseHandle` reports
-   failure, the backend logs the Win32 error and terminates rather than silently
-   dropping ownership from a destructor that cannot return a cleanup status.
-   This applies to both snapshot and thread handles and is covered by isolated
-   subprocess failure tests.
+9. **Fail stop when owned Win32 handle cleanup fails.** `ScopedThreadList` owns
+   each Toolhelp snapshot and opened thread handle; `ProcessWideHookLock` owns
+   the named process mutex. If `CloseHandle` or `ReleaseMutex` reports failure,
+   the backend logs the Win32 error and terminates rather than silently dropping
+   ownership from a destructor that cannot return a cleanup status. These
+   cleanup paths are covered by isolated subprocess failure tests.
 10. **Retain page-protection restoration ownership.** A failed protection
    restoration during a memory write is represented by a process-bound retry
    ticket in `WriteReport`. The ticket preserves the exact affected range and
