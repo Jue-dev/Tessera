@@ -63,6 +63,9 @@ TEST_CASE("Filesystem reports invalid, missing, oversized, and malformed paths",
     REQUIRE_FALSE(missing.has_value());
     REQUIRE(missing.error().code == ErrorCode::NotFound);
 
+    std::filesystem::create_directories(root, ec);
+    REQUIRE_FALSE(ec);
+
     auto directory_as_file = filesystem::read_file_bytes(root);
     REQUIRE_FALSE(directory_as_file.has_value());
     REQUIRE(directory_as_file.error().code == ErrorCode::AccessDenied);

@@ -42,6 +42,7 @@ try {
     $configureExitCode = $LASTEXITCODE
     if ($configureExitCode -ne 0) {
         $diagnosticLogs = @(
+            "build-native-hook-fuzz/CMakeFiles/CMakeConfigureLog.yaml",
             "build-native-hook-fuzz/CMakeFiles/CMakeOutput.log",
             "build-native-hook-fuzz/CMakeFiles/CMakeError.log"
         )

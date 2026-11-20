@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -55,6 +56,9 @@ TEST_CASE("Logger levels and sink filtering are deterministic", "[logging]") {
     REQUIRE(records.front().category == "infra");
     REQUIRE(records.front().message == "trace");
     REQUIRE(records.back().level == LogLevel::Critical);
+    const std::string formatted = format_log_record(records.front());
+    REQUIRE(formatted.find("TRACE") != std::string::npos);
+    REQUIRE(formatted.find("[infra] trace") != std::string::npos);
 
     logger.set_min_level(LogLevel::Warn);
     logger.info("below threshold");
@@ -99,7 +103,8 @@ TEST_CASE("Diagnostics format errors and notify observers", "[diagnostics]") {
     REQUIRE(observer.events[2].severity == DiagnosticSeverity::Error);
 }
 
-TEST_CASE("LoggerDiagnosticObserver maps diagnostic severity and formats attached errors", "[logging][diagnostics]") {
+TEST_CASE("LoggerDiagnosticObserver maps diagnostic severity and formats attached errors",
+          "[logging][diagnostics]") {
     using namespace tessera;
 
     auto sink = std::make_shared<logging::MemorySink>();
