@@ -15,7 +15,7 @@ With `TESSERA_BUILD_FUZZ=ON` and `TESSERA_ENABLE_LIBFUZZER=OFF`, the fuzz target
 
 ## Seed corpus and bounded campaign
 
-Seed corpora are organized by parser/harness under `verify/fuzz/corpus/`: `pe` contains minimal PE32/PE32+ images plus malformed DOS/optional headers, section raw ranges, and import/export directory bounds; `json` and `pattern` contain valid, boundary, and malformed parser inputs; `native_hook` contains decoder/relocator edge cases. The PE harness is `tessera_fuzz_pe` and invokes the parser's section, export, import, exception-directory, and CodeView accessors for successfully parsed images. The manual workflow supports campaigns of 300, 600, or 900 seconds (300 seconds by default). The weekly schedule runs 300 seconds on each architecture. Both architecture jobs upload logs, corpus, and crash artifacts.
+Seed corpora are organized by parser/harness under `verify/fuzz/corpus/`: `pe` contains minimal PE32/PE32+ images plus malformed DOS/optional headers, section raw ranges, and import/export directory bounds; `json` and `pattern` contain valid, boundary, and malformed parser inputs; `profile_json` covers both profile schemas, setting value variants, malformed values, and secret references; `native_hook` contains decoder/relocator edge cases. The PE harness is `tessera_fuzz_pe` and invokes the parser's section, export, import, exception-directory, and CodeView accessors for successfully parsed images. The manual workflow supports campaigns of 300, 600, or 900 seconds (300 seconds by default). The weekly schedule runs 300 seconds on each architecture. Both architecture jobs upload logs, corpus, and crash artifacts.
 
 ## LLVM libFuzzer mode
 
