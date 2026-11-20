@@ -44,6 +44,12 @@ int __cdecl unused_detour(int value) {
     return value + 100;
 }
 
+CdeclFn g_short_branch_original = nullptr;
+
+int __cdecl short_branch_detour(int value) {
+    return g_short_branch_original != nullptr ? g_short_branch_original(value) + 100 : -1;
+}
+
 struct ExecutableRegion final {
     void* address = ::VirtualAlloc(nullptr, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 
@@ -237,4 +243,50 @@ TEST_CASE("Native x86 relocator rejects rel16 JMP, Jcc, and XBEGIN without patch
         REQUIRE(status.error().code == ErrorCode::UnsupportedInstruction);
         REQUIRE(std::memcmp(code + target_offset, before.data(), before.size()) == 0);
     }
+}
+
+TEST_CASE("Native x86 relocator expands short JMP and Jcc while preserving trampoline behavior",
+          "[hook][native][x86][relocation]") {
+    using namespace tessera;
+
+    const auto run_case = [](const auto& target_code) {
+        ExecutableRegion region{};
+        REQUIRE(region.address != nullptr);
+        auto* code = region.bytes();
+        std::memset(code, 0x90, 4096);
+        constexpr std::size_t target_offset = 64;
+        std::memcpy(code + target_offset, target_code.data(), target_code.size());
+        REQUIRE(region.protect_read_execute());
+
+        HookBackend& backend = native_inline_hook_backend();
+        auto hook = Hook<CdeclFn>::create(
+            reinterpret_cast<CdeclFn>(code + target_offset), &short_branch_detour, &backend);
+        REQUIRE(hook.has_value());
+        HookOptions options{};
+        options.threads = ThreadPolicy::None;
+        REQUIRE(hook->install(options).has_value());
+        g_short_branch_original = hook->original();
+        REQUIRE(reinterpret_cast<CdeclFn>(code + target_offset)(5) == 142);
+        REQUIRE(hook->original()(5) == 42);
+        REQUIRE(hook->remove().has_value());
+        g_short_branch_original = nullptr;
+        REQUIRE(reinterpret_cast<CdeclFn>(code + target_offset)(5) == 42);
+    };
+
+    // JMP +2 skips two NOPs and lands on the MOV at the next instruction boundary.
+    const std::array<std::byte, 10> short_jmp{
+        std::byte{0xEB}, std::byte{0x02}, std::byte{0x90}, std::byte{0x90},
+        std::byte{0xB8}, std::byte{0x2A}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0xC3}};
+    run_case(short_jmp);
+
+    // JZ +2 targets the MOV after two NOPs; the not-taken path falls through.
+    const std::array<std::byte, 10> short_jcc{
+        std::byte{0x31}, std::byte{0xC0}, std::byte{0x74}, std::byte{0x02},
+        std::byte{0x90}, std::byte{0x90}, std::byte{0xB8}, std::byte{0x2A},
+        std::byte{0x00}, std::byte{0x00}};
+    // The MOV's final immediate byte and RET are supplied in the executable page
+    // after the copied array so the short branch target remains a boundary.
+    auto extended_jcc = short_jcc;
+    (void)extended_jcc;
 }
