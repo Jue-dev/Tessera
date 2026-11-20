@@ -1,6 +1,6 @@
 # Tessera fuzz targets
 
-The harnesses expose `LLVMFuzzerTestOneInput` for JSON parsing/writing, byte-pattern parsing/search, PE parsing, and (on Windows) native inline-hook instruction decoding/relocation and attach/detach lifecycle validation.
+The harnesses expose `LLVMFuzzerTestOneInput` for JSON parsing/writing, profile and target-profile JSON deserialization, byte-pattern parsing/search, PE parsing, RTTI type-descriptor/string discovery over `FakeMemoryBackend`, and (on Windows) native inline-hook instruction decoding/relocation and attach/detach lifecycle validation.
 
 ## Native-hook Windows validation
 
