@@ -43,7 +43,7 @@ The default developer configuration enables tests and examples, keeps benchmarks
 fuzz harnesses opt-in, and enables the profile, target-profile, and logging SDK
 components. The CI reduced-configuration matrix disables tests and examples for
 all reduced SDK variants, then builds, installs, and compiles a separate
-`find_package(Tessera CONFIG REQUIRED` consumer against each installed package.
+`find_package(Tessera CONFIG REQUIRED)` consumer against each installed package.
 
 | CI variant | Options changed from the reduced-build baseline |
 | --- | --- |
