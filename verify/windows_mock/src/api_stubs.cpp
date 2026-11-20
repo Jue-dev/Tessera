@@ -15,14 +15,14 @@ namespace winmock {
 std::array<MemoryApiCallRecord, 32> memory_api_call_log{};
 std::array<NativeApiCallRecord, 64> native_api_call_log{};
 int native_api_call_count = 0;
+std::array<int, static_cast<std::size_t>(NativeApi::Count)> native_api_occurrence_counts{};
 NativeApi fail_native_api = NativeApi::OpenProcess;
 int fail_native_api_on_call = 0;
 DWORD fail_native_api_error = ERROR_ACCESS_DENIED;
 bool record_native_api_call(NativeApi call, HANDLE handle, std::uintptr_t a1,
                             std::uintptr_t a2, std::uintptr_t a3) noexcept {
-    int occurrence = 0;
-    for (int i = 0; i < native_api_call_count && i < static_cast<int>(native_api_call_log.size()); ++i)
-        if (native_api_call_log[static_cast<std::size_t>(i)].call == call) ++occurrence;
+    const auto api_index = static_cast<std::size_t>(call);
+    const int occurrence = native_api_occurrence_counts[api_index]++;
     if (native_api_call_count < static_cast<int>(native_api_call_log.size()))
         native_api_call_log[static_cast<std::size_t>(native_api_call_count)] = {
             call, reinterpret_cast<std::uintptr_t>(handle), a1, a2, a3};
@@ -99,6 +99,7 @@ void reset() noexcept {
     memory_api_call_count = 0;
     native_api_call_log.fill({});
     native_api_call_count = 0;
+    native_api_occurrence_counts.fill(0);
     fail_native_api = NativeApi::OpenProcess;
     fail_native_api_on_call = 0;
     fail_native_api_error = ERROR_ACCESS_DENIED;
