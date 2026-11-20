@@ -230,3 +230,25 @@ tessera_add_test(tessera_test_deep_validation
 target_compile_definitions(tessera_test_deep_validation PRIVATE
     TESSERA_TEST_FIXTURE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/fixtures\"
 )
+
+
+# Optional independent decoder differential oracle. The dependency is test-only
+# and is installed by the dedicated CI job; it never enters the SDK/runtime.
+option(TESSERA_ENABLE_DECODER_ORACLE "Enable the optional iced-x86 differential decoder test" OFF)
+if(TESSERA_ENABLE_DECODER_ORACLE)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_executable(tessera_decoder_probe
+        decoder_oracle/decoder_probe.cpp
+        ${PROJECT_SOURCE_DIR}/src/hook/backends/x86_instruction_decoder.cpp
+    )
+    target_include_directories(tessera_decoder_probe PRIVATE
+        ${PROJECT_SOURCE_DIR}/src
+    )
+    tessera_apply_target_options(tessera_decoder_probe)
+    add_test(
+        NAME tessera_decoder_differential
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/decoder_oracle/compare_iced.py
+            $<TARGET_FILE:tessera_decoder_probe>
+    )
+endif()

@@ -36,7 +36,7 @@ The current implementation explicitly rejects:
 - Reserved two-byte opcodes 0F 0A and 0F 0C.
 - The ambiguous operand-size-prefixed 66 0F 78 / 66 0F 79 SSE4a forms.
 - VEX/EVEX map selectors outside 1, 2, and 3, malformed EVEX reserved-bit combinations, and vector encodings combined with disallowed legacy/REX prefixes.
-- Selected invalid ModRM group encodings (including unsupported 8F and FE group selectors) and long-mode-invalid legacy forms.
+- Selected invalid ModRM group encodings (including unsupported 8F and FE group selectors), memory-form ModRM for control/debug-register MOV opcodes 0F 20–23 (these require register-direct ModRM), and long-mode-invalid legacy forms.
 
 The reject list above describes explicit guards in this implementation; it is not an exhaustive catalogue of every architecturally reserved opcode encoding.
 
