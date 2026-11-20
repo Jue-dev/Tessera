@@ -235,10 +235,11 @@ Result<std::basic_string<CharT>> read_terminated_string(const Process& process,
                 if (!any_read) {
                     return std::unexpected(got_res.error());
                 }
-                return make_error(ErrorCode::PartialTransfer,
-                                  op_name,
-                                  got_res.error().native,
-                                  "String read failed before a terminator was found");
+                return std::unexpected(make_error(
+                    ErrorCode::PartialTransfer,
+                    op_name,
+                    got_res.error().native,
+                    "String read failed before a terminator was found"));
             }
             if ((*got_res % sizeof(CharT)) != 0) {
                 return fail(ErrorCode::PartialTransfer,
