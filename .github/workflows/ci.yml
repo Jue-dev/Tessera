@@ -202,8 +202,12 @@ jobs:
             "build-nortti/verify/fuzz/Release/tessera_fuzz_pattern.exe",
             "build-nortti/verify/fuzz/Release/tessera_fuzz_pe.exe",
             "build-nortti/verify/fuzz/Release/tessera_fuzz_json.exe",
+            "build-nortti/verify/fuzz/Release/tessera_fuzz_profile_json.exe",
+            "build-nortti/verify/fuzz/Release/tessera_fuzz_rtti_discovery.exe",
             "build-nortti/verify/fuzz/Release/tessera_fuzz_native_hook.exe",
-            "build-nortti/verify/bench/Release/tessera_bench.exe"
+            "build-nortti/verify/bench/Release/tessera_bench.exe",
+            "build-nortti/verify/bench/Release/tessera_decoder_bench.exe",
+            "build-nortti/verify/bench/Release/tessera_pe_bench.exe"
           )
           foreach ($target in $targets) {
             if (-not (Test-Path $target)) { throw "Missing Release smoke target: $target" }
