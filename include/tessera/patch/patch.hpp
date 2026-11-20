@@ -110,6 +110,9 @@ public:
     // transaction are restored in reverse order.
     [[nodiscard]] TransactionReport apply();
 
+    // Restores applied patches and retries every retained protection ticket,
+    // including tickets left by failed applies or by protection failures after
+    // bytes have already been restored.
     [[nodiscard]] Status restore_all() noexcept;
 
     [[nodiscard]] std::span<const Patch> patches() const noexcept { return patches_; }

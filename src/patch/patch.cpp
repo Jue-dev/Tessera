@@ -312,11 +312,12 @@ Status PatchTransaction::restore_all() noexcept {
     Status first_err = ok();
     for (std::size_t rev = patches_.size(); rev > 0; --rev) {
         const std::size_t idx = rev - 1;
-        if (patches_[idx].state() == PatchState::Applied) {
-            auto st = patches_[idx].restore();
-            if (!st && first_err) {
-                first_err = st;
-            }
+        // restore() retries retained protection tickets before inspecting
+        // the patch state. This must include Restored patches too: their bytes
+        // may have been restored successfully while the protection retry failed.
+        auto st = patches_[idx].restore();
+        if (!st && first_err) {
+            first_err = st;
         }
     }
     return first_err;

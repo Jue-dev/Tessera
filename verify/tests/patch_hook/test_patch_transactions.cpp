@@ -332,6 +332,84 @@ TEST_CASE("Patch retains and retries a failed page-protection restoration",
 }
 
 
+TEST_CASE("PatchTransaction retries protection ownership left by a rolled-back apply",
+          "[patch][transaction][memory][protection]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    auto& region = backend->map_region(
+        Address{0x640000}, 0x1000, MemoryProtection::Read);
+    const std::array<std::byte, 4> original{
+        std::byte{0x10}, std::byte{0x20}, std::byte{0x30}, std::byte{0x40}};
+    backend->poke_bytes(Address{0x640100}, original);
+    region.writable_prefix_limit = 2;
+    region.restore_failures_remaining = 1;
+
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
+    auto patch_result = Patch::nop(
+        ProcessAddress{process, Address{0x640100}}, original.size());
+    REQUIRE(patch_result.has_value());
+
+    PatchTransaction transaction{};
+    transaction.add(std::move(*patch_result));
+
+    const auto apply_report = transaction.apply();
+    REQUIRE_FALSE(apply_report.succeeded);
+    REQUIRE(apply_report.steps.size() == 1);
+    // The short write was rolled back, so the patch remains Created even
+    // though its first protection restoration attempt failed.
+    REQUIRE(apply_report.steps[0].state == PatchState::Created);
+    REQUIRE(region.protection == MemoryProtection::ReadWrite);
+    for (std::size_t index = 0; index < original.size(); ++index) {
+        REQUIRE(backend->peek_byte(Address{0x640100 + index}) == original[index]);
+    }
+
+    // restore_all must visit Created patches because they may still own
+    // retryable protection tickets from a failed, successfully rolled-back apply.
+    REQUIRE(transaction.restore_all().has_value());
+    REQUIRE(region.protection == MemoryProtection::Read);
+}
+
+TEST_CASE("PatchTransaction retries protection ownership after bytes are already restored",
+          "[patch][transaction][memory][protection]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    auto& region = backend->map_region(
+        Address{0x650000}, 0x1000, MemoryProtection::Read);
+    const std::array<std::byte, 4> original{
+        std::byte{0x10}, std::byte{0x20}, std::byte{0x30}, std::byte{0x40}};
+    backend->poke_bytes(Address{0x650100}, original);
+
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
+    auto patch_result = Patch::nop(
+        ProcessAddress{process, Address{0x650100}}, original.size());
+    REQUIRE(patch_result.has_value());
+
+    PatchTransaction transaction{};
+    transaction.add(std::move(*patch_result));
+    REQUIRE(transaction.apply().succeeded);
+    REQUIRE(region.protection == MemoryProtection::Read);
+
+    // The patch's original bytes are restored, but the final protection
+    // restoration attempt fails and leaves a retry ticket on a Restored patch.
+    region.restore_failures_remaining = 1;
+    const auto restore_status = transaction.restore_all();
+    REQUIRE_FALSE(restore_status.has_value());
+    REQUIRE(transaction.patches()[0].state() == PatchState::Restored);
+    REQUIRE(region.protection == MemoryProtection::ReadWrite);
+    for (std::size_t index = 0; index < original.size(); ++index) {
+        REQUIRE(backend->peek_byte(Address{0x650100 + index}) == original[index]);
+    }
+
+    // A second transaction cleanup call must retry the ticket even though
+    // the patch state is already Restored.
+    REQUIRE(transaction.restore_all().has_value());
+    REQUIRE(region.protection == MemoryProtection::Read);
+}
+
 TEST_CASE("Patch destructor reports a final pending protection retry failure",
           "[patch][memory][protection][diagnostics]") {
     using namespace tessera;
