@@ -331,3 +331,54 @@ TEST_CASE("Patch retains and retries a failed page-protection restoration",
     }
 }
 
+
+TEST_CASE("Patch destructor reports a final pending protection retry failure",
+          "[patch][memory][protection][diagnostics]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    struct CapturingObserver final : DiagnosticObserver {
+        std::size_t warning_count = 0;
+        std::string_view last_category{};
+        std::string_view last_message{};
+        void on_diagnostic(const DiagnosticEvent& event) noexcept override {
+            if (event.severity == DiagnosticSeverity::Warning) {
+                ++warning_count;
+                last_category = event.category;
+                last_message = event.message;
+            }
+        }
+    } observer;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    auto& region = backend->map_region(
+        Address{0x630000}, 0x1000, MemoryProtection::Read);
+    const std::array<std::byte, 4> original{
+        std::byte{0x10}, std::byte{0x20}, std::byte{0x30}, std::byte{0x40}};
+    backend->poke_bytes(Address{0x630100}, original);
+    Process process = FakeMemoryBackend::make_process(
+        backend, Architecture::X64, ProcessId{4242}, &observer);
+
+    {
+        auto patch_result = Patch::nop(
+            ProcessAddress{process, Address{0x630100}}, original.size());
+        REQUIRE(patch_result.has_value());
+        Patch patch = std::move(*patch_result);
+
+        // The apply-time restore fails once; the destructor's final retry
+        // fails again, so the diagnostic must make the lost retry ownership visible.
+        region.restore_failures_remaining = 2;
+        const auto apply_status = patch.apply();
+        REQUIRE_FALSE(apply_status.has_value());
+        REQUIRE(apply_status.error().code == ErrorCode::ProtectionRestoreFailed);
+        REQUIRE(patch.state() == PatchState::Applied);
+        REQUIRE(region.protection == MemoryProtection::ReadWrite);
+    }
+
+    // MemoryWriter reports the initial restore failure; Patch reports the
+    // final destructor retry failure. Both warnings must be observable.
+    REQUIRE(observer.warning_count == 2);
+    REQUIRE(observer.last_category == "Patch");
+    REQUIRE(observer.last_message.find("retry ownership") != std::string_view::npos);
+    REQUIRE(region.protection == MemoryProtection::ReadWrite);
+}

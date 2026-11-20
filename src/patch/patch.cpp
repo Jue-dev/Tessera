@@ -57,6 +57,11 @@ Status Patch::finish_in_destructor() noexcept {
         auto protection_status =
             writer.restore_pending_protections(*pending_protection_report_);
         if (!protection_status) {
+            diagnostics::notify(target_.process().observer(),
+                                DiagnosticSeverity::Warning,
+                                "Patch",
+                                "Pending page-protection restoration failed during Patch cleanup; retry ownership will be released with the Patch",
+                                protection_status.error());
             return protection_status;
         }
         pending_protection_report_.reset();
