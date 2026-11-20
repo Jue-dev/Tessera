@@ -901,3 +901,39 @@ TEST_CASE("Native instruction decoder reports bounded instruction and relative o
     prefix_only.fill(std::byte{0x66});
     CHECK_FALSE(decode_instruction(prefix_only.data(), prefix_only.size(), Mode::x64, decoded));
 }
+
+
+TEST_CASE("Native instruction decoder rejects unsupported and ambiguous encoding families",
+          "[hook][native][decoder][reject]") {
+    using tessera::detail::x86::DecodedInstruction;
+    using tessera::detail::x86::Mode;
+    using tessera::detail::x86::decode_instruction;
+
+    const auto rejects = [](std::initializer_list<std::uint8_t> input, Mode mode) {
+        std::array<std::byte, 15> bytes{};
+        std::size_t count = 0;
+        for (const auto value : input) {
+            bytes[count++] = static_cast<std::byte>(value);
+        }
+        DecodedInstruction decoded{};
+        return !decode_instruction(bytes.data(), count, mode, decoded);
+    };
+
+    // Reserved legacy two-byte opcodes and the intentionally unsupported AMD XOP map.
+    CHECK(rejects({0x0F, 0x0A}, Mode::x64));
+    CHECK(rejects({0x0F, 0x0C}, Mode::x64));
+    CHECK(rejects({0x8F, 0xE8, 0xC0}, Mode::x64));
+
+    // The 66-prefixed 0F 78/79 SSE4a forms are ambiguous in this bounded decoder.
+    CHECK(rejects({0x66, 0x0F, 0x78, 0xC0}, Mode::x64));
+    CHECK(rejects({0x66, 0x0F, 0x79, 0xC0}, Mode::x64));
+
+    // Vector maps outside the supported 1/2/3 set and LOCK-prefixed vector forms.
+    CHECK(rejects({0xC4, 0xE4, 0x78, 0x58, 0xC0}, Mode::x64));
+    CHECK(rejects({0xF0, 0xC5, 0xF8, 0x77}, Mode::x64));
+
+    // Legacy segment push/pop and decimal-adjust instructions are unavailable in long mode.
+    CHECK(rejects({0x06}, Mode::x64));
+    CHECK(rejects({0x27}, Mode::x64));
+    CHECK(rejects({0x06}, Mode::x86) == false);
+}
