@@ -12,6 +12,7 @@ on:
       - "src/platform/windows/**"
       - "include/tessera/hook/**"
       - "verify/fuzz/**"
+      - "verify/tests/patch_hook/**"
   workflow_dispatch:
     inputs:
       campaign_seconds:
