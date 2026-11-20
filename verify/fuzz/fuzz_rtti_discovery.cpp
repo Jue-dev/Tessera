@@ -17,7 +17,9 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     }
 
     const std::size_t bounded_size = (std::min)(size, kMaxFuzzBytes);
-    const std::size_t region_size = (std::max)(bounded_size, std::size_t{1});
+    // Keep one readable zero byte after the fuzz payload so bounded C-string
+    // probes can inspect a candidate that ends exactly at the input boundary.
+    const std::size_t region_size = bounded_size + 1;
 
     auto backend = std::make_shared<tessera::testing::FakeMemoryBackend>();
     backend->map_region(
