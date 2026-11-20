@@ -329,7 +329,7 @@ TEST_CASE("MemoryReader reports an unterminated string after a short backend rea
     auto backend = std::make_shared<FakeMemoryBackend>();
     auto& region = backend->map_region(
         Address{0x2A000}, 0x1000, MemoryProtection::Read);
-    const std::array<std::byte, 2> prefix{std::byte{'A'}, std::byte{'B'}};
+    const std::array<std::byte, 2> prefix{std::byte{0x41}, std::byte{0x42}};
     backend->poke_bytes(Address{0x2A000}, prefix);
     region.readable_prefix_limit = prefix.size();
 
