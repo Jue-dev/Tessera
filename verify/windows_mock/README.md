@@ -29,6 +29,8 @@ UBSAN_OPTIONS=halt_on_error=1 \
 
 ## Covered cases
 
+- MemoryWriter protection/write/restore/flush API call order, target addresses, sizes, and protection arguments are captured and asserted.
+
 - `Process::from_native_handle` x64 and WOW64/x86 architecture discovery; unsupported host architecture rejection.
 - `ReadProcessMemory`, `WriteProcessMemory`, `VirtualQueryEx`, `VirtualProtectEx`, partial read reporting and instruction-cache flush behavior.
 - Deterministic `VirtualProtectEx` initial-elevation/restore failures, zero-byte and partial `WriteProcessMemory` failures, rollback-write failure, pending protection-restore retry ownership, and `FlushInstructionCache` failure.

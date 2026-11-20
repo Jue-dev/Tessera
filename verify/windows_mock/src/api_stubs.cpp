@@ -12,6 +12,17 @@
 
 namespace winmock {
 
+std::array<MemoryApiCallRecord, 32> memory_api_call_log{};
+int memory_api_call_count = 0;
+
+void record_memory_api_call(MemoryApiCall call, const void* address,
+                            std::size_t size, DWORD protection = 0) noexcept {
+    if (memory_api_call_count < static_cast<int>(memory_api_call_log.size())) {
+        memory_api_call_log[static_cast<std::size_t>(memory_api_call_count++)] = {
+            call, reinterpret_cast<std::uintptr_t>(address), size, protection};
+    }
+}
+
 ModuleMode module_mode = ModuleMode::Stable;
 int module_calls = 0;
 DWORD last_error = NO_ERROR;
@@ -67,6 +78,8 @@ USHORT process_machine = IMAGE_FILE_MACHINE_UNKNOWN;
 USHORT native_machine = IMAGE_FILE_MACHINE_AMD64;
 
 void reset() noexcept {
+    memory_api_call_log.fill({});
+    memory_api_call_count = 0;
     module_mode = ModuleMode::Stable;
     module_calls = 0;
     last_error = NO_ERROR;
@@ -170,6 +183,7 @@ BOOL ReadProcessMemory(HANDLE, LPCVOID address, LPVOID buffer, SIZE_T requested,
 }
 BOOL WriteProcessMemory(HANDLE, LPVOID address, LPCVOID buffer, SIZE_T requested, SIZE_T* transferred) noexcept {
     ++winmock::write_process_memory_calls;
+    winmock::record_memory_api_call(winmock::MemoryApiCall::WriteProcessMemory, address, requested);
     constexpr std::uintptr_t base = 0x1000;
     const auto value = reinterpret_cast<std::uintptr_t>(address);
     if (value < base || value - base >= winmock::process_memory.size()) {
@@ -215,8 +229,9 @@ SIZE_T VirtualQueryEx(HANDLE, LPCVOID address, MEMORY_BASIC_INFORMATION* mbi, SI
     mbi->Type = MEM_PRIVATE;
     return sizeof(*mbi);
 }
-BOOL VirtualProtectEx(HANDLE, LPVOID, SIZE_T, DWORD new_protection, DWORD* old_protection) noexcept {
+BOOL VirtualProtectEx(HANDLE, LPVOID address, SIZE_T size, DWORD new_protection, DWORD* old_protection) noexcept {
     ++winmock::virtual_protect_calls;
+    winmock::record_memory_api_call(winmock::MemoryApiCall::VirtualProtectEx, address, size, new_protection);
     if (winmock::virtual_protect_fail_on_call != 0 &&
         winmock::virtual_protect_calls == winmock::virtual_protect_fail_on_call) {
         SetLastError(winmock::virtual_protect_error);
@@ -226,8 +241,9 @@ BOOL VirtualProtectEx(HANDLE, LPVOID, SIZE_T, DWORD new_protection, DWORD* old_p
     winmock::process_memory_protect = new_protection;
     return TRUE;
 }
-BOOL FlushInstructionCache(HANDLE, LPCVOID, SIZE_T) noexcept {
+BOOL FlushInstructionCache(HANDLE, LPCVOID address, SIZE_T size) noexcept {
     ++winmock::flush_instruction_cache_calls;
+    winmock::record_memory_api_call(winmock::MemoryApiCall::FlushInstructionCache, address, size);
     if (winmock::flush_instruction_cache_fail_on_call != 0 &&
         winmock::flush_instruction_cache_calls == winmock::flush_instruction_cache_fail_on_call) {
         SetLastError(winmock::flush_instruction_cache_error);
