@@ -17,6 +17,8 @@ extern DWORD get_thread_context_error;
 extern int suspend_thread_calls;
 extern int get_thread_context_calls;
 extern int resume_thread_calls;
+extern DWORD resume_thread_error;
+extern DWORD wait_for_single_object_result;
 extern LONG detour_update_error;
 extern LONG detour_attach_error;
 extern LONG detour_detach_error;
