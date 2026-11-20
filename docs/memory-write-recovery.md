@@ -4,7 +4,7 @@
 
 ## Protection restoration ownership
 
-When a write requires temporary page-protection elevation, the backend returns the actual previous protection. If restoring that protection fails, `WriteReport` retains a `PendingProtectionRestore` containing the exact affected range and that returned protection value. The report is not successful while a protection warning remains.
+When a write requires temporary page-protection elevation, the backend returns the actual previous protection. If restoring that protection fails, `WriteReport` retains a `PendingProtectionRestore` containing the exact `Process` state, affected range, and returned protection value. The report is not successful while a protection warning remains.
 
 Keep the report alive and retry with:
 
@@ -22,7 +22,7 @@ if (!report->pending_protection_restores.empty()) {
 }
 ```
 
-The retry operation removes only tickets whose restoration succeeded. A failed ticket remains in the report with its original range/protection pair. The report's protection warning is cleared only after all outstanding tickets have been restored.
+The retry operation first verifies that the ticket belongs to the same shared `Process` state as the writer, then removes only tickets whose restoration succeeded. A failed ticket remains in the report with its original range/protection pair. The report's protection warning is cleared only after all outstanding tickets have been restored.
 
 The rollback path reuses an existing ticket when the first write pass could not restore a page. It must not treat the temporary elevated protection as the original protection or create a second ticket that could later re-elevate the page.
 
