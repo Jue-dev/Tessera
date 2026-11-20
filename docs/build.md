@@ -21,11 +21,13 @@ Available presets:
 - `x64-release`
 - `x86-debug`
 - `x86-release`
+- `x64-asan` (optional sanitizer configuration)
+- `x64-analyze` (optional MSVC static-analysis configuration)
 
 ## Installing the SDK
 
 ```powershell
-cmake --install out/build/x64-release --prefix out/install/x64-release
+cmake --install artifacts/x64/Release/build --prefix artifacts/x64/Release/install
 ```
 
 Downstream projects can then consume Tessera via:
