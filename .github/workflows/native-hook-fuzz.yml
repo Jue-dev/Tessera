@@ -47,7 +47,8 @@ jobs:
           persist-credentials: false
 
       - name: Install LLVM 22 for C++23 and libFuzzer
-        uses: KyleMayes/install-llvm-action@v2
+        # Node 24 migration pending upstream: KyleMayes/install-llvm-action#100.
+        uses: yezhizhen/install-llvm-action@8000af8f91093e2002004ceab3abd0f56e4cbde0
         with:
           version: "22.1.8"
           force-url: https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-win64.exe
@@ -58,28 +59,20 @@ jobs:
         with:
           arch: x64
 
-      - name: Verify Clang x64 toolchain and sanitizer runtimes
+      - name: Verify x64 Clang and sanitizer environment
         shell: pwsh
-        run: |
-          & ./.github/scripts/native-hook-fuzz/01-verify-clang-x64-toolchain-and-sanitizer-runtimes.ps1
-      - name: Configure instrumented native-hook fuzzer (x64)
+        run: ./.github/scripts/native-hook-fuzz/setup-fuzzer-env.ps1 -Arch x64
+
+      - name: Configure, build, and verify x64 fuzzer
         shell: pwsh
-        run: |
-          & ./.github/scripts/native-hook-fuzz/02-configure-instrumented-native-hook-fuzzer.ps1
-      - name: Build instrumented native-hook fuzzer (x64)
-        shell: pwsh
-        run: |
-          & ./.github/scripts/native-hook-fuzz/03-build-instrumented-native-hook-fuzzer.ps1
-      - name: Verify x64 fuzzer executable architecture
-        shell: pwsh
-        run: |
-          & ./.github/scripts/native-hook-fuzz/04-verify-x64-fuzzer-executable-architecture.ps1
+        run: ./.github/scripts/native-hook-fuzz/build-fuzzer.ps1 -Arch x64
+
       - name: Run x64 coverage-guided ASan/UBSan campaign
         shell: pwsh
         env:
           CAMPAIGN_SECONDS: ${{ inputs.campaign_seconds || '300' }}
-        run: |
-          & ./.github/scripts/native-hook-fuzz/05-run-x64-coverage-guided-asan-ubsan-campaign.ps1
+        run: ./.github/scripts/native-hook-fuzz/run-fuzzer-campaign.ps1 -Arch x64
+
       - name: Upload x64 fuzz corpus and crash artifacts
         if: always()
         uses: actions/upload-artifact@v7
@@ -103,32 +96,20 @@ jobs:
         with:
           arch: x86
 
-      - name: Verify native MSVC x86 Fuzzer and AddressSanitizer
+      - name: Verify MSVC x86 Fuzzer and AddressSanitizer environment
         shell: pwsh
-        run: |
-          & ./.github/scripts/native-hook-fuzz/06-verify-native-msvc-x86-fuzzer-and-addresssanitizer.ps1
-      - name: Configure instrumented native-hook fuzzer (x86)
+        run: ./.github/scripts/native-hook-fuzz/setup-fuzzer-env.ps1 -Arch x86
+
+      - name: Configure, build, and verify x86 fuzzer
         shell: pwsh
-        run: |
-          & ./.github/scripts/native-hook-fuzz/07-configure-instrumented-native-hook-fuzzer.ps1
-      - name: Build instrumented native-hook fuzzer (x86)
-        shell: pwsh
-        run: |
-          & ./.github/scripts/native-hook-fuzz/08-build-instrumented-native-hook-fuzzer.ps1
-      - name: Verify x86 fuzzer executable architecture
-        shell: pwsh
-        run: |
-          & ./.github/scripts/native-hook-fuzz/09-verify-x86-fuzzer-executable-architecture.ps1
-      - name: Locate and stage x86 AddressSanitizer runtime
-        shell: pwsh
-        run: |
-          & ./.github/scripts/native-hook-fuzz/10-locate-and-stage-x86-addresssanitizer-runtime.ps1
-      - name: Run x86 coverage-guided ASan campaign
+        run: ./.github/scripts/native-hook-fuzz/build-fuzzer.ps1 -Arch x86
+
+      - name: Run x86 coverage-guided MSVC ASan campaign
         shell: pwsh
         env:
           CAMPAIGN_SECONDS: ${{ inputs.campaign_seconds || '300' }}
-        run: |
-          & ./.github/scripts/native-hook-fuzz/11-run-x86-coverage-guided-asan-campaign.ps1
+        run: ./.github/scripts/native-hook-fuzz/run-fuzzer-campaign.ps1 -Arch x86
+
       - name: Upload x86 fuzz corpus and crash artifacts
         if: always()
         uses: actions/upload-artifact@v7

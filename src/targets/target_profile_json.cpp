@@ -6,6 +6,7 @@
 #include "tessera/filesystem/filesystem.hpp"
 #include "tessera/utility/hex.hpp"
 #include "tessera/utility/string.hpp"
+#include "json/detail/field_access.hpp"
 
 namespace tessera::targets {
 
@@ -206,11 +207,17 @@ namespace {
     if (!jv.is_object()) {
         return fail(ErrorCode::ParseError, "json_to_recipe", 0, "Recipe must be an object");
     }
-    const auto* st_v = jv.find("strategy");
-    if (!st_v || !st_v->as_string()) {
-        return fail(ErrorCode::ParseError, "json_to_recipe", 0, "Missing recipe strategy");
+    auto strategy_name = json::detail::required_field<std::string_view>(
+        jv,
+        "strategy",
+        "json_to_recipe",
+        "Missing recipe strategy",
+        "Missing recipe strategy",
+        [](const json::JsonValue& value) { return value.as_string(); });
+    if (!strategy_name) {
+        return std::unexpected(strategy_name.error());
     }
-    auto st = str_to_strategy(*st_v->as_string());
+    auto st = str_to_strategy(*strategy_name);
     if (!st) {
         return std::unexpected(st.error());
     }
@@ -417,21 +424,30 @@ Result<TargetProfile> deserialize_target_profile_from_json(const json::JsonValue
             p.revision = *rev->as_uint64();
         }
 
-        const auto* app = root.find("application");
-        if (!app || !app->is_object()) {
-            return fail(ErrorCode::ParseError,
-                        "deserialize_target_profile_from_json",
-                        0,
-                        "Missing 'application' object");
+        auto app_field = json::detail::required_field<const json::JsonValue*>(
+            root,
+            "application",
+            "deserialize_target_profile_from_json",
+            "Missing 'application' object",
+            "Missing 'application' object",
+            [](const json::JsonValue& value) -> std::optional<const json::JsonValue*> {
+                return value.is_object() ? std::optional<const json::JsonValue*>{&value} : std::nullopt;
+            });
+        if (!app_field) {
+            return std::unexpected(app_field.error());
         }
-        if (const auto* aid = app->find("applicationId"); aid && aid->as_string()) {
-            p.application.application_id = std::string(*aid->as_string());
+        const auto* app = *app_field;
+        if (auto application_id = json::detail::optional_field<std::string_view>(
+                *app, "applicationId", [](const json::JsonValue& value) { return value.as_string(); })) {
+            p.application.application_id = std::string(*application_id);
         }
-        if (const auto* dn = app->find("displayName"); dn && dn->as_string()) {
-            p.application.display_name = std::string(*dn->as_string());
+        if (auto display_name = json::detail::optional_field<std::string_view>(
+                *app, "displayName", [](const json::JsonValue& value) { return value.as_string(); })) {
+            p.application.display_name = std::string(*display_name);
         }
-        if (const auto* pub = app->find("publisher"); pub && pub->as_string()) {
-            p.application.publisher = std::string(*pub->as_string());
+        if (auto publisher = json::detail::optional_field<std::string_view>(
+                *app, "publisher", [](const json::JsonValue& value) { return value.as_string(); })) {
+            p.application.publisher = std::string(*publisher);
         }
         if (const auto* exes = app->find("executables"); exes && exes->is_array()) {
             for (const auto& e : *exes->as_array()) {
