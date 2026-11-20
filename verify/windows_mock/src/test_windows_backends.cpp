@@ -183,6 +183,16 @@ int main() {
           "best-effort native thread policy tolerates injected SuspendThread failure");
 
     winmock::reset();
+    winmock::thread_count = 2;
+    winmock::suspend_thread_fail_on_call = 2;
+    auto partial_suspend_failure = tessera::detail::native_hook::SuspendedThreads::acquire(
+        ThreadPolicy::SuspendOthersStrict);
+    check(!partial_suspend_failure && partial_suspend_failure.error().operation == "SuspendThread" &&
+              winmock::suspend_thread_calls == 2 && winmock::resume_thread_calls == 1 &&
+              winmock::close_handle_calls == 3,
+          "strict partial-suspend failure resumes prior threads and closes both thread handles plus snapshot");
+
+    winmock::reset();
     winmock::get_thread_context_error = ERROR_ACCESS_DENIED;
     {
         auto suspended = tessera::detail::native_hook::SuspendedThreads::acquire(ThreadPolicy::SuspendOthersStrict);
