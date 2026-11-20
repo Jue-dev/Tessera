@@ -1,19 +1,17 @@
 #include "tessera/tessera.hpp"
 
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <memory>
 #include <optional>
 #include <vector>
-#include <array>
-#include <cstdint>
 
 #include "hook/backends/x86_instruction_decoder.hpp"
-
 #include "FakeMemoryBackend.hpp"
-
-
 
 namespace {
 
