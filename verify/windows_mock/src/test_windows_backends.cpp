@@ -34,6 +34,22 @@ int main() {
     check(process.has_value(), "from_native_handle builds a mock x64 Process");
     if (!process) return 2;
 
+    // The diagnostic log is intentionally bounded, but failure ordinals must
+    // remain accurate after its storage fills.
+    winmock::reset();
+    winmock::fail_native_api = winmock::NativeApi::OpenProcess;
+    winmock::fail_native_api_on_call = 2;
+    for (int i = 0; i < 64; ++i) {
+        (void)winmock::record_native_api_call(winmock::NativeApi::GetNativeSystemInfo, nullptr);
+    }
+    const bool first_open_recorded =
+        winmock::record_native_api_call(winmock::NativeApi::OpenProcess, nullptr);
+    const bool second_open_failed =
+        winmock::record_native_api_call(winmock::NativeApi::OpenProcess, nullptr);
+    check(!first_open_recorded && second_open_failed && winmock::native_api_call_count == 66,
+          "per-API indexed failure remains correct after the bounded diagnostic log fills");
+    winmock::reset();
+
     // Process-open contract: required query-limited access is always requested,
     // while the caller's requested VM rights and PID are preserved exactly.
     winmock::reset();
