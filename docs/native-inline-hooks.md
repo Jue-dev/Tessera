@@ -43,3 +43,8 @@ and the x86/x64 branching-virtual-base RTTI fixture failed. See
 `docs/issue-6-audit-findings.md` for details and the next diagnostic steps.
 
 **This PR is still draft. Do not merge based on fuzz success alone.**
+
+
+## Architecture decision record
+
+The safety and lifecycle contract summarized above is recorded in [ADR 0002](adr/0002-native-inline-hook-safety-contract.md). The ADR captures design decisions; exact-head CI results and outstanding acceptance gates remain tracked in the Issue #6 audit and validation checklist.
