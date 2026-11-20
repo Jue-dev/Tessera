@@ -576,6 +576,15 @@ Status MemoryWriter::write(Address address,
     if (!rep) {
         return std::unexpected(rep.error());
     }
+    // The status-only convenience API cannot return the report that owns
+    // pending restoration tickets. Give transient protection failures one
+    // immediate retry before translating the report to Status.
+    if (!rep->pending_protection_restores.empty()) {
+        auto retry_status = restore_pending_protections(*rep);
+        if (!retry_status) {
+            return std::unexpected(retry_status.error());
+        }
+    }
     if (rep->write_error) {
         return std::unexpected(*rep->write_error);
     }
