@@ -74,11 +74,33 @@ int main() {
               wow64_process->info().pointer_size == 4,
           "Process backend identifies a 32-bit target on an x64 host");
     winmock::reset();
+    winmock::fail_native_api = winmock::NativeApi::IsWow64Process2;
+    winmock::fail_native_api_on_call = 1;
+    auto architecture_api_failure = from_native_handle(
+        reinterpret_cast<void*>(static_cast<std::uintptr_t>(0x46)), Ownership::Owned);
+    check(!architecture_api_failure &&
+              architecture_api_failure.error().operation == "IsWow64Process2" &&
+              architecture_api_failure.error().native == ERROR_ACCESS_DENIED &&
+              winmock::close_handle_calls == 1,
+          "IsWow64Process2 indexed failure closes owned handle and preserves native error");
+
+    winmock::reset();
     winmock::native_machine = IMAGE_FILE_MACHINE_ARM64;
     auto unsupported_process = from_native_handle(reinterpret_cast<void*>(static_cast<std::uintptr_t>(0x46)),
                                                   Ownership::Borrowed);
     check(!unsupported_process && unsupported_process.error().code == ErrorCode::UnsupportedArchitecture,
           "Process backend rejects unsupported native architectures");
+
+    winmock::reset();
+    auto alive_failure_process = from_native_handle(
+        reinterpret_cast<void*>(static_cast<std::uintptr_t>(0x47)), Ownership::Borrowed);
+    winmock::reset();
+    winmock::fail_native_api = winmock::NativeApi::GetExitCodeProcess;
+    winmock::fail_native_api_on_call = 1;
+    auto alive_api_failure = alive_failure_process->is_alive();
+    check(!alive_api_failure && alive_api_failure.error().operation == "GetExitCodeProcess" &&
+              alive_api_failure.error().native == ERROR_ACCESS_DENIED,
+          "GetExitCodeProcess indexed failure is surfaced by Process::is_alive");
 
     winmock::reset();
     MemoryReader memory_reader{*process};
@@ -119,6 +141,27 @@ int main() {
     check(memory_api_order_and_arguments,
           "MemoryWriter preserves protection/write/restore/flush order and exact API ranges");
 
+    winmock::reset();
+    winmock::fail_native_api = winmock::NativeApi::ReadProcessMemory;
+    winmock::fail_native_api_on_call = 1;
+    auto read_api_failure = memory_reader.read_bytes(Address{0x1000}, 4);
+    check(!read_api_failure && read_api_failure.error().operation == "ReadProcessMemory" &&
+              read_api_failure.error().native == ERROR_ACCESS_DENIED &&
+              winmock::native_api_call_log[0].argument1 == 0x1000 &&
+              winmock::native_api_call_log[0].argument2 == 4,
+          "ReadProcessMemory indexed failure preserves address, size, and native error");
+
+    winmock::reset();
+    winmock::fail_native_api = winmock::NativeApi::VirtualQueryEx;
+    winmock::fail_native_api_on_call = 1;
+    auto query_api_failure = memory_reader.query(Address{0x1001});
+    check(!query_api_failure && query_api_failure.error().operation == "VirtualQueryEx" &&
+              query_api_failure.error().native == ERROR_ACCESS_DENIED &&
+              winmock::native_api_call_log[0].argument1 == 0x1001 &&
+              winmock::native_api_call_log[0].argument3 == sizeof(MEMORY_BASIC_INFORMATION),
+          "VirtualQueryEx indexed failure preserves address, structure size, and native error");
+
+    winmock::reset();
     winmock::max_read_chunk = 2;
     std::array<std::byte, 4> partial_buffer{};
     auto partial = memory_reader.read_partial(Address{0x1000}, partial_buffer);
@@ -288,6 +331,16 @@ int main() {
     check(base_name_api_failure && base_name_api_failure->size() == 1 &&
               base_name_api_failure->front().name() == u"beta.dll",
           "GetModuleBaseNameW failure skips only the affected module");
+
+    winmock::reset();
+    auto local_main_module = ModuleCatalog::main_module(*process);
+    check(local_main_module && local_main_module->name() == u"alpha.dll" &&
+              winmock::native_api_call_count == 4 &&
+              winmock::native_api_call_log[0].call == winmock::NativeApi::GetModuleHandleW &&
+              winmock::native_api_call_log[1].call == winmock::NativeApi::GetModuleInformation &&
+              winmock::native_api_call_log[2].call == winmock::NativeApi::GetModuleBaseNameW &&
+              winmock::native_api_call_log[3].call == winmock::NativeApi::GetModuleFileNameExW,
+          "local main-module resolution records GetModuleHandleW and metadata query order");
 
     winmock::reset();
     winmock::module_mode = winmock::ModuleMode::Growing;
