@@ -934,6 +934,9 @@ TEST_CASE("Native instruction decoder rejects unsupported and ambiguous encoding
 
     // Legacy segment push/pop and decimal-adjust instructions are unavailable in long mode.
     CHECK(rejects({0x06}, Mode::x64));
+    CHECK(rejects({0x07}, Mode::x64));
     CHECK(rejects({0x27}, Mode::x64));
-    CHECK(rejects({0x06}, Mode::x86) == false);
+    CHECK_FALSE(rejects({0x06}, Mode::x86));
+    CHECK_FALSE(rejects({0x07}, Mode::x86));
+    CHECK_FALSE(rejects({0x27}, Mode::x86));
 }
