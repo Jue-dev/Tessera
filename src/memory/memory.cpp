@@ -499,8 +499,17 @@ Result<WriteReport> MemoryWriter::write_with_report(Address address,
             }
             const std::size_t to_restore =
                 (std::min)(slice.slice_size, report.bytes_written - rb_offset);
+            const auto pending_restore = std::find_if(
+                report.pending_protection_restores.begin(),
+                report.pending_protection_restores.end(),
+                [&](const PendingProtectionRestore& pending) {
+                    return pending.range.begin() == slice.slice_begin &&
+                           pending.range.size() >= to_restore;
+                });
+            const bool already_elevated = pending_restore !=
+                report.pending_protection_restores.end();
             MemoryProtection restore_prot = slice.original_protection;
-            if (slice.needs_protect_change) {
+            if (slice.needs_protect_change && !already_elevated) {
                 const MemoryProtection elevated =
                     has_flag(slice.original_protection, MemoryProtection::Execute)
                         ? MemoryProtection::ExecuteReadWrite
@@ -515,7 +524,10 @@ Result<WriteReport> MemoryWriter::write_with_report(Address address,
             auto w = backend.write(
                 slice.slice_begin,
                 std::span<const std::byte>(backup_bytes.data() + rb_offset, to_restore));
-            if (slice.needs_protect_change) {
+            // If the first write pass could not restore this page, its existing
+            // ticket owns the original protection. Do not capture the temporary
+            // elevated protection as a second "original" value during rollback.
+            if (slice.needs_protect_change && !already_elevated) {
                 auto restore_result = backend.protect(slice.slice_begin, to_restore, restore_prot);
                 if (!restore_result) {
                     report.pending_protection_restores.push_back(PendingProtectionRestore{
