@@ -40,3 +40,5 @@ UBSAN_OPTIONS=halt_on_error=1 \
 The R8 validation logs record **19/19 checks passing** with GCC 14.2 and Clang 17, including AddressSanitizer and UndefinedBehaviorSanitizer runs; those historical logs are in `verify/portable/logs/windows_mock_R8/`. The current source includes deterministic native thread-suspension failure checks. Run the script to obtain a fresh result for the current source; archived R8 logs do not cover later additions.
 
 The executable under `bin/` was compiled with GCC and ASan/UBSan. The source runner rebuilds it from source; build outputs are written to `build/`.
+
+The `Windows Backend Mock (Linux)` job in `.github/workflows/ci.yml` runs this harness on every relevant pull request and main-branch push; invoke it with `bash verify/windows_mock/run_windows_mock_tests.sh` when the script file mode is not executable.
