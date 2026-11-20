@@ -148,6 +148,7 @@ tessera_add_test(tessera_test_patch_hook
         patch_hook/test_patch_hook_core.cpp
         patch_hook/test_native_hook_unwind.cpp
         patch_hook/test_native_hook_relocation.cpp
+        patch_hook/test_native_hook_backend.cpp
         patch_hook/test_native_hook_lifecycle.cpp
         patch_hook/test_patch_transactions.cpp
     LIBS
