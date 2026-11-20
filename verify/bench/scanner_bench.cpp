@@ -5,11 +5,72 @@
 #include <iostream>
 #include <memory>
 #include <optional>
-#include <vector>
+#include <vector>\n#include <array>\n#include <cstdint>\n\n#include "hook/backends/x86_instruction_decoder.hpp"
 
 #include "FakeMemoryBackend.hpp"
 
-int main() {
+
+
+namespace {
+
+void write_u16(std::vector<std::byte>& bytes, std::size_t offset, std::uint16_t value) {
+    bytes[offset] = static_cast<std::byte>(value & 0xFFu);
+    bytes[offset + 1] = static_cast<std::byte>((value >> 8u) & 0xFFu);
+}
+
+void write_u32(std::vector<std::byte>& bytes, std::size_t offset, std::uint32_t value) {
+    for (std::size_t i = 0; i < 4; ++i) {
+        bytes[offset + i] = static_cast<std::byte>((value >> (i * 8u)) & 0xFFu);
+    }
+}
+
+void write_u64(std::vector<std::byte>& bytes, std::size_t offset, std::uint64_t value) {
+    for (std::size_t i = 0; i < 8; ++i) {
+        bytes[offset + i] = static_cast<std::byte>((value >> (i * 8u)) & 0xFFu);
+    }
+}
+
+[[nodiscard]] std::vector<std::byte> make_benchmark_pe64() {
+    std::vector<std::byte> bytes(0x400);
+    write_u16(bytes, 0x00, 0x5A4D);
+    write_u32(bytes, 0x3C, 0x80);
+    write_u32(bytes, 0x80, 0x00004550);
+    write_u16(bytes, 0x84, 0x8664);
+    write_u16(bytes, 0x86, 1);
+    write_u32(bytes, 0x88, 0x65A1B2C3);
+    write_u16(bytes, 0x94, 0xF0);
+    write_u16(bytes, 0x98, 0x020B);
+    write_u32(bytes, 0x98 + 16, 0x1000);
+    write_u64(bytes, 0x98 + 24, 0x140000000ull);
+    write_u32(bytes, 0x98 + 32, 0x1000);
+    write_u32(bytes, 0x98 + 36, 0x200);
+    write_u32(bytes, 0x98 + 56, 0x2000);
+    write_u32(bytes, 0x98 + 60, 0x200);
+    write_u32(bytes, 0x98 + 108, 16);
+
+    constexpr std::size_t section = 0x188;
+    constexpr char section_name[] = ".text";
+    for (std::size_t i = 0; i < sizeof(section_name) - 1; ++i) {
+        bytes[section + i] = static_cast<std::byte>(section_name[i]);
+    }
+    write_u32(bytes, section + 8, 0x100);
+    write_u32(bytes, section + 12, 0x1000);
+    write_u32(bytes, section + 16, 0x200);
+    write_u32(bytes, section + 20, 0x200);
+    write_u32(bytes, section + 36, 0x60000020);
+    return bytes;
+}
+
+void print_metrics(const char* title, const tessera::profiling::BenchmarkMetrics& metrics) {
+    std::cout << title << "\\n"
+              << "  Iterations : " << metrics.iterations << "\\n"
+              << "  Min (us)   : " << metrics.min.count() / 1000.0 << "\\n"
+              << "  Mean (us)  : " << metrics.mean.count() / 1000.0 << "\\n"
+              << "  Max (us)   : " << metrics.max.count() / 1000.0 << "\\n\\n";
+}
+
+} // namespace
+\nint main() {
     using namespace tessera;
     using namespace tessera::literals;
 
