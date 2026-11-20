@@ -13,6 +13,23 @@
 namespace winmock {
 
 std::array<MemoryApiCallRecord, 32> memory_api_call_log{};
+std::array<NativeApiCallRecord, 64> native_api_call_log{};
+int native_api_call_count = 0;
+NativeApi fail_native_api = NativeApi::OpenProcess;
+int fail_native_api_on_call = 0;
+DWORD fail_native_api_error = ERROR_ACCESS_DENIED;
+bool record_native_api_call(NativeApi call, HANDLE handle, std::uintptr_t a1,
+                            std::uintptr_t a2, std::uintptr_t a3) noexcept {
+    int occurrence = 0;
+    for (int i = 0; i < native_api_call_count && i < static_cast<int>(native_api_call_log.size()); ++i)
+        if (native_api_call_log[static_cast<std::size_t>(i)].call == call) ++occurrence;
+    if (native_api_call_count < static_cast<int>(native_api_call_log.size()))
+        native_api_call_log[static_cast<std::size_t>(native_api_call_count)] = {
+            call, reinterpret_cast<std::uintptr_t>(handle), a1, a2, a3};
+    ++native_api_call_count;
+    return fail_native_api_on_call > 0 && fail_native_api == call &&
+           occurrence + 1 == fail_native_api_on_call;
+}
 int memory_api_call_count = 0;
 
 void record_memory_api_call(MemoryApiCall call, const void* address,
@@ -80,6 +97,11 @@ USHORT native_machine = IMAGE_FILE_MACHINE_AMD64;
 void reset() noexcept {
     memory_api_call_log.fill({});
     memory_api_call_count = 0;
+    native_api_call_log.fill({});
+    native_api_call_count = 0;
+    fail_native_api = NativeApi::OpenProcess;
+    fail_native_api_on_call = 0;
+    fail_native_api_error = ERROR_ACCESS_DENIED;
     module_mode = ModuleMode::Stable;
     module_calls = 0;
     last_error = NO_ERROR;
@@ -154,7 +176,11 @@ BOOL CloseHandle(HANDLE) noexcept {
     }
     return TRUE;
 }
-BOOL IsWow64Process2(HANDLE, USHORT* process_machine, USHORT* native_machine) noexcept {
+BOOL IsWow64Process2(HANDLE handle, USHORT* process_machine, USHORT* native_machine) noexcept {
+    if (winmock::record_native_api_call(winmock::NativeApi::IsWow64Process2, handle,
+            reinterpret_cast<std::uintptr_t>(process_machine), reinterpret_cast<std::uintptr_t>(native_machine))) {
+        SetLastError(winmock::fail_native_api_error); return FALSE;
+    }
     *process_machine = winmock::process_machine;
     *native_machine = winmock::native_machine;
     return TRUE;
@@ -163,10 +189,29 @@ void GetNativeSystemInfo(SYSTEM_INFO* info) noexcept {
     info->wProcessorArchitecture = PROCESSOR_ARCHITECTURE_AMD64;
     info->lpMaximumApplicationAddress = reinterpret_cast<void*>(0x7fffffffffffULL);
 }
-HANDLE OpenProcess(DWORD, BOOL, DWORD) noexcept { return reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(0x44)); }
-BOOL GetExitCodeProcess(HANDLE, DWORD* code) noexcept { *code = STILL_ACTIVE; return TRUE; }
-DWORD GetProcessId(HANDLE) noexcept { return 42; }
-BOOL ReadProcessMemory(HANDLE, LPCVOID address, LPVOID buffer, SIZE_T requested, SIZE_T* transferred) noexcept {
+HANDLE OpenProcess(DWORD access, BOOL inherit, DWORD pid) noexcept {
+    if (winmock::record_native_api_call(winmock::NativeApi::OpenProcess, nullptr, access, inherit, pid)) {
+        SetLastError(winmock::fail_native_api_error); return nullptr;
+    }
+    return reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(0x44));
+}
+BOOL GetExitCodeProcess(HANDLE handle, DWORD* code) noexcept {
+    if (winmock::record_native_api_call(winmock::NativeApi::GetExitCodeProcess, handle, reinterpret_cast<std::uintptr_t>(code))) {
+        SetLastError(winmock::fail_native_api_error); return FALSE;
+    }
+    *code = STILL_ACTIVE; return TRUE;
+}
+DWORD GetProcessId(HANDLE handle) noexcept {
+    if (winmock::record_native_api_call(winmock::NativeApi::GetProcessId, handle)) {
+        SetLastError(winmock::fail_native_api_error); return 0;
+    }
+    return 42;
+}
+BOOL ReadProcessMemory(HANDLE handle, LPCVOID address, LPVOID buffer, SIZE_T requested, SIZE_T* transferred) noexcept {
+    if (winmock::record_native_api_call(winmock::NativeApi::ReadProcessMemory, handle,
+            reinterpret_cast<std::uintptr_t>(address), requested, reinterpret_cast<std::uintptr_t>(buffer))) {
+        *transferred = 0; SetLastError(winmock::fail_native_api_error); return FALSE;
+    }
     constexpr std::uintptr_t base = 0x1000;
     const auto value = reinterpret_cast<std::uintptr_t>(address);
     if (value < base || value - base >= winmock::process_memory.size()) {
@@ -216,7 +261,11 @@ BOOL WriteProcessMemory(HANDLE, LPVOID address, LPCVOID buffer, SIZE_T requested
     if (count != requested) { SetLastError(ERROR_PARTIAL_COPY); return FALSE; }
     return TRUE;
 }
-SIZE_T VirtualQueryEx(HANDLE, LPCVOID address, MEMORY_BASIC_INFORMATION* mbi, SIZE_T) noexcept {
+SIZE_T VirtualQueryEx(HANDLE handle, LPCVOID address, MEMORY_BASIC_INFORMATION* mbi, SIZE_T size) noexcept {
+    if (winmock::record_native_api_call(winmock::NativeApi::VirtualQueryEx, handle,
+            reinterpret_cast<std::uintptr_t>(address), reinterpret_cast<std::uintptr_t>(mbi), size)) {
+        SetLastError(winmock::fail_native_api_error); return 0;
+    }
     constexpr std::uintptr_t base = 0x1000;
     const auto value = reinterpret_cast<std::uintptr_t>(address);
     if (value < base || value - base >= winmock::process_memory.size()) { SetLastError(ERROR_INVALID_PARAMETER); return 0; }
@@ -260,8 +309,12 @@ int CompareStringOrdinal(LPCWCH a, int alen, LPCWCH b, int blen, BOOL ignore_cas
     }
     return CSTR_EQUAL;
 }
-BOOL EnumProcessModulesEx(HANDLE, HMODULE* modules, DWORD bytes, DWORD* needed, DWORD) noexcept {
+BOOL EnumProcessModulesEx(HANDLE handle, HMODULE* modules, DWORD bytes, DWORD* needed, DWORD flags) noexcept {
     ++winmock::module_calls;
+    if (winmock::record_native_api_call(winmock::NativeApi::EnumProcessModulesEx, handle,
+            reinterpret_cast<std::uintptr_t>(modules), bytes, flags)) {
+        SetLastError(winmock::fail_native_api_error); return FALSE;
+    }
     if (winmock::module_mode == winmock::ModuleMode::Growing) {
         *needed = bytes + static_cast<DWORD>(sizeof(HMODULE));
         return TRUE;
@@ -277,28 +330,46 @@ BOOL EnumProcessModulesEx(HANDLE, HMODULE* modules, DWORD bytes, DWORD* needed, 
     }
     return TRUE;
 }
-BOOL GetModuleInformation(HANDLE, HMODULE module, MODULEINFO* info, DWORD) noexcept {
+BOOL GetModuleInformation(HANDLE handle, HMODULE module, MODULEINFO* info, DWORD size) noexcept {
+    if (winmock::record_native_api_call(winmock::NativeApi::GetModuleInformation, handle,
+            reinterpret_cast<std::uintptr_t>(module), reinterpret_cast<std::uintptr_t>(info), size)) {
+        SetLastError(winmock::fail_native_api_error); return FALSE;
+    }
     const auto id = reinterpret_cast<std::uintptr_t>(module);
     info->lpBaseOfDll = reinterpret_cast<void*>(static_cast<std::uintptr_t>(0x100000 + id * 0x10000));
     info->SizeOfImage = 0x2000;
     info->EntryPoint = nullptr;
     return TRUE;
 }
-DWORD GetModuleBaseNameW(HANDLE, HMODULE module, LPWSTR buffer, DWORD capacity) noexcept {
+DWORD GetModuleBaseNameW(HANDLE handle, HMODULE module, LPWSTR buffer, DWORD capacity) noexcept {
+    if (winmock::record_native_api_call(winmock::NativeApi::GetModuleBaseNameW, handle,
+            reinterpret_cast<std::uintptr_t>(module), reinterpret_cast<std::uintptr_t>(buffer), capacity)) {
+        SetLastError(winmock::fail_native_api_error); return 0;
+    }
     const wchar_t* value = reinterpret_cast<std::uintptr_t>(module) == 0x111 ? L"alpha.dll" : L"beta.dll";
     const auto length = std::wcslen(value);
     if (capacity <= length) return 0;
     std::wmemcpy(buffer, value, length + 1);
     return static_cast<DWORD>(length);
 }
-DWORD GetModuleFileNameExW(HANDLE, HMODULE module, LPWSTR buffer, DWORD capacity) noexcept {
+DWORD GetModuleFileNameExW(HANDLE handle, HMODULE module, LPWSTR buffer, DWORD capacity) noexcept {
+    if (winmock::record_native_api_call(winmock::NativeApi::GetModuleFileNameExW, handle,
+            reinterpret_cast<std::uintptr_t>(module), reinterpret_cast<std::uintptr_t>(buffer), capacity)) {
+        SetLastError(winmock::fail_native_api_error); return 0;
+    }
     const wchar_t* value = reinterpret_cast<std::uintptr_t>(module) == 0x111 ? L"C:\\alpha.dll" : L"C:\\beta.dll";
     const auto length = std::wcslen(value);
     if (capacity <= length) return 0;
     std::wmemcpy(buffer, value, length + 1);
     return static_cast<DWORD>(length);
 }
-HMODULE GetModuleHandleW(LPCWCH) noexcept { return reinterpret_cast<HMODULE>(static_cast<std::uintptr_t>(0x111)); }
+HMODULE GetModuleHandleW(LPCWCH name) noexcept {
+    if (winmock::record_native_api_call(winmock::NativeApi::GetModuleHandleW, nullptr,
+            reinterpret_cast<std::uintptr_t>(name))) {
+        SetLastError(winmock::fail_native_api_error); return nullptr;
+    }
+    return reinterpret_cast<HMODULE>(static_cast<std::uintptr_t>(0x111));
+}
 HANDLE CreateToolhelp32Snapshot(DWORD, DWORD) noexcept {
     ++winmock::snapshot_calls;
     // Toolhelp snapshots capture a finite enumeration view at creation time.
