@@ -25,6 +25,8 @@ int thread_first_calls = 0;
 int open_thread_calls = 0;
 int close_handle_calls = 0;
 int thread_count = 1;
+int snapshot_thread_count = 1;
+bool create_thread_during_suspend = false;
 int thread_next_calls = 0;
 int suspend_thread_fail_on_call = 0;
 DWORD suspend_thread_error = NO_ERROR;
@@ -61,6 +63,8 @@ void reset() noexcept {
     open_thread_calls = 0;
     close_handle_calls = 0;
     thread_count = 1;
+    snapshot_thread_count = 1;
+    create_thread_during_suspend = false;
     thread_next_calls = 0;
     suspend_thread_fail_on_call = 0;
     suspend_thread_error = NO_ERROR;
@@ -206,6 +210,8 @@ DWORD GetModuleFileNameExW(HANDLE, HMODULE module, LPWSTR buffer, DWORD capacity
 HMODULE GetModuleHandleW(LPCWCH) noexcept { return reinterpret_cast<HMODULE>(static_cast<std::uintptr_t>(0x111)); }
 HANDLE CreateToolhelp32Snapshot(DWORD, DWORD) noexcept {
     ++winmock::snapshot_calls;
+    // Toolhelp snapshots capture a finite enumeration view at creation time.
+    winmock::snapshot_thread_count = winmock::thread_count;
     if (winmock::snapshot_error != NO_ERROR) {
         SetLastError(winmock::snapshot_error);
         return INVALID_HANDLE_VALUE;
@@ -226,7 +232,7 @@ BOOL Thread32First(HANDLE, THREADENTRY32* entry) noexcept {
 }
 BOOL Thread32Next(HANDLE, THREADENTRY32* entry) noexcept {
     ++winmock::thread_next_calls;
-    if (winmock::thread_count > 1 && winmock::thread_next_calls == 1) {
+    if (winmock::snapshot_thread_count > 1 && winmock::thread_next_calls == 1) {
         entry->dwSize = sizeof(THREADENTRY32);
         entry->th32ThreadID = 78;
         entry->th32OwnerProcessID = GetCurrentProcessId();
@@ -246,6 +252,11 @@ HANDLE OpenThread(DWORD desired_access, BOOL, DWORD) noexcept {
 }
 DWORD SuspendThread(HANDLE) noexcept {
     ++winmock::suspend_thread_calls;
+    if (winmock::create_thread_during_suspend) {
+        // Model a host creating a new thread after the snapshot was captured.
+        ++winmock::thread_count;
+        winmock::create_thread_during_suspend = false;
+    }
     if (winmock::suspend_thread_error != NO_ERROR ||
         (winmock::suspend_thread_fail_on_call != 0 &&
          winmock::suspend_thread_calls == winmock::suspend_thread_fail_on_call)) {

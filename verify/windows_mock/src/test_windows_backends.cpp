@@ -188,6 +188,15 @@ int main() {
           "best-effort native thread policy tolerates injected SuspendThread failure");
 
     winmock::reset();
+    winmock::create_thread_during_suspend = true;
+    auto snapshot_race = tessera::detail::native_hook::SuspendedThreads::acquire(
+        ThreadPolicy::SuspendOthersStrict);
+    check(snapshot_race && winmock::snapshot_thread_count == 1 && winmock::thread_count == 2 &&
+              winmock::thread_next_calls == 1 && winmock::suspend_thread_calls == 1,
+          "thread created after snapshot capture is outside the finite suspension set");
+    if (snapshot_race) snapshot_race->resume();
+
+    winmock::reset();
     winmock::thread_count = 2;
     winmock::suspend_thread_fail_on_call = 2;
     auto partial_suspend_failure = tessera::detail::native_hook::SuspendedThreads::acquire(

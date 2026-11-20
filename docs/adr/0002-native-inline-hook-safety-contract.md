@@ -40,9 +40,12 @@ call-lifecycle tracking.
    drain all outstanding users before detach, Hook destruction, or unloading
    the module that contains the detour.
 6. **Do not overstate thread-suspension guarantees.** Strict, best-effort, and
-   no-suspension policies have different guarantees. None independently
-   prevents concurrent thread creation; host-side quiescence remains necessary
-   where callers can enter outside Tessera's lease mechanism.
+   no-suspension policies have different guarantees. Toolhelp enumeration is a
+   finite snapshot: threads created after snapshot capture are not included and
+   may execute during the patch transaction. None of the policies prevents
+   concurrent thread creation. Hosts must stop admission of callers that can
+   enter the target and drain existing callers where entry can bypass Tessera's
+   lease mechanism; a snapshot is not an admission barrier.
 7. **Retain retryable ownership on failed teardown.** If detach, rollback, or
    unwind-table unregistration cannot complete safely, the operation must not
    report success or discard the state needed for a retry.
