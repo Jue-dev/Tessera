@@ -117,7 +117,7 @@ jobs:
           persist-credentials: false
 
       - name: Run deterministic Windows backend mock tests
-        run: ./verify/windows_mock/run_windows_mock_tests.sh
+        run: bash ./verify/windows_mock/run_windows_mock_tests.sh
 
   detours-integration:
     name: Live Microsoft Detours Hook (${{ matrix.arch }})
