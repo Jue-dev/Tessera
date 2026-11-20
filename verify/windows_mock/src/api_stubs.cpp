@@ -103,7 +103,17 @@ void reset() noexcept {
     }
     process_memory_protect = PAGE_EXECUTE_READ;
     max_read_chunk = static_cast<std::size_t>(-1);
+    write_process_memory_calls = 0;
+    write_process_memory_fail_on_call = 0;
+    write_process_memory_fail_on_call_2 = 0;
+    write_process_memory_error = ERROR_ACCESS_DENIED;
+    write_process_memory_partial_bytes = 0;
+    virtual_protect_calls = 0;
+    virtual_protect_fail_on_call = 0;
+    virtual_protect_error = ERROR_ACCESS_DENIED;
     flush_instruction_cache_calls = 0;
+    flush_instruction_cache_fail_on_call = 0;
+    flush_instruction_cache_error = ERROR_ACCESS_DENIED;
     process_machine = IMAGE_FILE_MACHINE_UNKNOWN;
     native_machine = IMAGE_FILE_MACHINE_AMD64;
 }
