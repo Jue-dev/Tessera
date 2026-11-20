@@ -66,6 +66,26 @@ int main() {
               winmock::process_memory_protect == PAGE_EXECUTE_READ &&
               winmock::flush_instruction_cache_calls == 1,
           "Windows memory backend writes bytes, restores protection, and flushes instruction cache");
+    const auto& memory_calls = winmock::memory_api_call_log;
+    const bool memory_api_order_and_arguments =
+        winmock::memory_api_call_count == 4 &&
+        memory_calls[0].call == winmock::MemoryApiCall::VirtualProtectEx &&
+        memory_calls[0].address == 0x1004 &&
+        memory_calls[0].size == replacement_bytes.size() &&
+        memory_calls[0].protection == PAGE_EXECUTE_READWRITE &&
+        memory_calls[1].call == winmock::MemoryApiCall::WriteProcessMemory &&
+        memory_calls[1].address == 0x1004 &&
+        memory_calls[1].size == replacement_bytes.size() &&
+        memory_calls[2].call == winmock::MemoryApiCall::VirtualProtectEx &&
+        memory_calls[2].address == 0x1004 &&
+        memory_calls[2].size == replacement_bytes.size() &&
+        memory_calls[2].protection == PAGE_EXECUTE_READ &&
+        memory_calls[3].call == winmock::MemoryApiCall::FlushInstructionCache &&
+        memory_calls[3].address == 0x1004 &&
+        memory_calls[3].size == replacement_bytes.size();
+    check(memory_api_order_and_arguments,
+          "MemoryWriter preserves protection/write/restore/flush order and exact API ranges");
+
     winmock::max_read_chunk = 2;
     std::array<std::byte, 4> partial_buffer{};
     auto partial = memory_reader.read_partial(Address{0x1000}, partial_buffer);
