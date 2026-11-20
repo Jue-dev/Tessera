@@ -31,6 +31,7 @@ UBSAN_OPTIONS=halt_on_error=1 \
 
 - `Process::from_native_handle` x64 and WOW64/x86 architecture discovery; unsupported host architecture rejection.
 - `ReadProcessMemory`, `WriteProcessMemory`, `VirtualQueryEx`, `VirtualProtectEx`, partial read reporting and instruction-cache flush behavior.
+- Deterministic `VirtualProtectEx` initial-elevation/restore failures, zero-byte and partial `WriteProcessMemory` failures, rollback-write failure, pending protection-restore retry ownership, and `FlushInstructionCache` failure.
 - Stable module enumeration, module image ranges, non-HMODULE-aligned sizes, and a module list that grows on every retry.
 - Strict versus best-effort `Thread32Next` error handling.
 - Native versus Detours thread-handle access masks, including the `THREAD_SET_CONTEXT` right required by Detours transaction commits.
