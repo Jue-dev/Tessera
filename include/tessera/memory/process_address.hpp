@@ -71,6 +71,15 @@ public:
         return MemoryWriter{process_}.write(address_, data, options);
     }
 
+    [[nodiscard]] Result<WriteReport> write_with_report(
+        std::span<const std::byte> data, WriteOptions options = {}) const {
+        return MemoryWriter{process_}.write_with_report(address_, data, options);
+    }
+
+    [[nodiscard]] Status restore_pending_protections(WriteReport& report) const {
+        return MemoryWriter{process_}.restore_pending_protections(report);
+    }
+
     template <TriviallyReadable T>
     [[nodiscard]] Status write_value(const T& val, WriteOptions options = {}) const {
         return MemoryWriter{process_}.write_value<T>(address_, val, options);
