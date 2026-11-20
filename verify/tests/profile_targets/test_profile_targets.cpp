@@ -345,6 +345,6 @@ TEST_CASE("Target profile JSON rejects malformed schema and round-trips", "[targ
     REQUIRE_FALSE(deserialize_target_profile_from_json(wrong_type_application).has_value());
 
     auto incompatible_version = *encoded;
-    incompatible_version.set("formatVersion", 0);
+    incompatible_version.set("formatVersion", std::uint64_t{0});
     REQUIRE_FALSE(deserialize_target_profile_from_json(incompatible_version).has_value());
 }
