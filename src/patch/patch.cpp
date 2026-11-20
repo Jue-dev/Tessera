@@ -23,6 +23,7 @@ Patch::Patch(Patch&& other) noexcept
       options_(std::move(other.options_)),
       state_(std::exchange(other.state_, PatchState::Created)) {
     other.options_.auto_restore = false;
+    other.pending_protection_report_.reset();
 }
 
 Patch& Patch::operator=(Patch&& other) noexcept {
@@ -39,6 +40,7 @@ Patch& Patch::operator=(Patch&& other) noexcept {
         options_ = std::move(other.options_);
         state_ = std::exchange(other.state_, PatchState::Created);
         other.options_.auto_restore = false;
+        other.pending_protection_report_.reset();
     }
     return *this;
 }
