@@ -7,7 +7,11 @@
 #include <string_view>
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-    const std::string_view text(reinterpret_cast<const char*>(data), size);
+    if (data == nullptr && size != 0) {
+        return 0;
+    }
+    const char* const input = data != nullptr ? reinterpret_cast<const char*>(data) : "";
+    const std::string_view text(input, size);
     auto root = tessera::json::parse(text);
     if (!root) {
         return 0;
