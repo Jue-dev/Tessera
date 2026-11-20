@@ -1,5 +1,67 @@
 #include "patch_hook_test_support.hpp"
 
+namespace {
+
+struct FakePatchWriteOps {
+    std::vector<bool> protect_results;
+    std::vector<bool> flush_results;
+    std::vector<unsigned long> protect_errors;
+    std::vector<unsigned long> flush_errors;
+    std::size_t protect_index = 0;
+    std::size_t flush_index = 0;
+    std::size_t copy_calls = 0;
+    std::vector<char> events;
+    unsigned long error = 1234;
+    unsigned long current_protection = 0x20UL;
+    unsigned long writable_protection = 0x40UL;
+    bool copied_without_write_access = false;
+
+    bool protect(void*, std::size_t, unsigned long requested, unsigned long* previous) {
+        const std::size_t call_index = protect_index++;
+        const bool result = call_index < protect_results.size()
+                                ? protect_results[call_index]
+                                : true;
+        events.push_back(result ? 'P' : 'p');
+        if (result) {
+            if (previous != nullptr) {
+                *previous = current_protection;
+            }
+            current_protection = requested;
+        } else {
+            error = call_index < protect_errors.size()
+                        ? protect_errors[call_index]
+                        : 5678UL;
+        }
+        return result;
+    }
+
+    void copy(void* target, const std::byte* source, std::size_t size) {
+        events.push_back('C');
+        ++copy_calls;
+        copied_without_write_access |= current_protection != writable_protection;
+        std::memcpy(target, source, size);
+    }
+
+    bool flush(void*, std::size_t) {
+        const std::size_t call_index = flush_index++;
+        const bool result = call_index < flush_results.size()
+                                ? flush_results[call_index]
+                                : true;
+        events.push_back(result ? 'F' : 'f');
+        if (!result) {
+            error = call_index < flush_errors.size()
+                        ? flush_errors[call_index]
+                        : 9012UL;
+        }
+        return result;
+    }
+
+    unsigned long last_error() const noexcept { return error; }
+};
+
+} // namespace
+
+
 TEST_CASE("Native patch transaction reports initial protection failure without writing",
           "[hook][native][transaction]") {
     using tessera::detail::PatchWriteOutcome;
