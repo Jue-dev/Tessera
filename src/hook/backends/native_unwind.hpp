@@ -3,6 +3,7 @@
 #if defined(_M_X64) || defined(__x86_64__)
 #include <Windows.h>
 namespace tessera::detail::native_hook {
+using AddFunctionTableFn = decltype(&::RtlAddFunctionTable);
 inline constexpr std::size_t kTrampolineUnwindInfoOffset = 272u;
 inline constexpr std::size_t kMaximumUnwindInfoBytes = 516u;
 [[nodiscard]] Status prepare_trampoline_unwind(
@@ -12,7 +13,8 @@ inline constexpr std::size_t kMaximumUnwindInfoBytes = 516u;
     std::size_t unwind_info_offset, RUNTIME_FUNCTION& unwind_function) noexcept;
 [[nodiscard]] Status register_trampoline_unwind(
     RUNTIME_FUNCTION& unwind_function, bool& unwind_registered,
-    void* allocation_base) noexcept;
+    void* allocation_base,
+    AddFunctionTableFn add_function_table = &::RtlAddFunctionTable) noexcept;
 [[nodiscard]] bool unregister_trampoline_unwind(
     RUNTIME_FUNCTION& unwind_function, bool& unwind_registered) noexcept;
 } // namespace tessera::detail::native_hook

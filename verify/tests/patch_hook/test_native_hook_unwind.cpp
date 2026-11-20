@@ -1,4 +1,5 @@
 #include "patch_hook_test_support.hpp"
+#include "hook/backends/native_unwind.hpp"
 
 
 #if defined(_M_X64) || defined(__x86_64__)
@@ -1397,3 +1398,34 @@ TEST_CASE("Native x64 unwind rejects unsupported, malformed, and prefix-boundary
 }
 #endif
 
+
+
+#if defined(_M_X64) || defined(__x86_64__)
+TEST_CASE("Native x64 unwind registration failure does not publish ownership",
+          "[hook][native][unwind][failure]") {
+    using namespace tessera;
+
+    ExecutableRegionGuard region{
+        ::VirtualAlloc(nullptr, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)};
+    REQUIRE(region.address != nullptr);
+
+    // Inject only the private registration operation. Production calls retain
+    // the default real RtlAddFunctionTable function pointer and no global state
+    // or public SDK ABI is introduced.
+    const auto reject_registration = +[](PRUNTIME_FUNCTION, DWORD, DWORD64) noexcept -> BOOLEAN {
+        return FALSE;
+    };
+    RUNTIME_FUNCTION entry{};
+    entry.BeginAddress = 0u;
+    entry.EndAddress = 16u;
+    entry.UnwindData = 32u;
+    bool registered = false;
+
+    const auto status = detail::native_hook::register_trampoline_unwind(
+        entry, registered, region.address, reject_registration);
+    REQUIRE_FALSE(status.has_value());
+    REQUIRE(status.error().code == ErrorCode::IoError);
+    REQUIRE(status.error().operation == "RtlAddFunctionTable");
+    REQUIRE_FALSE(registered);
+}
+#endif

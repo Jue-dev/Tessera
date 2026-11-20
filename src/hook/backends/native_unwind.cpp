@@ -548,10 +548,13 @@ constexpr unsigned int kUnwindOpPushMachFrame=10u;
 
 [[nodiscard]] Status register_trampoline_unwind(
     RUNTIME_FUNCTION& unwind_function, bool& unwind_registered,
-    void* allocation_base) noexcept {
+    void* allocation_base,
+    AddFunctionTableFn add_function_table) noexcept {
     // The UNWIND_INFO bytes must already be finalized while the trampoline
     // allocation is writable. This function only publishes the read-only data.
-    if (!::RtlAddFunctionTable(
+    // The function parameter is a private operation seam for deterministic tests;
+    // production callers use the default real Windows API.
+    if (!add_function_table(
             &unwind_function,
             1u,
             static_cast<DWORD64>(reinterpret_cast<std::uintptr_t>(allocation_base)))) {
