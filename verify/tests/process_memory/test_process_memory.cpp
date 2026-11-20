@@ -218,6 +218,24 @@ TEST_CASE("Remote process integration with tessera_test_host", "[process][integr
 
 #endif // !TESSERA_PORTABLE_VALIDATION
 
+TEST_CASE("MemoryWriter status convenience retries a transient protection restore failure",
+           "[memory][protection]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    auto& region = backend->map_region(
+        Address{0x28000}, 0x1000, MemoryProtection::Read);
+    region.restore_failures_remaining = 1;
+    Process process = FakeMemoryBackend::make_process(backend);
+    MemoryWriter writer{process};
+    const std::array<std::byte, 4> bytes{
+        std::byte{0x11}, std::byte{0x22}, std::byte{0x33}, std::byte{0x44}};
+
+    REQUIRE(writer.write(Address{0x28000}, bytes).has_value());
+    REQUIRE(region.protection == MemoryProtection::Read);
+}
+
 TEST_CASE("MemoryWriter rollback retains the first original protection restore ticket",
            "[memory][protection][rollback]") {
     using namespace tessera;
