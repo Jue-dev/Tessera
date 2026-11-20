@@ -9,6 +9,7 @@
 #include "tessera/memory/memory_writer.hpp"
 #include "tessera/platform/windows/native.hpp"
 #include "platform/windows/thread_backend.hpp"
+#include "hook/backends/native_thread_suspension.hpp"
 #include "tessera/hook/hook.hpp"
 #include "api_stubs.hpp"
 
@@ -118,6 +119,49 @@ int main() {
     auto best_effort_threads = ScopedThreadList::collect_other_threads(ThreadPolicy::SuspendOthersBestEffort);
     check(best_effort_threads && best_effort_threads->handles().size() == 1,
           "best-effort thread policy tolerates an unexpected enumeration end");
+
+    winmock::reset();
+    {
+        auto suspended = tessera::detail::native_hook::SuspendedThreads::acquire(ThreadPolicy::SuspendOthersStrict);
+        check(suspended && winmock::suspend_thread_calls == 1 &&
+                  suspended->ensure_outside(0x1000, 0x100, 0x2000, 0x100).has_value() &&
+                  winmock::get_thread_context_calls == 1,
+              "native thread suspension succeeds and checks instruction pointers");
+        if (suspended) suspended->resume();
+        check(winmock::resume_thread_calls == 1,
+              "native thread suspension explicitly resumes acquired threads");
+    }
+
+    winmock::reset();
+    winmock::suspend_thread_error = ERROR_ACCESS_DENIED;
+    auto strict_suspend_failure = tessera::detail::native_hook::SuspendedThreads::acquire(
+        ThreadPolicy::SuspendOthersStrict);
+    check(!strict_suspend_failure &&
+              strict_suspend_failure.error().operation == "SuspendThread" &&
+              strict_suspend_failure.error().native == ERROR_ACCESS_DENIED,
+          "strict native thread policy reports injected SuspendThread failure");
+
+    winmock::reset();
+    winmock::suspend_thread_error = ERROR_ACCESS_DENIED;
+    auto best_effort_suspend_failure = tessera::detail::native_hook::SuspendedThreads::acquire(
+        ThreadPolicy::SuspendOthersBestEffort);
+    check(best_effort_suspend_failure.has_value() && winmock::suspend_thread_calls == 1,
+          "best-effort native thread policy tolerates injected SuspendThread failure");
+
+    winmock::reset();
+    winmock::get_thread_context_error = ERROR_ACCESS_DENIED;
+    {
+        auto suspended = tessera::detail::native_hook::SuspendedThreads::acquire(ThreadPolicy::SuspendOthersStrict);
+        auto context_error = suspended
+            ? suspended->ensure_outside(0x1000, 0x100, 0x2000, 0x100)
+            : Status{std::unexpected(suspended.error())};
+        check(suspended && !context_error &&
+                  context_error.error().operation == "GetThreadContext" &&
+                  context_error.error().native == ERROR_ACCESS_DENIED,
+              "strict native thread policy reports injected GetThreadContext failure");
+    }
+    check(winmock::resume_thread_calls == 1,
+          "native thread context failure still resumes suspended threads during cleanup");
 
     winmock::reset();
     winmock::detour_update_error = 1234;

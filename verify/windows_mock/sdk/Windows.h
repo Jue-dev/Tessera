@@ -20,6 +20,7 @@ using WCHAR = wchar_t;
 struct SYSTEM_INFO { WORD wProcessorArchitecture; WORD wReserved; DWORD dwPageSize; LPVOID lpMinimumApplicationAddress; LPVOID lpMaximumApplicationAddress; std::uintptr_t dwActiveProcessorMask; DWORD dwNumberOfProcessors; DWORD dwProcessorType; DWORD dwAllocationGranularity; WORD wProcessorLevel; WORD wProcessorRevision; };
 struct MEMORY_BASIC_INFORMATION { LPVOID BaseAddress; LPVOID AllocationBase; DWORD AllocationProtect; WORD PartitionId; SIZE_T RegionSize; DWORD State; DWORD Protect; DWORD Type; };
 struct MODULEINFO { LPVOID lpBaseOfDll; DWORD SizeOfImage; LPVOID EntryPoint; };
+struct CONTEXT { DWORD ContextFlags{}; std::uint32_t Eip{}; std::uint64_t Rip{}; };
 struct THREADENTRY32 { DWORD dwSize; DWORD cntUsage; DWORD th32ThreadID; DWORD th32OwnerProcessID; LONG tpBasePri; LONG tpDeltaPri; DWORD dwFlags; };
 #define TRUE 1
 #define MAX_PATH 260
@@ -44,6 +45,7 @@ struct THREADENTRY32 { DWORD dwSize; DWORD cntUsage; DWORD th32ThreadID; DWORD t
 #define PROCESS_VM_READ 0x0010u
 #define PROCESS_VM_WRITE 0x0020u
 #define PROCESS_VM_OPERATION 0x0008u
+#define CONTEXT_CONTROL 0x00010001u
 #define SYNCHRONIZE 0x00100000u
 #define THREAD_SUSPEND_RESUME 0x0002u
 #define THREAD_GET_CONTEXT 0x0008u
@@ -103,6 +105,9 @@ HANDLE CreateToolhelp32Snapshot(DWORD, DWORD) noexcept;
 BOOL Thread32First(HANDLE, THREADENTRY32*) noexcept;
 BOOL Thread32Next(HANDLE, THREADENTRY32*) noexcept;
 HANDLE OpenThread(DWORD, BOOL, DWORD) noexcept;
+DWORD SuspendThread(HANDLE) noexcept;
+BOOL GetThreadContext(HANDLE, CONTEXT*) noexcept;
+DWORD ResumeThread(HANDLE) noexcept;
 HANDLE CreateMutexW(void*, BOOL, LPCWCH) noexcept;
 DWORD WaitForSingleObject(HANDLE, DWORD) noexcept;
 BOOL ReleaseMutex(HANDLE) noexcept;

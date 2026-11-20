@@ -17,6 +17,11 @@ int module_calls = 0;
 DWORD last_error = NO_ERROR;
 int thread_next_error = static_cast<int>(ERROR_NO_MORE_FILES);
 DWORD last_open_thread_access = 0;
+DWORD suspend_thread_error = NO_ERROR;
+DWORD get_thread_context_error = NO_ERROR;
+int suspend_thread_calls = 0;
+int get_thread_context_calls = 0;
+int resume_thread_calls = 0;
 LONG detour_update_error = NO_ERROR;
 LONG detour_attach_error = NO_ERROR;
 LONG detour_detach_error = NO_ERROR;
@@ -36,6 +41,11 @@ void reset() noexcept {
     last_error = NO_ERROR;
     thread_next_error = static_cast<int>(ERROR_NO_MORE_FILES);
     last_open_thread_access = 0;
+    suspend_thread_error = NO_ERROR;
+    get_thread_context_error = NO_ERROR;
+    suspend_thread_calls = 0;
+    get_thread_context_calls = 0;
+    resume_thread_calls = 0;
     detour_update_error = NO_ERROR;
     detour_attach_error = NO_ERROR;
     detour_detach_error = NO_ERROR;
@@ -185,6 +195,19 @@ HANDLE OpenThread(DWORD desired_access, BOOL, DWORD) noexcept {
     winmock::last_open_thread_access = desired_access;
     return reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(0x71));
 }
+DWORD SuspendThread(HANDLE) noexcept {
+    ++winmock::suspend_thread_calls;
+    if (winmock::suspend_thread_error != NO_ERROR) { SetLastError(winmock::suspend_thread_error); return static_cast<DWORD>(-1); }
+    return 0;
+}
+BOOL GetThreadContext(HANDLE, CONTEXT* context) noexcept {
+    ++winmock::get_thread_context_calls;
+    if (winmock::get_thread_context_error != NO_ERROR) { SetLastError(winmock::get_thread_context_error); return FALSE; }
+    context->Eip = 0x5000;
+    context->Rip = 0x5000;
+    return TRUE;
+}
+DWORD ResumeThread(HANDLE) noexcept { ++winmock::resume_thread_calls; return 1; }
 HANDLE CreateMutexW(void*, BOOL, LPCWCH) noexcept { return reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(0x90)); }
 DWORD WaitForSingleObject(HANDLE, DWORD) noexcept { return WAIT_OBJECT_0; }
 BOOL ReleaseMutex(HANDLE) noexcept { return TRUE; }
