@@ -158,8 +158,12 @@ int main() {
     auto compound_failure = memory_writer.write_with_report(Address{0x1004}, replacement_bytes);
     const bool compound_failure_reported =
         compound_failure && compound_failure->write_error &&
+        compound_failure->write_error->code == ErrorCode::PartialTransfer &&
         compound_failure->rollback_error &&
+        compound_failure->rollback_error->operation == "WriteProcessMemory" &&
+        compound_failure->rollback_error->code == ErrorCode::AccessDenied &&
         compound_failure->protection_restore_warning &&
+        compound_failure->protection_restore_warning->operation == "VirtualProtectEx" &&
         !compound_failure->succeeded() &&
         compound_failure->pending_protection_restores.size() == 1 &&
         winmock::process_memory[4] == std::byte{0xA1} &&
