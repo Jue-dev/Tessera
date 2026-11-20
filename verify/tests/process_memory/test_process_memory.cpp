@@ -156,14 +156,23 @@ TEST_CASE("FakeMemoryBackend reader, writer, rollback, and protection warnings",
     REQUIRE(*backend->peek_byte(Address{0x10FFC}) == orig_b0);
     r2.writable_prefix_limit.reset();
 
-    // Simulate protection restore failure warning
-    r1.fail_restore_protect = true;
+    // A failed protection restore remains explicitly owned by WriteReport.
+    // The caller can retry after the transient OS/backend failure is resolved.
+    r1.restore_failures_remaining = 1;
     auto warn_rep = writer.write_with_report(
         Address{0x10000}, std::span<const std::byte>(cross_data.data(), 4));
     REQUIRE(warn_rep.has_value());
     REQUIRE_FALSE(warn_rep->succeeded());
     REQUIRE(warn_rep->protection_restore_warning.has_value());
     REQUIRE(warn_rep->protection_restore_warning->code == ErrorCode::ProtectionRestoreFailed);
+    REQUIRE(warn_rep->pending_protection_restores.size() == 1);
+    REQUIRE(r1.protection == MemoryProtection::ReadWrite);
+
+    REQUIRE(writer.restore_pending_protections(*warn_rep).has_value());
+    REQUIRE(warn_rep->pending_protection_restores.empty());
+    REQUIRE_FALSE(warn_rep->protection_restore_warning.has_value());
+    REQUIRE(warn_rep->succeeded());
+    REQUIRE(r1.protection == MemoryProtection::Read);
 }
 
 #if !defined(TESSERA_PORTABLE_VALIDATION)
