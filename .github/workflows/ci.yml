@@ -107,6 +107,18 @@ jobs:
           path: dist/TesseraSDK/${{ matrix.arch }}/${{ matrix.config }}
           if-no-files-found: error
 
+  windows-backend-mock:
+    name: Windows Backend Mock (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Run deterministic Windows backend mock tests
+        run: ./verify/windows_mock/run_windows_mock_tests.sh
+
   detours-integration:
     name: Live Microsoft Detours Hook (${{ matrix.arch }})
     runs-on: windows-latest
