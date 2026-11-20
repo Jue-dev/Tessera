@@ -39,7 +39,7 @@ int main() {
     winmock::reset();
     auto opened_process = Process::open(ProcessId{123}, ProcessAccess::Read);
     constexpr DWORD expected_process_access = PROCESS_VM_READ | PROCESS_QUERY_LIMITED_INFORMATION;
-    check(opened_process && winmock::native_api_call_count >= 4 &&
+    check(opened_process && winmock::native_api_call_count >= 5 &&
               winmock::native_api_call_log[0].call == winmock::NativeApi::OpenProcess &&
               winmock::native_api_call_log[0].argument1 == expected_process_access &&
               winmock::native_api_call_log[0].argument2 == FALSE &&
@@ -47,7 +47,9 @@ int main() {
               winmock::native_api_call_log[1].call == winmock::NativeApi::GetProcessId &&
               winmock::native_api_call_log[1].handle == 0x44 &&
               winmock::native_api_call_log[2].call == winmock::NativeApi::IsWow64Process2 &&
-              winmock::native_api_call_log[2].handle == 0x44,
+              winmock::native_api_call_log[2].handle == 0x44 &&
+              winmock::native_api_call_log[3].call == winmock::NativeApi::GetExitCodeProcess &&
+              winmock::native_api_call_log[4].call == winmock::NativeApi::GetNativeSystemInfo,
           "Process::open records exact PID/access mask and native-handle query ordering");
 
     winmock::reset();
