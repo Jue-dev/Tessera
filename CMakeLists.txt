@@ -303,6 +303,7 @@ tessera_add_module(
         src/hook/backends/detours_backend.cpp
         src/hook/backends/native_inline_backend.cpp
         src/hook/backends/native_thread_suspension.cpp
+        src/hook/backends/native_trampoline.cpp
         src/hook/backends/x86_instruction_decoder.cpp
     PUBLIC_HEADERS
         include/tessera/hook/hook.hpp
