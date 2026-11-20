@@ -252,6 +252,8 @@ jobs:
             @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_pe.exe"; Corpus = "verify/fuzz/corpus/pe" },
             @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_json.exe"; Corpus = "verify/fuzz/corpus/json" },
             @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_profile_json.exe"; Corpus = "verify/fuzz/corpus/profile_json" },
+            @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_python_bridge.exe"; Corpus = "verify/fuzz/corpus/python_bridge" },
+            @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_scanner.exe"; Corpus = "verify/fuzz/corpus/scanner" },
             @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_rtti_discovery.exe"; Corpus = "verify/fuzz/corpus/rtti_discovery" },
             @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_native_hook.exe"; Corpus = "verify/fuzz/corpus/native_hook" }
           )
