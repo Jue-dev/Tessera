@@ -1409,17 +1409,20 @@ TEST_CASE("Native x64 unwind registration failure does not publish ownership",
         ::VirtualAlloc(nullptr, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE)};
     REQUIRE(region.address != nullptr);
 
-    // An inverted runtime-function range is rejected by the Windows dynamic
-    // function-table API. The wrapper must preserve that failure and leave
-    // unwind_registered false so teardown never deletes an unpublished entry.
-    RUNTIME_FUNCTION invalid_entry{};
-    invalid_entry.BeginAddress = 0x200u;
-    invalid_entry.EndAddress = 0x100u;
-    invalid_entry.UnwindData = 0x300u;
+    // Inject only the private registration operation. Production calls retain
+    // the default real RtlAddFunctionTable function pointer and no global state
+    // or public SDK ABI is introduced.
+    const auto reject_registration = +[](PRUNTIME_FUNCTION, DWORD, DWORD64) noexcept -> BOOLEAN {
+        return FALSE;
+    };
+    RUNTIME_FUNCTION entry{};
+    entry.BeginAddress = 0u;
+    entry.EndAddress = 16u;
+    entry.UnwindData = 32u;
     bool registered = false;
 
     const auto status = detail::native_hook::register_trampoline_unwind(
-        invalid_entry, registered, region.address);
+        entry, registered, region.address, reject_registration);
     REQUIRE_FALSE(status.has_value());
     REQUIRE(status.error().code == ErrorCode::IoError);
     REQUIRE(status.error().operation == "RtlAddFunctionTable");
