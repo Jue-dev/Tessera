@@ -47,7 +47,9 @@ jobs:
           persist-credentials: false
 
       - name: Install LLVM 22 for C++23 and libFuzzer
-        uses: KyleMayes/install-llvm-action@v2
+        # Node 24 migration pending upstream: KyleMayes/install-llvm-action#100.
+        # Pin the reviewed one-line runtime-metadata update instead of a moving branch.
+        uses: yezhizhen/install-llvm-action@8000af8f91093e2002004ceab3abd0f56e4cbde0
         with:
           version: "22.1.8"
           force-url: https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-win64.exe
