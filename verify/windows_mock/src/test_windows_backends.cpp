@@ -281,6 +281,30 @@ int main() {
           "thread created after snapshot capture is outside the finite suspension set");
     if (snapshot_race) snapshot_race->resume();
 
+    bool repeated_snapshot_race_ok = true;
+    for (int iteration = 0; iteration < 32; ++iteration) {
+        winmock::reset();
+        winmock::thread_count = 4;
+        winmock::create_threads_during_suspend_count = 3;
+        auto repeated_snapshot_race = tessera::detail::native_hook::SuspendedThreads::acquire(
+            ThreadPolicy::SuspendOthersStrict);
+        const bool captured_only_snapshot_threads =
+            repeated_snapshot_race && winmock::snapshot_thread_count == 4 &&
+            winmock::thread_count == 7 && winmock::open_thread_calls == 4 &&
+            winmock::suspend_thread_calls == 4 && winmock::thread_next_calls == 4;
+        if (!captured_only_snapshot_threads) {
+            repeated_snapshot_race_ok = false;
+            break;
+        }
+        repeated_snapshot_race->resume();
+        if (winmock::resume_thread_calls != 4) {
+            repeated_snapshot_race_ok = false;
+            break;
+        }
+    }
+    check(repeated_snapshot_race_ok,
+          "repeated thread creation during suspend never expands the captured finite snapshot");
+
     winmock::reset();
     winmock::thread_count = 2;
     winmock::suspend_thread_fail_on_call = 2;
