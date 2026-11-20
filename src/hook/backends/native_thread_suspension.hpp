@@ -3,6 +3,7 @@
 #include <Windows.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include "platform/windows/thread_backend.hpp"
