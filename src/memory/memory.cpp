@@ -231,11 +231,27 @@ Result<std::basic_string<CharT>> read_terminated_string(const Process& process,
             auto got_res = backend.read(
                 Address{cur},
                 std::span<std::byte>(reinterpret_cast<std::byte*>(chunk.data()), want_bytes));
-            if (!got_res || *got_res < sizeof(CharT)) {
-                if (!any_read && !got_res) {
+            if (!got_res) {
+                if (!any_read) {
                     return std::unexpected(got_res.error());
                 }
-                break;
+                return std::unexpected(make_error(
+                    ErrorCode::PartialTransfer,
+                    op_name,
+                    got_res.error().native,
+                    "String read failed before a terminator was found"));
+            }
+            if ((*got_res % sizeof(CharT)) != 0) {
+                return fail(ErrorCode::PartialTransfer,
+                            op_name,
+                            0,
+                            "Read ended in the middle of a character code unit");
+            }
+            if (*got_res < sizeof(CharT)) {
+                return fail(ErrorCode::PartialTransfer,
+                            op_name,
+                            0,
+                            "String read ended before a terminator was found");
             }
 
             const std::size_t got_chars = *got_res / sizeof(CharT);
@@ -248,11 +264,14 @@ Result<std::basic_string<CharT>> read_terminated_string(const Process& process,
             }
 
             if (*got_res < want_bytes) {
-                break;
+                return fail(ErrorCode::PartialTransfer,
+                            op_name,
+                            0,
+                            "String read ended before a terminator was found");
             }
             auto next = checked_add<std::uint64_t>(cur, static_cast<std::uint64_t>(want_bytes));
             if (!next) {
-                break;
+                return fail(ErrorCode::AddressOverflow, op_name);
             }
             cur = *next;
         }
