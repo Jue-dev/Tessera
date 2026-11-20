@@ -549,6 +549,11 @@ Result<WriteReport> MemoryWriter::write_with_report(Address address,
                             restore_result.error().operation,
                             restore_result.error().native,
                             "Failed to restore page protection during rollback");
+                        diagnostics::notify(process_.observer(),
+                                            DiagnosticSeverity::Warning,
+                                            "MemoryWriter",
+                                            "Failed to restore page protection during rollback; retry ownership is retained in WriteReport",
+                                            report.protection_restore_warning);
                     }
                 }
             }

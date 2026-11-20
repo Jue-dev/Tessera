@@ -320,3 +320,57 @@ TEST_CASE("ProtectionScope retains restoration ownership after a failed restore"
     REQUIRE_FALSE(scope.active());
     REQUIRE(region.protection == MemoryProtection::Read);
 }
+
+TEST_CASE("MemoryWriter reports rollback protection restoration failures to the observer",
+           "[memory][protection][rollback][diagnostics]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    struct CapturingObserver final : DiagnosticObserver {
+        std::size_t warning_count = 0;
+        std::string_view last_category{};
+        std::string_view last_message{};
+        void on_diagnostic(const DiagnosticEvent& event) noexcept override {
+            if (event.severity == DiagnosticSeverity::Warning) {
+                ++warning_count;
+                last_category = event.category;
+                last_message = event.message;
+            }
+        }
+    } observer;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    auto& read_only = backend->map_region(
+        Address{0x32000}, 0x1000, MemoryProtection::Read);
+    auto& writable = backend->map_region(
+        Address{0x33000}, 0x1000, MemoryProtection::ReadWrite);
+    std::array<std::byte, 8> original{
+        std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
+        std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8}};
+    backend->poke_bytes(Address{0x32FFC}, original);
+
+    // Per-region protect attempts: initial elevation=0, initial restore=1,
+    // rollback elevation=2, rollback restore=3. Fail only the final step.
+    read_only.fail_protect_on_attempt = 3u;
+    writable.writable_prefix_limit = 2;
+    Process process = FakeMemoryBackend::make_process(
+        backend, Architecture::X64, ProcessId{4242}, &observer);
+    MemoryWriter writer{process};
+    const std::array<std::byte, 8> replacement{
+        std::byte{0xA1}, std::byte{0xA2}, std::byte{0xA3}, std::byte{0xA4},
+        std::byte{0xB1}, std::byte{0xB2}, std::byte{0xB3}, std::byte{0xB4}};
+
+    auto report = writer.write_with_report(Address{0x32FFC}, replacement);
+    REQUIRE(report.has_value());
+    REQUIRE(report->rolled_back);
+    REQUIRE_FALSE(report->rollback_error.has_value());
+    REQUIRE(report->protection_restore_warning.has_value());
+    REQUIRE(report->pending_protection_restores.size() == 1);
+    REQUIRE(observer.warning_count == 1);
+    REQUIRE(observer.last_category == "MemoryWriter");
+    REQUIRE(observer.last_message.find("during rollback") != std::string_view::npos);
+    REQUIRE(read_only.protection == MemoryProtection::ReadWrite);
+
+    REQUIRE(writer.restore_pending_protections(*report).has_value());
+    REQUIRE(read_only.protection == MemoryProtection::Read);
+}
