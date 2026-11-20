@@ -14,9 +14,10 @@
 #include "tessera/pattern/pattern.hpp"
 #include "tessera/scanner/scanner.hpp"
 
+#include "readable_chunks.hpp"
+
 namespace tessera::rtti {
 
-#include "readable_chunks.hpp"
 
 namespace {
 
