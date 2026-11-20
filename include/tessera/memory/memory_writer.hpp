@@ -38,7 +38,8 @@ struct WriteReport {
     std::optional<Error> write_error{};
 
     [[nodiscard]] constexpr bool succeeded() const noexcept {
-        return !write_error.has_value() &&
+        return pending_protection_restores.empty() &&
+               !write_error.has_value() &&
                !rollback_error.has_value() &&
                !protection_restore_warning.has_value() &&
                !icache_flush_error.has_value();
