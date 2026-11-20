@@ -32,6 +32,8 @@ DWORD get_thread_context_error = NO_ERROR;
 int suspend_thread_calls = 0;
 int get_thread_context_calls = 0;
 int resume_thread_calls = 0;
+DWORD resume_thread_error = NO_ERROR;
+DWORD wait_for_single_object_result = WAIT_OBJECT_0;
 LONG detour_update_error = NO_ERROR;
 LONG detour_attach_error = NO_ERROR;
 LONG detour_detach_error = NO_ERROR;
@@ -66,6 +68,8 @@ void reset() noexcept {
     suspend_thread_calls = 0;
     get_thread_context_calls = 0;
     resume_thread_calls = 0;
+    resume_thread_error = NO_ERROR;
+    wait_for_single_object_result = WAIT_OBJECT_0;
     detour_update_error = NO_ERROR;
     detour_attach_error = NO_ERROR;
     detour_detach_error = NO_ERROR;
@@ -257,9 +261,16 @@ BOOL GetThreadContext(HANDLE, CONTEXT* context) noexcept {
     context->Rip = 0x5000;
     return TRUE;
 }
-DWORD ResumeThread(HANDLE) noexcept { ++winmock::resume_thread_calls; return 1; }
+DWORD ResumeThread(HANDLE) noexcept {
+    ++winmock::resume_thread_calls;
+    if (winmock::resume_thread_error != NO_ERROR) {
+        SetLastError(winmock::resume_thread_error);
+        return static_cast<DWORD>(-1);
+    }
+    return 1;
+}
 HANDLE CreateMutexW(void*, BOOL, LPCWCH) noexcept { return reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(0x90)); }
-DWORD WaitForSingleObject(HANDLE, DWORD) noexcept { return WAIT_OBJECT_0; }
+DWORD WaitForSingleObject(HANDLE, DWORD) noexcept { return winmock::wait_for_single_object_result; }
 BOOL ReleaseMutex(HANDLE) noexcept { return TRUE; }
 
 LONG DetourTransactionBegin() noexcept { return NO_ERROR; }

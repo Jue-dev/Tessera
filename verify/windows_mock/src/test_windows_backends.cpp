@@ -2,7 +2,12 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <string_view>
+#if defined(__linux__)
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 #include "tessera/module/module.hpp"
 #include "tessera/memory/memory_reader.hpp"
@@ -206,6 +211,28 @@ int main() {
     }
     check(winmock::resume_thread_calls == 1,
           "native thread context failure still resumes suspended threads during cleanup");
+
+#if defined(__linux__)
+    const pid_t resume_failure_child = ::fork();
+    if (resume_failure_child == 0) {
+        std::set_terminate([]() noexcept { ::_exit(86); });
+        winmock::reset();
+        winmock::resume_thread_error = ERROR_ACCESS_DENIED;
+        winmock::wait_for_single_object_result = WAIT_TIMEOUT;
+        auto child_threads = tessera::detail::native_hook::SuspendedThreads::acquire(
+            ThreadPolicy::SuspendOthersStrict);
+        if (!child_threads) ::_exit(87);
+        child_threads->resume();
+        ::_exit(88);
+    }
+    int resume_failure_status = 0;
+    const pid_t waited_child = resume_failure_child > 0
+        ? ::waitpid(resume_failure_child, &resume_failure_status, 0)
+        : -1;
+    check(waited_child == resume_failure_child && WIFEXITED(resume_failure_status) &&
+              WEXITSTATUS(resume_failure_status) == 86,
+          "ResumeThread failure with a live thread invokes the fail-stop terminate policy");
+#endif
 
     winmock::reset();
     winmock::detour_update_error = 1234;
