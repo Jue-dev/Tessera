@@ -306,6 +306,14 @@ int main() {
                 repeated_snapshot_race_ok = false;
                 break;
             }
+            // Model host-created threads after the final IP check and before
+            // the patch write. They are outside the already captured snapshot.
+            winmock::thread_count += 3;
+            if (winmock::thread_count != 16 || winmock::snapshot_thread_count != 4 ||
+                winmock::suspend_thread_calls != 4 || winmock::get_thread_context_calls != 4) {
+                repeated_snapshot_race_ok = false;
+                break;
+            }
             repeated_snapshot_race->resume();
         }
         if (winmock::resume_thread_calls != 4 || winmock::close_handle_calls != 5) {
@@ -314,7 +322,7 @@ int main() {
         }
     }
     check(repeated_snapshot_race_ok,
-          "repeated thread creation during enumeration, suspend, and context never expands the finite snapshot");
+          "repeated thread creation during enumeration, suspend, context, and patch windows stays outside the finite snapshot");
 
     winmock::reset();
     winmock::thread_count = 2;
