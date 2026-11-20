@@ -243,6 +243,44 @@ int main() {
           "ResumeThread failure with a live thread invokes the fail-stop terminate policy");
 #endif
 
+#if defined(__linux__)
+    const pid_t snapshot_close_failure_child = ::fork();
+    if (snapshot_close_failure_child == 0) {
+        std::set_terminate([]() noexcept { ::_exit(89); });
+        winmock::reset();
+        winmock::thread_first_error = ERROR_ACCESS_DENIED;
+        winmock::close_handle_fail_on_call = 1;
+        (void)ScopedThreadList::collect_other_threads(ThreadPolicy::SuspendOthersStrict);
+        ::_exit(90);
+    }
+    int snapshot_close_status = 0;
+    const pid_t snapshot_close_waited = snapshot_close_failure_child > 0
+        ? ::waitpid(snapshot_close_failure_child, &snapshot_close_status, 0)
+        : -1;
+    check(snapshot_close_waited == snapshot_close_failure_child &&
+              WIFEXITED(snapshot_close_status) && WEXITSTATUS(snapshot_close_status) == 89,
+          "snapshot handle close failure invokes the fail-stop cleanup policy");
+
+    const pid_t thread_close_failure_child = ::fork();
+    if (thread_close_failure_child == 0) {
+        std::set_terminate([]() noexcept { ::_exit(91); });
+        winmock::reset();
+        winmock::close_handle_fail_on_call = 2; // Snapshot closes first; owned thread handle closes second.
+        {
+            auto owned_threads = ScopedThreadList::collect_other_threads(ThreadPolicy::SuspendOthersStrict);
+            if (!owned_threads) ::_exit(92);
+        }
+        ::_exit(93);
+    }
+    int thread_close_status = 0;
+    const pid_t thread_close_waited = thread_close_failure_child > 0
+        ? ::waitpid(thread_close_failure_child, &thread_close_status, 0)
+        : -1;
+    check(thread_close_waited == thread_close_failure_child &&
+              WIFEXITED(thread_close_status) && WEXITSTATUS(thread_close_status) == 91,
+          "owned thread handle close failure invokes the fail-stop cleanup policy");
+#endif
+
     winmock::reset();
     winmock::detour_update_error = 1234;
     HookOptions hook_options{};
