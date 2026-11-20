@@ -3,8 +3,19 @@
 #include <Windows.h>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 
 namespace winmock {
+
+enum class MemoryApiCall { VirtualProtectEx, WriteProcessMemory, FlushInstructionCache };
+struct MemoryApiCallRecord {
+    MemoryApiCall call{};
+    std::uintptr_t address{};
+    std::size_t size{};
+    DWORD protection{};
+};
+extern std::array<MemoryApiCallRecord, 32> memory_api_call_log;
+extern int memory_api_call_count;
 
 enum class ModuleMode { Stable, Growing, Misaligned };
 extern ModuleMode module_mode;
