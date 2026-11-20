@@ -37,6 +37,22 @@ find_package(Tessera CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE tessera::tessera)
 ```
 
+## Benchmarks
+
+Benchmark targets are opt-in and do not replace correctness tests. Configure and build them separately:
+
+```powershell
+cmake -S . -B build-bench -G Ninja -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_BENCH=ON
+cmake --build build-bench --target tessera_bench tessera_decoder_bench tessera_pe_bench
+.\build-bench\verify\bench\tessera_bench.exe
+.\build-bench\verify\bench\tessera_decoder_bench.exe
+.\build-bench\verify\bench\tessera_pe_bench.exe
+```
+
+- `tessera_bench`: pattern scan and RTTI/Python discovery.
+- `tessera_decoder_bench`: bounded x64 instruction decoding.
+- `tessera_pe_bench`: deterministic PE32+ raw-image parsing and accessors.
+
 ## Workspace helper scripts
 
 - `scripts/clean.ps1` is the canonical workspace cleanup implementation; use `-DryRun` to preview removals. `scripts/clean.bat` remains as a thin Command Prompt compatibility entry point.
