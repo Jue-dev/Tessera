@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/native-hook-fuzz.yml"
+      - ".github/scripts/native-hook-fuzz/**"
       - ".github/actions/setup-msvc/**"
       - "cmake/**"
       - "CMakeLists.txt"
@@ -59,141 +60,25 @@ jobs:
       - name: Verify Clang x64 toolchain and sanitizer runtimes
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          $clang = Get-Command clang-cl -ErrorAction Stop
-          Write-Host "Using clang-cl: $($clang.Source)"
-          clang-cl --version
-          if ($LASTEXITCODE -ne 0) { throw "clang-cl version check failed ($LASTEXITCODE)" }
-          clang-cl "--target=x86_64-pc-windows-msvc" -v
-          if ($LASTEXITCODE -ne 0) { throw "clang-cl x64 target check failed ($LASTEXITCODE)" }
-
-          $resource = (clang-cl -print-resource-dir).Trim()
-          if ($LASTEXITCODE -ne 0 -or -not $resource) { throw "Unable to locate Clang resource directory." }
-          $runtimeDir = Join-Path $resource "lib/windows"
-          $required = @(
-            "clang_rt.fuzzer-x86_64.lib",
-            "clang_rt.asan_dynamic-x86_64.lib",
-            "clang_rt.asan_static_runtime_thunk-x86_64.lib",
-            "clang_rt.asan_dynamic-x86_64.dll"
-          )
-          foreach ($name in $required) {
-            $path = Join-Path $runtimeDir $name
-            if (-not (Test-Path $path)) { throw "Missing required x64 Clang runtime: $path" }
-            Write-Host "Found: $name"
-          }
-
+          & ./.github/scripts/native-hook-fuzz/01-verify-clang-x64-toolchain-and-sanitizer-runtimes.ps1
       - name: Configure instrumented native-hook fuzzer (x64)
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          $cmakeArgs = @(
-            "-S", ".", "-B", "build-native-hook-fuzz", "-G", "Ninja",
-            "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
-            "-DCMAKE_C_COMPILER=clang-cl",
-            "-DCMAKE_CXX_COMPILER=clang-cl",
-            "-DCMAKE_CXX_STANDARD=23",
-            "-DTESSERA_BUILD_TESTS=OFF",
-            "-DTESSERA_BUILD_EXAMPLES=OFF",
-            "-DTESSERA_BUILD_FUZZ=ON",
-            "-DTESSERA_STATIC_RUNTIME=ON",
-            "-DTESSERA_ENABLE_LIBFUZZER=ON"
-          )
-          & cmake @cmakeArgs
-          $configureExitCode = $LASTEXITCODE
-          if ($configureExitCode -ne 0) {
-            $diagnosticLogs = @(
-              "build-native-hook-fuzz/CMakeFiles/CMakeConfigureLog.yaml",
-              "build-native-hook-fuzz/CMakeFiles/CMakeError.log",
-              "build-native-hook-fuzz/CMakeFiles/CMakeOutput.log"
-            )
-            foreach ($logPath in $diagnosticLogs) {
-              if (Test-Path $logPath) {
-                Write-Host "===== $logPath ====="
-                Get-Content $logPath -Tail 240
-              }
-            }
-            throw "CMake configure failed for x64 ($configureExitCode)"
-          }
-
+          & ./.github/scripts/native-hook-fuzz/02-configure-instrumented-native-hook-fuzzer.ps1
       - name: Build instrumented native-hook fuzzer (x64)
         shell: pwsh
         run: |
-          cmake --build build-native-hook-fuzz --target tessera_fuzz_native_hook --parallel
-          if ($LASTEXITCODE -ne 0) { throw "x64 native-hook fuzzer build failed ($LASTEXITCODE)" }
-
+          & ./.github/scripts/native-hook-fuzz/03-build-instrumented-native-hook-fuzzer.ps1
       - name: Verify x64 fuzzer executable architecture
         shell: pwsh
         run: |
-          $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz/verify/fuzz/tessera_fuzz_native_hook.exe"
-          if (-not (Test-Path $target)) { throw "Missing x64 fuzzer executable: $target" }
-          $bytes = [System.IO.File]::ReadAllBytes($target)
-          if ($bytes.Length -lt 64) { throw "Fuzzer executable is too small to be a valid PE image." }
-          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
-          if ($peOffset -lt 64 -or ($peOffset + 6) -gt $bytes.Length) { throw "Invalid PE header offset: $peOffset" }
-          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
-          if ($machine -ne 0x8664) { throw ("Expected AMD64 PE machine 0x8664, got 0x{0:X4}" -f $machine) }
-          Write-Host "Verified executable architecture: AMD64 (PE 0x8664)."
-
+          & ./.github/scripts/native-hook-fuzz/04-verify-x64-fuzzer-executable-architecture.ps1
       - name: Run x64 coverage-guided ASan/UBSan campaign
         shell: pwsh
         env:
           CAMPAIGN_SECONDS: ${{ inputs.campaign_seconds || '300' }}
         run: |
-          $ErrorActionPreference = "Stop"
-          $seedSource = Join-Path $env:GITHUB_WORKSPACE "verify/fuzz/corpus/native_hook"
-          $artifactRoot = Join-Path $env:GITHUB_WORKSPACE "artifacts/native-hook-fuzz/x64"
-          $corpus = Join-Path $artifactRoot "corpus"
-          $crashes = Join-Path $artifactRoot "crashes"
-          New-Item -ItemType Directory -Path $corpus -Force | Out-Null
-          New-Item -ItemType Directory -Path $crashes -Force | Out-Null
-          $seedFiles = @(Get-ChildItem -Path $seedSource -File)
-          if ($seedFiles.Count -eq 0) { throw "The x64 native-hook seed corpus is empty." }
-          Copy-Item -Path (Join-Path $seedSource "*") -Destination $corpus -Recurse -Force
-
-          if ($env:CAMPAIGN_SECONDS -notin @("300", "600", "900")) {
-            throw "Unsupported fuzz duration: $env:CAMPAIGN_SECONDS"
-          }
-          $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz/verify/fuzz/tessera_fuzz_native_hook.exe"
-          if (-not (Test-Path $target)) { throw "Missing x64 native-hook fuzzer: $target" }
-
-          $resource = (clang-cl -print-resource-dir).Trim()
-          if ($LASTEXITCODE -ne 0 -or -not $resource) { throw "Unable to locate Clang resource directory." }
-          $asanDll = Join-Path $resource "lib/windows/clang_rt.asan_dynamic-x86_64.dll"
-          if (-not (Test-Path $asanDll)) { throw "Missing x64 ASan runtime DLL: $asanDll" }
-          Copy-Item $asanDll (Split-Path $target -Parent) -Force
-
-          $campaignLogPath = Join-Path $artifactRoot "campaign.log"
-          $arguments = @(
-            $corpus,
-            "-max_total_time=$env:CAMPAIGN_SECONDS",
-            "-timeout=10",
-            "-max_len=96",
-            "-rss_limit_mb=4096",
-            "-seed=20261119",
-            "-print_final_stats=1",
-            "-artifact_prefix=$crashes/"
-          )
-
-          # Stream fuzzer progress into the Actions log while preserving a full
-          # campaign log artifact. Avoid Start-Process -Wait, which hides progress
-          # and makes a healthy timed campaign look hung.
-          & $target @arguments 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $campaignLogPath
-          $fuzzerExitCode = $LASTEXITCODE
-          if ($fuzzerExitCode -ne 0) { throw "x64 coverage-guided fuzzing failed ($fuzzerExitCode)" }
-          $campaignLog = Get-Content $campaignLogPath -Raw
-          if ($campaignLog -notmatch "stat::number_of_executed_units:\s*[1-9][0-9]*") {
-            throw "libFuzzer did not report any executed input units; refusing a false-positive pass."
-          }
-          $summary = [regex]::Match($campaignLog, "(?m)^Done\s+([0-9,]+)\s+runs\s+in\s+([0-9]+)\s+second")
-          if (-not $summary.Success) { throw "x64 libFuzzer campaign summary is missing." }
-          $runs = [UInt64](($summary.Groups[1].Value -replace ",", ""))
-          $seconds = [UInt32]$summary.Groups[2].Value
-          $minimumSeconds = [Math]::Max(1, [Int32]$env:CAMPAIGN_SECONDS - 5)
-          if ($runs -lt 100000 -or $seconds -lt $minimumSeconds) {
-            throw "x64 campaign under-ran: runs=$runs, seconds=$seconds."
-          }
-          Write-Host "x64 campaign completed $runs runs in $seconds seconds."
-
+          & ./.github/scripts/native-hook-fuzz/05-run-x64-coverage-guided-asan-ubsan-campaign.ps1
       - name: Upload x64 fuzz corpus and crash artifacts
         if: always()
         uses: actions/upload-artifact@v7
@@ -220,180 +105,29 @@ jobs:
       - name: Verify native MSVC x86 Fuzzer and AddressSanitizer
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          if ($env:VSCMD_ARG_TGT_ARCH -ne "x86") {
-            throw "Expected x86 MSVC target environment, got '$env:VSCMD_ARG_TGT_ARCH'."
-          }
-
-          $probeSource = Join-Path $env:RUNNER_TEMP "tessera_msvc_x86_fuzzer_probe.cpp"
-          $probeExe = Join-Path $env:RUNNER_TEMP "tessera_msvc_x86_fuzzer_probe.exe"
-          @'
-          #include <cstddef>
-          #include <cstdint>
-          extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-              volatile std::uint8_t value = size == 0 ? 0 : data[0];
-              (void)value;
-              return 0;
-          }
-          '@ | Set-Content -Path $probeSource -Encoding ascii
-
-          cl /nologo /std:c++latest /Zc:__cplusplus /EHsc /MT /fsanitize=address /fsanitize=fuzzer $probeSource "/Fe:$probeExe"
-          if ($LASTEXITCODE -ne 0) { throw "MSVC x86 Fuzzer/ASan probe compile failed ($LASTEXITCODE)" }
-          if (-not (Test-Path $probeExe)) { throw "MSVC x86 Fuzzer probe executable was not produced." }
-
-          $probeOutput = & $probeExe "-runs=8" 2>&1
-          $probeExitCode = $LASTEXITCODE
-          $probeOutput | ForEach-Object { Write-Host $_ }
-          if ($probeExitCode -ne 0) { throw "MSVC x86 Fuzzer/ASan probe execution failed ($probeExitCode)" }
-          $probeText = [string]::Join([Environment]::NewLine, @($probeOutput))
-          if ($probeText -notmatch "Done\s+8\s+runs") {
-            throw "MSVC x86 Fuzzer probe did not complete the requested eight executions."
-          }
-
-          $asanName = "clang_rt.asan_dynamic-i386.dll"
-          $searchRoots = @($env:VCToolsInstallDir, $env:VCToolsRedistDir) | Where-Object { $_ -and (Test-Path $_) }
-          $asanDll = $null
-          foreach ($root in $searchRoots) {
-            $match = Get-ChildItem -Path $root -Filter $asanName -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($match) { $asanDll = $match.FullName; break }
-          }
-          if (-not $asanDll) { throw "MSVC x86 AddressSanitizer runtime DLL '$asanName' was not found." }
-          Write-Host "Verified MSVC x86 Fuzzer and ASan runtime: $asanDll"
-
+          & ./.github/scripts/native-hook-fuzz/06-verify-native-msvc-x86-fuzzer-and-addresssanitizer.ps1
       - name: Configure instrumented native-hook fuzzer (x86)
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          $cmakeArgs = @(
-            "-S", ".", "-B", "build-native-hook-fuzz", "-G", "Ninja",
-            "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
-            "-DCMAKE_C_COMPILER=cl",
-            "-DCMAKE_CXX_COMPILER=cl",
-            "-DCMAKE_CXX_STANDARD=23",
-            "-DTESSERA_BUILD_TESTS=OFF",
-            "-DTESSERA_BUILD_EXAMPLES=OFF",
-            "-DTESSERA_BUILD_FUZZ=ON",
-            "-DTESSERA_STATIC_RUNTIME=ON",
-            "-DTESSERA_ENABLE_ASAN=ON",
-            "-DTESSERA_ENABLE_MSVC_FUZZER=ON"
-          )
-          & cmake @cmakeArgs
-          $configureExitCode = $LASTEXITCODE
-          if ($configureExitCode -ne 0) {
-            $diagnosticLogs = @(
-              "build-native-hook-fuzz/CMakeFiles/CMakeConfigureLog.yaml",
-              "build-native-hook-fuzz/CMakeFiles/CMakeError.log",
-              "build-native-hook-fuzz/CMakeFiles/CMakeOutput.log"
-            )
-            foreach ($logPath in $diagnosticLogs) {
-              if (Test-Path $logPath) {
-                Write-Host "===== $logPath ====="
-                Get-Content $logPath -Tail 240
-              }
-            }
-            throw "CMake configure failed for x86 ($configureExitCode)"
-          }
-
+          & ./.github/scripts/native-hook-fuzz/07-configure-instrumented-native-hook-fuzzer.ps1
       - name: Build instrumented native-hook fuzzer (x86)
         shell: pwsh
         run: |
-          cmake --build build-native-hook-fuzz --target tessera_fuzz_native_hook --parallel
-          if ($LASTEXITCODE -ne 0) { throw "MSVC x86 native-hook fuzzer build failed ($LASTEXITCODE)" }
-
+          & ./.github/scripts/native-hook-fuzz/08-build-instrumented-native-hook-fuzzer.ps1
       - name: Verify x86 fuzzer executable architecture
         shell: pwsh
         run: |
-          $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz/verify/fuzz/tessera_fuzz_native_hook.exe"
-          if (-not (Test-Path $target)) { throw "Missing x86 fuzzer executable: $target" }
-          $bytes = [System.IO.File]::ReadAllBytes($target)
-          if ($bytes.Length -lt 64) { throw "Fuzzer executable is too small to be a valid PE image." }
-          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
-          if ($peOffset -lt 64 -or ($peOffset + 6) -gt $bytes.Length) { throw "Invalid PE header offset: $peOffset" }
-          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
-          if ($machine -ne 0x014c) { throw ("Expected I386 PE machine 0x014c, got 0x{0:X4}" -f $machine) }
-          Write-Host "Verified executable architecture: I386 (PE 0x014c)."
-
+          & ./.github/scripts/native-hook-fuzz/09-verify-x86-fuzzer-executable-architecture.ps1
       - name: Locate and stage x86 AddressSanitizer runtime
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          $asanName = "clang_rt.asan_dynamic-i386.dll"
-          $searchRoots = @($env:VCToolsInstallDir, $env:VCToolsRedistDir) | Where-Object { $_ -and (Test-Path $_) }
-          $asanDll = $null
-          foreach ($root in $searchRoots) {
-            $match = Get-ChildItem -Path $root -Filter $asanName -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($match) { $asanDll = $match.FullName; break }
-          }
-          if (-not $asanDll) { throw "MSVC x86 AddressSanitizer runtime DLL '$asanName' was not found." }
-          $targetDir = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz/verify/fuzz"
-          Copy-Item $asanDll (Join-Path $targetDir $asanName) -Force
-          Write-Host "Staged x86 ASan runtime: $asanDll"
-
+          & ./.github/scripts/native-hook-fuzz/10-locate-and-stage-x86-addresssanitizer-runtime.ps1
       - name: Run x86 coverage-guided ASan campaign
         shell: pwsh
         env:
           CAMPAIGN_SECONDS: ${{ inputs.campaign_seconds || '300' }}
         run: |
-          $ErrorActionPreference = "Stop"
-          $seedSource = Join-Path $env:GITHUB_WORKSPACE "verify/fuzz/corpus/native_hook"
-          $artifactRoot = Join-Path $env:GITHUB_WORKSPACE "artifacts/native-hook-fuzz/x86"
-          $corpus = Join-Path $artifactRoot "corpus"
-          $crashes = Join-Path $artifactRoot "crashes"
-          New-Item -ItemType Directory -Path $corpus -Force | Out-Null
-          New-Item -ItemType Directory -Path $crashes -Force | Out-Null
-          $seedFiles = @(Get-ChildItem -Path $seedSource -File)
-          if ($seedFiles.Count -eq 0) { throw "The x86 native-hook seed corpus is empty." }
-          Copy-Item -Path (Join-Path $seedSource "*") -Destination $corpus -Recurse -Force
-
-          if ($env:CAMPAIGN_SECONDS -notin @("300", "600", "900")) {
-            throw "Unsupported fuzz duration: $env:CAMPAIGN_SECONDS"
-          }
-          $target = Join-Path $env:GITHUB_WORKSPACE "build-native-hook-fuzz/verify/fuzz/tessera_fuzz_native_hook.exe"
-          if (-not (Test-Path $target)) { throw "Missing x86 native-hook fuzzer: $target" }
-
-          $campaignLog = Join-Path $artifactRoot "campaign.log"
-          $arguments = @(
-            $corpus,
-            "-max_total_time=$env:CAMPAIGN_SECONDS",
-            "-timeout=10",
-            "-max_len=96",
-            "-rss_limit_mb=1024",
-            "-seed=20261119",
-            "-print_final_stats=1",
-            "-artifact_prefix=$crashes/"
-          )
-
-          # Stream campaign progress live and save the same output for artifacts.
-          & $target @arguments 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $campaignLog
-          $fuzzerExitCode = $LASTEXITCODE
-          if ($fuzzerExitCode -ne 0) { throw "x86 coverage-guided Fuzzer/ASan campaign failed ($fuzzerExitCode)" }
-          $campaignText = Get-Content $campaignLog -Raw
-
-          $summary = [regex]::Match($campaignText, "(?m)^Done\s+([0-9,]+)\s+runs\s+in\s+([0-9]+)\s+second")
-          if (-not $summary.Success) {
-            throw "x86 MSVC Fuzzer did not report its completed run count and elapsed time."
-          }
-          $executedRuns = [UInt64](($summary.Groups[1].Value -replace ",", ""))
-          $elapsedSeconds = [UInt32]$summary.Groups[2].Value
-          $minimumDuration = [Math]::Max(1, [Int32]$env:CAMPAIGN_SECONDS - 5)
-          if ($executedRuns -lt 100000 -or $elapsedSeconds -lt $minimumDuration) {
-            throw "x86 fuzz campaign was too short or processed too few inputs: runs=$executedRuns, seconds=$elapsedSeconds."
-          }
-          if ($campaignText -notmatch "stat::number_of_executed_units:\s*[1-9][0-9]*") {
-            throw "x86 MSVC Fuzzer did not report executed input units."
-          }
-          # MSVC's Fuzzer reports discovered coverage features as "ft:", not
-          # libFuzzer's LLVM-specific "cov:" field. Validate the final DONE line.
-          $featureSummary = [regex]::Match($campaignText, "DONE\s+ft:\s*([1-9][0-9]*)")
-          if (-not $featureSummary.Success) {
-            throw "x86 MSVC Fuzzer did not report non-zero coverage features in its final DONE summary."
-          }
-          $coverageFeatures = [UInt64]$featureSummary.Groups[1].Value
-
-          Write-Host "x86 MSVC Fuzzer summary: $executedRuns executions in $elapsedSeconds seconds; $coverageFeatures coverage features."
-          Get-Content $campaignLog -Tail 40 | ForEach-Object { Write-Host $_ }
-          Write-Host "Full x86 campaign log: $campaignLog"
-
+          & ./.github/scripts/native-hook-fuzz/11-run-x86-coverage-guided-asan-campaign.ps1
       - name: Upload x86 fuzz corpus and crash artifacts
         if: always()
         uses: actions/upload-artifact@v7
