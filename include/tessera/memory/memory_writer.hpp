@@ -62,7 +62,7 @@ public:
 
     // Retries every outstanding page-protection restoration recorded by a prior
     // write_with_report call. Failed entries remain in the report for another retry.
-    [[nodiscard]] Status restore_pending_protections(WriteReport& report) const noexcept;
+    [[nodiscard]] Status restore_pending_protections(WriteReport& report) const;
 
     [[nodiscard]] Status write(Address address,
                                std::span<const std::byte> data,
