@@ -19,9 +19,11 @@ Patch::Patch(Patch&& other) noexcept
     : target_(std::move(other.target_)),
       new_bytes_(std::move(other.new_bytes_)),
       original_bytes_(std::move(other.original_bytes_)),
+      pending_protection_report_(std::move(other.pending_protection_report_)),
       options_(std::move(other.options_)),
       state_(std::exchange(other.state_, PatchState::Created)) {
     other.options_.auto_restore = false;
+    other.pending_protection_report_.reset();
 }
 
 Patch& Patch::operator=(Patch&& other) noexcept {
@@ -34,9 +36,11 @@ Patch& Patch::operator=(Patch&& other) noexcept {
         target_ = std::move(other.target_);
         new_bytes_ = std::move(other.new_bytes_);
         original_bytes_ = std::move(other.original_bytes_);
+        pending_protection_report_ = std::move(other.pending_protection_report_);
         options_ = std::move(other.options_);
         state_ = std::exchange(other.state_, PatchState::Created);
         other.options_.auto_restore = false;
+        other.pending_protection_report_.reset();
     }
     return *this;
 }
@@ -48,6 +52,15 @@ Patch::~Patch() noexcept {
 }
 
 Status Patch::finish_in_destructor() noexcept {
+    if (pending_protection_report_.has_value()) {
+        MemoryWriter writer{target_.process()};
+        auto protection_status =
+            writer.restore_pending_protections(*pending_protection_report_);
+        if (!protection_status) {
+            return protection_status;
+        }
+        pending_protection_report_.reset();
+    }
     if (options_.auto_restore && state_ == PatchState::Applied) {
         auto st = restore();
         if (!st) {
@@ -126,30 +139,53 @@ Status Patch::apply() {
     if (!report) {
         return std::unexpected(report.error());
     }
+    const auto retain_pending_restore = [&]() {
+        if (!report->pending_protection_restores.empty()) {
+            pending_protection_report_ = std::move(*report);
+        }
+    };
     if (report->write_error.has_value()) {
+        const Error error = *report->write_error;
         if (report->bytes_written > 0 &&
             (!report->rolled_back || report->rollback_error.has_value())) {
             state_ = PatchState::Indeterminate;
         }
-        return std::unexpected(*report->write_error);
+        retain_pending_restore();
+        return std::unexpected(error);
     }
     if (report->rollback_error.has_value()) {
+        const Error error = *report->rollback_error;
         state_ = PatchState::Indeterminate;
-        return std::unexpected(*report->rollback_error);
+        retain_pending_restore();
+        return std::unexpected(error);
     }
 
     original_bytes_ = std::move(*current_bytes);
     state_ = PatchState::Applied;
     if (report->protection_restore_warning.has_value()) {
-        return std::unexpected(*report->protection_restore_warning);
+        const Error error = *report->protection_restore_warning;
+        retain_pending_restore();
+        return std::unexpected(error);
     }
     if (report->icache_flush_error.has_value()) {
-        return std::unexpected(*report->icache_flush_error);
+        const Error error = *report->icache_flush_error;
+        retain_pending_restore();
+        return std::unexpected(error);
     }
+    retain_pending_restore();
     return ok();
 }
 
 Status Patch::restore() noexcept {
+    MemoryWriter writer{target_.process()};
+    if (pending_protection_report_.has_value()) {
+        auto protection_status =
+            writer.restore_pending_protections(*pending_protection_report_);
+        if (!protection_status) {
+            return protection_status;
+        }
+        pending_protection_report_.reset();
+    }
     if (state_ != PatchState::Applied) {
         return state_ == PatchState::Indeterminate
                    ? fail(ErrorCode::Conflict, "Patch::restore", 0, "Patch state is Indeterminate")
@@ -168,30 +204,43 @@ Status Patch::restore() noexcept {
                     "Target bytes no longer match this patch; refusing to overwrite another writer");
     }
 
-    MemoryWriter writer{target_.process()};
     auto report = writer.write_with_report(target_.address(), original_bytes_);
     if (!report) {
         return std::unexpected(report.error());
     }
+    const auto retain_pending_restore = [&]() {
+        if (!report->pending_protection_restores.empty()) {
+            pending_protection_report_ = std::move(*report);
+        }
+    };
     if (report->write_error.has_value()) {
+        const Error error = *report->write_error;
         if (report->bytes_written > 0 &&
             (!report->rolled_back || report->rollback_error.has_value())) {
             state_ = PatchState::Indeterminate;
         }
-        return std::unexpected(*report->write_error);
+        retain_pending_restore();
+        return std::unexpected(error);
     }
     if (report->rollback_error.has_value()) {
+        const Error error = *report->rollback_error;
         state_ = PatchState::Indeterminate;
-        return std::unexpected(*report->rollback_error);
+        retain_pending_restore();
+        return std::unexpected(error);
     }
 
     state_ = PatchState::Restored;
     if (report->protection_restore_warning.has_value()) {
-        return std::unexpected(*report->protection_restore_warning);
+        const Error error = *report->protection_restore_warning;
+        retain_pending_restore();
+        return std::unexpected(error);
     }
     if (report->icache_flush_error.has_value()) {
-        return std::unexpected(*report->icache_flush_error);
+        const Error error = *report->icache_flush_error;
+        retain_pending_restore();
+        return std::unexpected(error);
     }
+    retain_pending_restore();
     return ok();
 }
 

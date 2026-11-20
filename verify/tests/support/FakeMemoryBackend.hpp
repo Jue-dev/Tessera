@@ -30,6 +30,7 @@ public:
         std::optional<std::size_t> writable_prefix_limit{}; // Simulate partial write failure
         bool fail_protect = false;
         bool fail_restore_protect = false;
+        std::uint32_t restore_failures_remaining = 0;
         std::uint32_t protect_call_count = 0;
     };
 
@@ -239,7 +240,12 @@ public:
         if (reg->fail_protect) {
             return fail(ErrorCode::ProtectionFailed, "FakeMemoryBackend::protect", 5);
         }
-        if (reg->fail_restore_protect && (reg->protect_call_count % 2) == 1) {
+        if ((reg->fail_restore_protect && (reg->protect_call_count % 2) == 1) ||
+            (reg->restore_failures_remaining > 0 &&
+             (reg->protect_call_count % 2) == 1)) {
+            if (reg->restore_failures_remaining > 0) {
+                --reg->restore_failures_remaining;
+            }
             return fail(ErrorCode::ProtectionFailed, "FakeMemoryBackend::protect(restore)", 5);
         }
 

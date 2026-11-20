@@ -10,6 +10,7 @@
 #include "tessera/core/error.hpp"
 #include "tessera/core/result.hpp"
 #include "tessera/memory/process_address.hpp"
+#include "tessera/memory/memory_writer.hpp"
 #include "tessera/pattern/pattern.hpp"
 
 namespace tessera {
@@ -42,6 +43,7 @@ enum class PatchState : std::uint8_t {
 };
 
 // Move-only byte patch with original-byte verification, backup, and optional RAII restoration.
+// Outstanding page-protection restoration reports remain owned by the Patch until retried.
 class [[nodiscard]] Patch {
 public:
     [[nodiscard]] static Result<Patch> create(ProcessAddress target,
@@ -77,6 +79,7 @@ private:
     ProcessAddress target_;
     std::vector<std::byte> new_bytes_{};
     std::vector<std::byte> original_bytes_{};
+    std::optional<WriteReport> pending_protection_report_{};
     PatchOptions options_{};
     PatchState state_ = PatchState::Created;
 };

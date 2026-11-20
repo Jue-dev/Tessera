@@ -156,14 +156,30 @@ TEST_CASE("FakeMemoryBackend reader, writer, rollback, and protection warnings",
     REQUIRE(*backend->peek_byte(Address{0x10FFC}) == orig_b0);
     r2.writable_prefix_limit.reset();
 
-    // Simulate protection restore failure warning
-    r1.fail_restore_protect = true;
+    // A failed protection restore remains explicitly owned by WriteReport.
+    // The caller can retry after the transient OS/backend failure is resolved.
+    r1.restore_failures_remaining = 2;
     auto warn_rep = writer.write_with_report(
         Address{0x10000}, std::span<const std::byte>(cross_data.data(), 4));
     REQUIRE(warn_rep.has_value());
     REQUIRE_FALSE(warn_rep->succeeded());
     REQUIRE(warn_rep->protection_restore_warning.has_value());
     REQUIRE(warn_rep->protection_restore_warning->code == ErrorCode::ProtectionRestoreFailed);
+    REQUIRE(warn_rep->pending_protection_restores.size() == 1);
+    REQUIRE(r1.protection == MemoryProtection::ReadWrite);
+
+    // A repeated failure must preserve the same retry ticket and keep the
+    // report unsuccessful until a later restoration actually succeeds.
+    auto repeated_failure = writer.restore_pending_protections(*warn_rep);
+    REQUIRE_FALSE(repeated_failure.has_value());
+    REQUIRE(warn_rep->pending_protection_restores.size() == 1);
+    REQUIRE_FALSE(warn_rep->succeeded());
+
+    REQUIRE(writer.restore_pending_protections(*warn_rep).has_value());
+    REQUIRE(warn_rep->pending_protection_restores.empty());
+    REQUIRE_FALSE(warn_rep->protection_restore_warning.has_value());
+    REQUIRE(warn_rep->succeeded());
+    REQUIRE(r1.protection == MemoryProtection::Read);
 }
 
 #if !defined(TESSERA_PORTABLE_VALIDATION)
@@ -208,6 +224,72 @@ TEST_CASE("Remote process integration with tessera_test_host", "[process][integr
 }
 
 #endif // !TESSERA_PORTABLE_VALIDATION
+
+TEST_CASE("MemoryWriter status convenience retries a transient protection restore failure",
+           "[memory][protection]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    auto& region = backend->map_region(
+        Address{0x28000}, 0x1000, MemoryProtection::Read);
+    region.restore_failures_remaining = 1;
+    Process process = FakeMemoryBackend::make_process(backend);
+    MemoryWriter writer{process};
+    const std::array<std::byte, 4> bytes{
+        std::byte{0x11}, std::byte{0x22}, std::byte{0x33}, std::byte{0x44}};
+
+    REQUIRE(writer.write(Address{0x28000}, bytes).has_value());
+    REQUIRE(region.protection == MemoryProtection::Read);
+}
+
+TEST_CASE("MemoryWriter rollback retains the first original protection restore ticket",
+           "[memory][protection][rollback]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    auto& read_only = backend->map_region(
+        Address{0x30000}, 0x1000, MemoryProtection::Read);
+    auto& writable = backend->map_region(
+        Address{0x31000}, 0x1000, MemoryProtection::ReadWrite);
+    std::array<std::byte, 8> original{
+        std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
+        std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8}};
+    backend->poke_bytes(Address{0x30FFC}, original);
+
+    Process process = FakeMemoryBackend::make_process(backend);
+    MemoryWriter writer{process};
+
+    // The first region writes, but its first protection restore fails. The
+    // second region then partially writes and forces rollback of the first.
+    read_only.restore_failures_remaining = 1;
+    writable.writable_prefix_limit = 2;
+    const std::array<std::byte, 8> replacement{
+        std::byte{0xA1}, std::byte{0xA2}, std::byte{0xA3}, std::byte{0xA4},
+        std::byte{0xB1}, std::byte{0xB2}, std::byte{0xB3}, std::byte{0xB4}};
+
+    auto report = writer.write_with_report(Address{0x30FFC}, replacement);
+    REQUIRE(report.has_value());
+    REQUIRE(report->rolled_back);
+    REQUIRE_FALSE(report->rollback_error.has_value());
+    REQUIRE(report->pending_protection_restores.size() == 1);
+    REQUIRE(read_only.protection == MemoryProtection::ReadWrite);
+    for (std::size_t index = 0; index < original.size(); ++index) {
+        REQUIRE(backend->peek_byte(Address{0x30FFC + index}) == original[index]);
+    }
+
+    // The rollback pass must not replace the ticket's true original Read
+    // protection with the temporary ReadWrite protection.
+    REQUIRE(writer.restore_pending_protections(*report).has_value());
+    REQUIRE(report->pending_protection_restores.empty());
+    REQUIRE_FALSE(report->protection_restore_warning.has_value());
+    REQUIRE(read_only.protection == MemoryProtection::Read);
+    // The bytes/protection are recovered, but the original write operation
+    // still failed and remains visible in write_error.
+    REQUIRE(report->write_error.has_value());
+    REQUIRE_FALSE(report->succeeded());
+}
 
 TEST_CASE("ProtectionScope retains restoration ownership after a failed restore", "[memory][protection]") {
     using namespace tessera;

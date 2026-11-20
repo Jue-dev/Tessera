@@ -324,6 +324,38 @@ Result<bool> MemoryReader::is_executable(AddressRange range) const noexcept {
 
 // ---- MemoryWriter -----------------------------------------------------------
 
+Status MemoryWriter::restore_pending_protections(WriteReport& report) const {
+    std::optional<Error> first_error;
+    auto it = report.pending_protection_restores.begin();
+    while (it != report.pending_protection_restores.end()) {
+        if (it->process.state() != process_.state()) {
+            return fail(ErrorCode::Conflict,
+                        "MemoryWriter::restore_pending_protections",
+                        0,
+                        "The pending protection ticket belongs to a different Process state");
+        }
+        auto restored = memory_backend(it->process).protect(
+            it->range.begin(), it->range.size(), it->original_protection);
+        if (restored) {
+            it = report.pending_protection_restores.erase(it);
+            continue;
+        }
+        if (!first_error) {
+            first_error = make_error(
+                ErrorCode::ProtectionRestoreFailed,
+                restored.error().operation,
+                restored.error().native,
+                "Retrying a pending page-protection restoration failed");
+        }
+        ++it;
+    }
+    if (first_error) {
+        return std::unexpected(*first_error);
+    }
+    report.protection_restore_warning.reset();
+    return ok();
+}
+
 Result<WriteReport> MemoryWriter::write_with_report(Address address,
                                                     std::span<const std::byte> data,
                                                     WriteOptions options) const {
@@ -395,8 +427,19 @@ Result<WriteReport> MemoryWriter::write_with_report(Address address,
         return fail(ErrorCode::OutOfMemory, "MemoryWriter::write_with_report");
     }
 
-    // Pass 2: Write region by region, elevating and restoring page protection per slice
+    // Reserve restoration tickets before touching memory. Once a page is made
+    // writable, recording a failed restoration must not itself allocate/fail.
     WriteReport report{};
+    if (slices.size() > report.pending_protection_restores.max_size() / 2) {
+        return fail(ErrorCode::OutOfMemory, "MemoryWriter::write_with_report");
+    }
+    try {
+        report.pending_protection_restores.reserve(slices.size() * 2);
+    } catch (const std::bad_alloc&) {
+        return fail(ErrorCode::OutOfMemory, "MemoryWriter::write_with_report");
+    }
+
+    // Pass 2: Write region by region, elevating and restoring page protection per slice
     std::size_t offset = 0;
 
     for (const auto& slice : slices) {
@@ -419,17 +462,24 @@ Result<WriteReport> MemoryWriter::write_with_report(Address address,
 
         if (slice.needs_protect_change) {
             auto restore_res = backend.protect(slice.slice_begin, slice.slice_size, restore_prot);
-            if (!restore_res && !report.protection_restore_warning) {
-                report.protection_restore_warning = make_error(
-                    ErrorCode::ProtectionRestoreFailed,
-                    restore_res.error().operation,
-                    restore_res.error().native,
-                    "Failed to restore original page protection after write");
-                diagnostics::notify(process_.observer(),
-                                    DiagnosticSeverity::Warning,
-                                    "MemoryWriter",
-                                    "Failed to restore page protection",
-                                    report.protection_restore_warning);
+            if (!restore_res) {
+                report.pending_protection_restores.push_back(PendingProtectionRestore{
+                    .process = process_,
+                    .range = AddressRange{slice.slice_begin, slice.slice_size},
+                    .original_protection = restore_prot,
+                });
+                if (!report.protection_restore_warning) {
+                    report.protection_restore_warning = make_error(
+                        ErrorCode::ProtectionRestoreFailed,
+                        restore_res.error().operation,
+                        restore_res.error().native,
+                        "Failed to restore original page protection after write");
+                    diagnostics::notify(process_.observer(),
+                                        DiagnosticSeverity::Warning,
+                                        "MemoryWriter",
+                                        "Failed to restore page protection; retry ownership is retained in WriteReport",
+                                        report.protection_restore_warning);
+                }
             }
         }
 
@@ -457,8 +507,17 @@ Result<WriteReport> MemoryWriter::write_with_report(Address address,
             }
             const std::size_t to_restore =
                 (std::min)(slice.slice_size, report.bytes_written - rb_offset);
+            const auto pending_restore = std::find_if(
+                report.pending_protection_restores.begin(),
+                report.pending_protection_restores.end(),
+                [&](const PendingProtectionRestore& pending) {
+                    return pending.range.begin() == slice.slice_begin &&
+                           pending.range.size() >= to_restore;
+                });
+            const bool already_elevated = pending_restore !=
+                report.pending_protection_restores.end();
             MemoryProtection restore_prot = slice.original_protection;
-            if (slice.needs_protect_change) {
+            if (slice.needs_protect_change && !already_elevated) {
                 const MemoryProtection elevated =
                     has_flag(slice.original_protection, MemoryProtection::Execute)
                         ? MemoryProtection::ExecuteReadWrite
@@ -473,14 +532,24 @@ Result<WriteReport> MemoryWriter::write_with_report(Address address,
             auto w = backend.write(
                 slice.slice_begin,
                 std::span<const std::byte>(backup_bytes.data() + rb_offset, to_restore));
-            if (slice.needs_protect_change) {
+            // If the first write pass could not restore this page, its existing
+            // ticket owns the original protection. Do not capture the temporary
+            // elevated protection as a second "original" value during rollback.
+            if (slice.needs_protect_change && !already_elevated) {
                 auto restore_result = backend.protect(slice.slice_begin, to_restore, restore_prot);
-                if (!restore_result && !report.rollback_error) {
-                    report.rollback_error = make_error(
-                        ErrorCode::ProtectionRestoreFailed,
-                        restore_result.error().operation,
-                        restore_result.error().native,
-                        "Failed to restore page protection during rollback");
+                if (!restore_result) {
+                    report.pending_protection_restores.push_back(PendingProtectionRestore{
+                        .process = process_,
+                        .range = AddressRange{slice.slice_begin, to_restore},
+                        .original_protection = restore_prot,
+                    });
+                    if (!report.protection_restore_warning) {
+                        report.protection_restore_warning = make_error(
+                            ErrorCode::ProtectionRestoreFailed,
+                            restore_result.error().operation,
+                            restore_result.error().native,
+                            "Failed to restore page protection during rollback");
+                    }
                 }
             }
             if (!w || *w != to_restore) {
@@ -515,6 +584,15 @@ Status MemoryWriter::write(Address address,
     auto rep = write_with_report(address, data, options);
     if (!rep) {
         return std::unexpected(rep.error());
+    }
+    // The status-only convenience API cannot return the report that owns
+    // pending restoration tickets. Give transient protection failures one
+    // immediate retry before translating the report to Status.
+    if (!rep->pending_protection_restores.empty()) {
+        auto retry_status = restore_pending_protections(*rep);
+        if (!retry_status) {
+            return std::unexpected(retry_status.error());
+        }
     }
     if (rep->write_error) {
         return std::unexpected(*rep->write_error);
