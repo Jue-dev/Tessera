@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <string_view>
 #if defined(__linux__)
 #include <sys/wait.h>
