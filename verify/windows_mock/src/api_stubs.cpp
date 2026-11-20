@@ -30,6 +30,8 @@ int thread_count = 1;
 int snapshot_thread_count = 1;
 bool create_thread_during_suspend = false;
 int create_threads_during_suspend_count = 0;
+int create_threads_during_enumeration_count = 0;
+int create_threads_during_context_count = 0;
 int thread_next_calls = 0;
 int suspend_thread_fail_on_call = 0;
 DWORD suspend_thread_error = NO_ERROR;
@@ -83,6 +85,8 @@ void reset() noexcept {
     snapshot_thread_count = 1;
     create_thread_during_suspend = false;
     create_threads_during_suspend_count = 0;
+    create_threads_during_enumeration_count = 0;
+    create_threads_during_context_count = 0;
     thread_next_calls = 0;
     suspend_thread_fail_on_call = 0;
     suspend_thread_error = NO_ERROR;
@@ -303,6 +307,10 @@ BOOL Thread32First(HANDLE, THREADENTRY32* entry) noexcept {
 }
 BOOL Thread32Next(HANDLE, THREADENTRY32* entry) noexcept {
     ++winmock::thread_next_calls;
+    if (winmock::create_threads_during_enumeration_count > 0) {
+        ++winmock::thread_count;
+        --winmock::create_threads_during_enumeration_count;
+    }
     if (winmock::thread_next_calls < winmock::snapshot_thread_count) {
         entry->dwSize = sizeof(THREADENTRY32);
         entry->th32ThreadID = 77u + static_cast<DWORD>(winmock::thread_next_calls);
@@ -342,6 +350,10 @@ DWORD SuspendThread(HANDLE) noexcept {
 }
 BOOL GetThreadContext(HANDLE, CONTEXT* context) noexcept {
     ++winmock::get_thread_context_calls;
+    if (winmock::create_threads_during_context_count > 0) {
+        ++winmock::thread_count;
+        --winmock::create_threads_during_context_count;
+    }
     if (winmock::get_thread_context_error != NO_ERROR) { SetLastError(winmock::get_thread_context_error); return FALSE; }
     context->Eip = 0x5000;
     context->Rip = 0x5000;
