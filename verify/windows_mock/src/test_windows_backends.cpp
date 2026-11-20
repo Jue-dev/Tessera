@@ -33,6 +33,39 @@ int main() {
     check(process.has_value(), "from_native_handle builds a mock x64 Process");
     if (!process) return 2;
 
+    // Process-open contract: required query-limited access is always requested,
+    // while the caller's requested VM rights and PID are preserved exactly.
+    winmock::reset();
+    auto opened_process = Process::open(ProcessId{123}, ProcessAccess::Read);
+    constexpr DWORD expected_process_access = PROCESS_VM_READ | PROCESS_QUERY_LIMITED_INFORMATION;
+    check(opened_process && winmock::native_api_call_count >= 4 &&
+              winmock::native_api_call_log[0].call == winmock::NativeApi::OpenProcess &&
+              winmock::native_api_call_log[0].argument1 == expected_process_access &&
+              winmock::native_api_call_log[0].argument2 == FALSE &&
+              winmock::native_api_call_log[0].argument3 == 123 &&
+              winmock::native_api_call_log[1].call == winmock::NativeApi::GetProcessId &&
+              winmock::native_api_call_log[1].handle == 0x44 &&
+              winmock::native_api_call_log[2].call == winmock::NativeApi::IsWow64Process2 &&
+              winmock::native_api_call_log[2].handle == 0x44,
+          "Process::open records exact PID/access mask and native-handle query ordering");
+
+    winmock::reset();
+    winmock::fail_native_api = winmock::NativeApi::OpenProcess;
+    winmock::fail_native_api_on_call = 1;
+    auto open_api_failure = Process::open(ProcessId{123}, ProcessAccess::Read);
+    check(!open_api_failure && open_api_failure.error().operation == "OpenProcess" &&
+              open_api_failure.error().native == ERROR_ACCESS_DENIED,
+          "OpenProcess indexed failure preserves the Win32 error and fails closed");
+
+    winmock::reset();
+    winmock::fail_native_api = winmock::NativeApi::GetProcessId;
+    winmock::fail_native_api_on_call = 1;
+    auto pid_api_failure = from_native_handle(reinterpret_cast<void*>(static_cast<std::uintptr_t>(0x45)),
+                                              Ownership::Owned);
+    check(!pid_api_failure && pid_api_failure.error().operation == "GetProcessId" &&
+              pid_api_failure.error().native == ERROR_ACCESS_DENIED && winmock::close_handle_calls == 1,
+          "GetProcessId indexed failure closes the owned native handle");
+
     winmock::reset();
     winmock::process_machine = IMAGE_FILE_MACHINE_I386;
     auto wow64_process = from_native_handle(reinterpret_cast<void*>(static_cast<std::uintptr_t>(0x45)),
@@ -216,6 +249,45 @@ int main() {
                   modules->at(0).base() != modules->at(1).base(),
               "ModuleCatalog returns distinct module image ranges");
     }
+    const auto& module_api_log = winmock::native_api_call_log;
+    check(winmock::native_api_call_count == 7 &&
+              module_api_log[0].call == winmock::NativeApi::EnumProcessModulesEx &&
+              module_api_log[0].handle == 0x44 &&
+              module_api_log[0].argument2 == 256 * sizeof(HMODULE) &&
+              module_api_log[0].argument3 == LIST_MODULES_ALL &&
+              module_api_log[1].call == winmock::NativeApi::GetModuleInformation &&
+              module_api_log[1].argument1 == 0x111 &&
+              module_api_log[2].call == winmock::NativeApi::GetModuleBaseNameW &&
+              module_api_log[2].argument1 == 0x111 &&
+              module_api_log[3].call == winmock::NativeApi::GetModuleFileNameExW &&
+              module_api_log[3].argument1 == 0x111 &&
+              module_api_log[4].call == winmock::NativeApi::GetModuleInformation &&
+              module_api_log[4].argument1 == 0x222,
+          "module enumeration records buffer bytes, flags, handles, and metadata/name/path query order");
+
+    winmock::reset();
+    winmock::fail_native_api = winmock::NativeApi::EnumProcessModulesEx;
+    winmock::fail_native_api_on_call = 1;
+    auto enum_api_failure = ModuleCatalog::snapshot(*process);
+    check(!enum_api_failure && enum_api_failure.error().operation == "EnumProcessModulesEx" &&
+              enum_api_failure.error().native == ERROR_ACCESS_DENIED && winmock::module_calls == 1,
+          "EnumProcessModulesEx indexed failure reports native error without retrying");
+
+    winmock::reset();
+    winmock::fail_native_api = winmock::NativeApi::GetModuleInformation;
+    winmock::fail_native_api_on_call = 1;
+    auto info_api_failure = ModuleCatalog::snapshot(*process);
+    check(info_api_failure && info_api_failure->empty() &&
+              winmock::native_api_call_log[1].call == winmock::NativeApi::GetModuleInformation,
+          "GetModuleInformation failure never fabricates a module record");
+
+    winmock::reset();
+    winmock::fail_native_api = winmock::NativeApi::GetModuleBaseNameW;
+    winmock::fail_native_api_on_call = 1;
+    auto base_name_api_failure = ModuleCatalog::snapshot(*process);
+    check(base_name_api_failure && base_name_api_failure->size() == 1 &&
+              base_name_api_failure->front().name() == u"beta.dll",
+          "GetModuleBaseNameW failure skips only the affected module");
 
     winmock::reset();
     winmock::module_mode = winmock::ModuleMode::Growing;
