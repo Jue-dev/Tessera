@@ -192,17 +192,17 @@ tessera_add_test(tessera_test_utility
 
 tessera_add_test(tessera_test_filesystem
     SOURCES infra/test_filesystem.cpp
-    LIBS tessera::core tessera::diagnostics tessera::filesystem
+    LIBS tessera::core tessera::diagnostics tessera::utility tessera::filesystem
 )
 
 tessera_add_test(tessera_test_json
     SOURCES infra/test_json.cpp
-    LIBS tessera::core tessera::diagnostics tessera::json
+    LIBS tessera::core tessera::diagnostics tessera::utility tessera::json
 )
 
 tessera_add_test(tessera_test_reflection
     SOURCES infra/test_reflection.cpp
-    LIBS tessera::core tessera::diagnostics tessera::logging tessera::profiling tessera::reflection
+    LIBS tessera::core tessera::diagnostics tessera::utility tessera::logging tessera::profiling tessera::reflection
 )
 
 tessera_add_test(tessera_test_profile_targets
