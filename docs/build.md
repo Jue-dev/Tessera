@@ -37,6 +37,60 @@ find_package(Tessera CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE tessera::tessera)
 ```
 
+## CMake configuration options and supported reduced builds
+
+The default developer configuration enables tests and examples, keeps benchmarks and
+fuzz harnesses opt-in, and enables the profile, target-profile, and logging SDK
+components. The CI reduced-configuration matrix disables tests and examples for
+all reduced SDK variants, then builds, installs, and compiles a separate
+`find_package(Tessera CONFIG REQUIRED` consumer against each installed package.
+
+| CI variant | Options changed from the reduced-build baseline |
+| --- | --- |
+| `minimal` | `TESSERA_BUILD_PROFILE=OFF`, `TESSERA_BUILD_TARGETS=OFF`, `TESSERA_BUILD_LOGGING=OFF` |
+| `no-profile` | `TESSERA_BUILD_PROFILE=OFF` |
+| `no-targets` | `TESSERA_BUILD_TARGETS=OFF` |
+| `no-logging` | `TESSERA_BUILD_LOGGING=OFF` |
+
+The reduced-build baseline also sets `TESSERA_BUILD_TESTS=OFF` and
+`TESSERA_BUILD_EXAMPLES=OFF`. The regular x86/x64 Debug/Release CI jobs exercise
+the default test/example-enabled build; the quality gate separately enables
+benchmark and fuzz targets.
+
+Important options and constraints:
+
+- `TESSERA_BUILD_TESTS` and `TESSERA_BUILD_EXAMPLES` control their respective
+  verification and sample subdirectories.
+- `TESSERA_BUILD_BENCH` and `TESSERA_BUILD_FUZZ` are opt-in and add the
+  verification subdirectory even when tests are disabled.
+- `TESSERA_BUILD_PROFILE`, `TESSERA_BUILD_TARGETS`, and
+  `TESSERA_BUILD_LOGGING` independently remove optional SDK components.
+- `TESSERA_WITH_DETOURS=ON` requires Microsoft Detours headers and a compatible
+  library; configuration fails when the dependency is unavailable.
+- `TESSERA_ENABLE_LIBFUZZER=ON` requires `TESSERA_STATIC_RUNTIME=ON` on
+  Windows. The LLVM fuzzer runtime does not support the dynamic `/MD` runtime.
+- `TESSERA_ENABLE_MSVC_FUZZER=ON` requires native MSVC,
+  `TESSERA_ENABLE_ASAN=ON`, and `TESSERA_STATIC_RUNTIME=ON`; it cannot be
+  enabled together with `TESSERA_ENABLE_LIBFUZZER`.
+- `TESSERA_ENABLE_ANALYZE` enables MSVC static analysis and is exercised by a
+  dedicated CI job rather than a reduced package variant.
+
+Example minimal installed SDK build:
+
+```powershell
+cmake -S . -B build-minimal -G Ninja -DCMAKE_BUILD_TYPE=Release `
+  -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF `
+  -DTESSERA_BUILD_PROFILE=OFF -DTESSERA_BUILD_TARGETS=OFF `
+  -DTESSERA_BUILD_LOGGING=OFF
+cmake --build build-minimal --parallel
+cmake --install build-minimal --prefix install-minimal
+```
+
+The four CI variants are representative supported configurations, not an
+exhaustive Cartesian product of every CMake option. Dependency-specific
+Detours and fuzzer toolchain combinations are validated by their dedicated
+integration/quality workflows.
+
 ## Benchmarks
 
 Benchmark targets are opt-in and do not replace correctness tests. Configure and build them separately:
