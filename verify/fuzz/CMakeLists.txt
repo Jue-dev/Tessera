@@ -16,6 +16,13 @@ add_executable(tessera_fuzz_profile_json fuzz_profile_json.cpp)
 target_link_libraries(tessera_fuzz_profile_json PRIVATE tessera::tessera)
 tessera_apply_target_options(tessera_fuzz_profile_json)
 
+add_executable(tessera_fuzz_rtti_discovery fuzz_rtti_discovery.cpp)
+target_link_libraries(tessera_fuzz_rtti_discovery PRIVATE tessera::tessera)
+target_include_directories(tessera_fuzz_rtti_discovery PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tests/support
+)
+tessera_apply_target_options(tessera_fuzz_rtti_discovery)
+
 # The native relocator is Windows-only. This harness maps fuzz bytes into an
 # isolated executable page, asks the real backend to attach/detach, and never
 # executes the supplied bytes or generated trampoline.
@@ -43,6 +50,7 @@ if(TESSERA_ENABLE_MSVC_FUZZER)
         tessera_fuzz_pe
         tessera_fuzz_json
         tessera_fuzz_profile_json
+        tessera_fuzz_rtti_discovery
     )
     if(TARGET tessera_fuzz_native_hook)
         list(APPEND TESSERA_MSVC_FUZZ_TARGETS tessera_fuzz_native_hook)
