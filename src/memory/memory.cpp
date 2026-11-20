@@ -325,11 +325,16 @@ Result<bool> MemoryReader::is_executable(AddressRange range) const noexcept {
 // ---- MemoryWriter -----------------------------------------------------------
 
 Status MemoryWriter::restore_pending_protections(WriteReport& report) const {
-    const IMemoryBackend& backend = memory_backend(process_);
     std::optional<Error> first_error;
     auto it = report.pending_protection_restores.begin();
     while (it != report.pending_protection_restores.end()) {
-        auto restored = backend.protect(
+        if (it->process.state() != process_.state()) {
+            return fail(ErrorCode::Conflict,
+                        "MemoryWriter::restore_pending_protections",
+                        0,
+                        "The pending protection ticket belongs to a different Process state");
+        }
+        auto restored = memory_backend(it->process).protect(
             it->range.begin(), it->range.size(), it->original_protection);
         if (restored) {
             it = report.pending_protection_restores.erase(it);
@@ -459,6 +464,7 @@ Result<WriteReport> MemoryWriter::write_with_report(Address address,
             auto restore_res = backend.protect(slice.slice_begin, slice.slice_size, restore_prot);
             if (!restore_res) {
                 report.pending_protection_restores.push_back(PendingProtectionRestore{
+                    .process = process_,
                     .range = AddressRange{slice.slice_begin, slice.slice_size},
                     .original_protection = restore_prot,
                 });
@@ -533,6 +539,7 @@ Result<WriteReport> MemoryWriter::write_with_report(Address address,
                 auto restore_result = backend.protect(slice.slice_begin, to_restore, restore_prot);
                 if (!restore_result) {
                     report.pending_protection_restores.push_back(PendingProtectionRestore{
+                        .process = process_,
                         .range = AddressRange{slice.slice_begin, to_restore},
                         .original_protection = restore_prot,
                     });
