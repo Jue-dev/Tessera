@@ -12,6 +12,10 @@ add_executable(tessera_fuzz_json fuzz_json.cpp)
 target_link_libraries(tessera_fuzz_json PRIVATE tessera::tessera)
 tessera_apply_target_options(tessera_fuzz_json)
 
+add_executable(tessera_fuzz_profile_json fuzz_profile_json.cpp)
+target_link_libraries(tessera_fuzz_profile_json PRIVATE tessera::tessera)
+tessera_apply_target_options(tessera_fuzz_profile_json)
+
 # The native relocator is Windows-only. This harness maps fuzz bytes into an
 # isolated executable page, asks the real backend to attach/detach, and never
 # executes the supplied bytes or generated trampoline.
@@ -38,6 +42,7 @@ if(TESSERA_ENABLE_MSVC_FUZZER)
         tessera_fuzz_pattern
         tessera_fuzz_pe
         tessera_fuzz_json
+        tessera_fuzz_profile_json
     )
     if(TARGET tessera_fuzz_native_hook)
         list(APPEND TESSERA_MSVC_FUZZ_TARGETS tessera_fuzz_native_hook)
@@ -134,6 +139,7 @@ if(TESSERA_ENABLE_LIBFUZZER)
         tessera_fuzz_pattern
         tessera_fuzz_pe
         tessera_fuzz_json
+        tessera_fuzz_profile_json
     )
     if(TARGET tessera_fuzz_native_hook)
         list(APPEND TESSERA_FUZZ_TARGETS tessera_fuzz_native_hook)
