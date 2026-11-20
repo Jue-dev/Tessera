@@ -24,6 +24,8 @@ int snapshot_calls = 0;
 int thread_first_calls = 0;
 int open_thread_calls = 0;
 int close_handle_calls = 0;
+int close_handle_fail_on_call = 0;
+DWORD close_handle_error = ERROR_ACCESS_DENIED;
 int thread_count = 1;
 int snapshot_thread_count = 1;
 bool create_thread_during_suspend = false;
@@ -62,6 +64,8 @@ void reset() noexcept {
     thread_first_calls = 0;
     open_thread_calls = 0;
     close_handle_calls = 0;
+    close_handle_fail_on_call = 0;
+    close_handle_error = ERROR_ACCESS_DENIED;
     thread_count = 1;
     snapshot_thread_count = 1;
     create_thread_during_suspend = false;
@@ -98,7 +102,15 @@ HANDLE GetCurrentProcess() noexcept { return reinterpret_cast<HANDLE>(static_cas
 DWORD GetCurrentProcessId() noexcept { return 42; }
 HANDLE GetCurrentThread() noexcept { return reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(2)); }
 DWORD GetCurrentThreadId() noexcept { return 41; }
-BOOL CloseHandle(HANDLE) noexcept { ++winmock::close_handle_calls; return TRUE; }
+BOOL CloseHandle(HANDLE) noexcept {
+    ++winmock::close_handle_calls;
+    if (winmock::close_handle_fail_on_call != 0 &&
+        winmock::close_handle_calls == winmock::close_handle_fail_on_call) {
+        SetLastError(winmock::close_handle_error);
+        return FALSE;
+    }
+    return TRUE;
+}
 BOOL IsWow64Process2(HANDLE, USHORT* process_machine, USHORT* native_machine) noexcept {
     *process_machine = winmock::process_machine;
     *native_machine = winmock::native_machine;
