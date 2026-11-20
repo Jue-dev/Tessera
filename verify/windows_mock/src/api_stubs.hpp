@@ -44,7 +44,16 @@ extern int detour_abort_calls;
 extern std::array<std::byte, 64> process_memory;
 extern DWORD process_memory_protect;
 extern std::size_t max_read_chunk;
+extern int write_process_memory_calls;
+extern int write_process_memory_fail_on_call;
+extern DWORD write_process_memory_error;
+extern std::size_t write_process_memory_partial_bytes;
+extern int virtual_protect_calls;
+extern int virtual_protect_fail_on_call;
+extern DWORD virtual_protect_error;
 extern int flush_instruction_cache_calls;
+extern int flush_instruction_cache_fail_on_call;
+extern DWORD flush_instruction_cache_error;
 extern USHORT process_machine;
 extern USHORT native_machine;
 
