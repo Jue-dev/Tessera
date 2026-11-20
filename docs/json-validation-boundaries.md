@@ -19,6 +19,10 @@ This note records the review of the profile and target-profile JSON paths. It in
 - Hexadecimal RVA/fingerprint fields and enum spellings are target-profile wire-format concerns.
 - Structural invariants are enforced by `validate_target_profile_schema` (application identity, executable list, unique build/address IDs, module references, and required validation rules).
 
+## RTTI shared traversal extraction
+
+`python_bridge.cpp` and `discovery.cpp` contained byte-for-byte identical `for_each_readable_chunk` templates. They now share the private `src/rtti/readable_chunks.hpp` implementation. This helper owns only the common mechanics (query committed readable regions, clip to the requested range, chunk reads with overlap, and report executable protection); Python and MSVC RTTI consumers retain their own interpretation and validation rules.
+
 ## Refactoring decision
 
 The two modules do not share a stable field schema, error taxonomy, or normalization policy. A generic typed-field helper would either erase useful field-specific error context or become a thin wrapper around the existing `JsonValue::find` / `as_*` operations. Secret handling is unique to settings profiles, while enum/hex/recipe handling is unique to target profiles. Keep these conversions local.
