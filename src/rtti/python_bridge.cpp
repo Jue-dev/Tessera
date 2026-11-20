@@ -12,9 +12,10 @@
 #include "tessera/rtti/discovery.hpp"
 #include "tessera/utility/string.hpp"
 
+#include "readable_chunks.hpp"
+
 namespace tessera::rtti {
 
-#include "readable_chunks.hpp"
 
 namespace {
 
