@@ -10,6 +10,20 @@
 
 namespace tessera::platform::windows {
 
+namespace {
+void close_owned_handle(HANDLE handle) noexcept {
+    if (handle != nullptr && !::CloseHandle(handle)) {
+        const DWORD error = ::GetLastError();
+        std::fprintf(stderr,
+                     "Tessera: CloseHandle failed for an owned thread-enumeration handle (error=%lu)\\n",
+                     static_cast<unsigned long>(error));
+        // Dropping an owned snapshot/thread handle after a failed close silently
+        // leaks process resources. The cleanup invariant is therefore fail-stop.
+        std::terminate();
+    }
+}
+} // namespace
+
 ScopedThreadList::ScopedThreadList(ScopedThreadList&& other) noexcept
     : handles_(std::move(other.handles_)) {}
 
@@ -28,7 +42,7 @@ ScopedThreadList::~ScopedThreadList() noexcept {
 void ScopedThreadList::close_all() noexcept {
     for (void* h : handles_) {
         if (h != nullptr) {
-            ::CloseHandle(static_cast<HANDLE>(h));
+            close_owned_handle(static_cast<HANDLE>(h));
         }
     }
     handles_.clear();
@@ -60,7 +74,7 @@ Result<ScopedThreadList> ScopedThreadList::collect_other_threads(
     te.dwSize = sizeof(te);
     if (!::Thread32First(snap, &te)) {
         const DWORD err = ::GetLastError();
-        ::CloseHandle(snap);
+        close_owned_handle(snap);
         if (policy == ThreadPolicy::SuspendOthersStrict) {
             return fail(ErrorCode::ThreadEnumerationFailed, "Thread32First", err);
         }
@@ -85,7 +99,7 @@ Result<ScopedThreadList> ScopedThreadList::collect_other_threads(
                     } catch (...) {
                         // Ownership transfers to the list only after push_back
                         // succeeds; close the just-opened handle on allocation failure.
-                        (void)::CloseHandle(th);
+                        close_owned_handle(th);
                         throw;
                     }
                 } else {
