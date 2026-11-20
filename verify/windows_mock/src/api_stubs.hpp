@@ -19,6 +19,8 @@ extern int snapshot_calls;
 extern int thread_first_calls;
 extern int open_thread_calls;
 extern int close_handle_calls;
+extern int close_handle_fail_on_call;
+extern DWORD close_handle_error;
 extern int thread_count;
 extern int snapshot_thread_count;
 extern bool create_thread_during_suspend;
