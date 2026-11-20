@@ -188,8 +188,8 @@ int main() {
     auto partial_suspend_failure = tessera::detail::native_hook::SuspendedThreads::acquire(
         ThreadPolicy::SuspendOthersStrict);
     check(!partial_suspend_failure && partial_suspend_failure.error().operation == "SuspendThread" &&
-              winmock::suspend_thread_calls == 2 && winmock::resume_thread_calls == 1 &&
-              winmock::close_handle_calls == 3,
+              winmock::thread_next_calls == 2 && winmock::suspend_thread_calls == 2 &&
+              winmock::resume_thread_calls == 1 && winmock::close_handle_calls == 3,
           "strict partial-suspend failure resumes prior threads and closes both thread handles plus snapshot");
 
     winmock::reset();
