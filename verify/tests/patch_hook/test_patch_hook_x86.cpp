@@ -280,7 +280,7 @@ TEST_CASE("Native x86 relocator expands short JMP and Jcc while preserving tramp
         std::byte{0x00}, std::byte{0xC3}};
     run_case(short_jmp);
 
-    // JZ +2 targets the MOV after two NOPs; the not-taken path falls through.
+    // JZ +2 targets the MOV after two NOPs; XOR makes the taken path deterministic.
     const std::array<std::byte, 12> short_jcc{
         std::byte{0x31}, std::byte{0xC0}, std::byte{0x74}, std::byte{0x02},
         std::byte{0x90}, std::byte{0x90}, std::byte{0xB8}, std::byte{0x2A},
