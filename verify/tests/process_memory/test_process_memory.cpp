@@ -321,6 +321,48 @@ TEST_CASE("ProtectionScope retains restoration ownership after a failed restore"
     REQUIRE(region.protection == MemoryProtection::Read);
 }
 
+TEST_CASE("MemoryReader rejects a partial UTF-16 code unit", "[memory][strings][utf16]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    auto& region = backend->map_region(
+        Address{0x29000}, 0x1000, MemoryProtection::Read);
+    const std::array<char16_t, 2> text{u'A', u'\0'};
+    backend->poke_bytes(
+        Address{0x29000},
+        std::as_bytes(std::span<const char16_t>(text.data(), text.size())));
+
+    // Permit only the first byte of the first UTF-16 code unit.
+    region.readable_prefix_limit = 1;
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
+    MemoryReader reader{process};
+
+    const auto result = reader.read_utf16(Address{0x29000});
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().code == ErrorCode::PartialTransfer);
+}
+
+TEST_CASE("MemoryReader reports an unterminated string after a short backend read",
+          "[memory][strings]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    auto& region = backend->map_region(
+        Address{0x2A000}, 0x1000, MemoryProtection::Read);
+    const std::array<std::byte, 2> prefix{std::byte{0x41}, std::byte{0x42}};
+    backend->poke_bytes(Address{0x2A000}, prefix);
+    region.readable_prefix_limit = prefix.size();
+
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
+    MemoryReader reader{process};
+
+    const auto result = reader.read_cstring(Address{0x2A000}, 16);
+    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.error().code == ErrorCode::PartialTransfer);
+}
+
 TEST_CASE("MemoryWriter reports rollback protection restoration failures to the observer",
            "[memory][protection][rollback][diagnostics]") {
     using namespace tessera;
