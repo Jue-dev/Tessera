@@ -46,6 +46,16 @@ call-lifecycle tracking.
 7. **Retain retryable ownership on failed teardown.** If detach, rollback, or
    unwind-table unregistration cannot complete safely, the operation must not
    report success or discard the state needed for a retry.
+8. **Retain page-protection restoration ownership.** A failed protection
+   restoration during a memory write is represented by a process-bound retry
+   ticket in `WriteReport`. The ticket preserves the exact affected range and
+   the original protection returned by the successful elevation operation.
+   Callers using `write_with_report` must retain the report and retry with
+   `MemoryWriter::restore_pending_protections`; a report with outstanding
+   tickets is not successful. `Patch` retains such reports across its
+   lifecycle. The status-only `write` convenience API can only perform an
+   immediate retry and cannot transfer persistent retry ownership to callers.
+   See [Memory write protection recovery](../memory-write-recovery.md).
 
 ## Consequences
 
@@ -78,9 +88,11 @@ The latest exact-head validation for PR #23 completed successfully on commit
 These results establish the PR's current build/test/fuzz acceptance, not a
 universal production-safety certification. Remaining production obligations
 are tracked separately in [Issue #24](https://github.com/Jue-dev/Tessera/issues/24):
-deterministic Win32 failure injection, page-protection restoration recovery,
-cross-image registry coordination, thread-creation race boundaries, and
-additional semantic decoder/relocator validation.
+deterministic Win32 failure injection, cross-image registry coordination,
+thread-creation race boundaries, and additional semantic decoder/relocator
+validation. Page-protection restoration recovery is implemented in PR #25 and
+its exact-head CI passed; independent review and any further API compatibility
+review remain tracked in Issue #24.
 
 The archived Issue #6 documents are retained under `docs/archive/native-hook/`
 for historical context only; their old CI snapshots are superseded by the
