@@ -302,6 +302,7 @@ tessera_add_module(
         src/platform/windows/thread_backend.cpp
         src/hook/backends/detours_backend.cpp
         src/hook/backends/native_inline_backend.cpp
+        src/hook/backends/x86_instruction_decoder.cpp
     PUBLIC_HEADERS
         include/tessera/hook/hook.hpp
     PUBLIC_DEPS
