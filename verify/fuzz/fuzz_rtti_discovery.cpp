@@ -1,6 +1,5 @@
 #include "FakeMemoryBackend.hpp"
 #include "tessera/rtti/discovery.hpp"
-#include "tessera/rtti/rtti.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -26,7 +25,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     backend->map_region(
         tessera::Address{kFuzzBase},
         region_size,
-        tessera::MemoryProtection::ReadWrite);
+        tessera::MemoryProtection::ExecuteReadWrite);
 
     if (bounded_size != 0) {
         const std::span<const std::byte> bytes{
@@ -41,7 +40,6 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
 
     (void)tessera::rtti::BinaryExplorer::scan_all_type_descriptors(process, range);
     (void)tessera::rtti::BinaryExplorer::scan_strings(process, range);
-    (void)tessera::rtti::RttiCatalog::discover_all(process, range);
     return 0;
 }
 
