@@ -46,6 +46,7 @@ extern DWORD process_memory_protect;
 extern std::size_t max_read_chunk;
 extern int write_process_memory_calls;
 extern int write_process_memory_fail_on_call;
+extern int write_process_memory_fail_on_call_2;
 extern DWORD write_process_memory_error;
 extern std::size_t write_process_memory_partial_bytes;
 extern int virtual_protect_calls;
