@@ -295,3 +295,39 @@ TEST_CASE("PatchTransaction does not roll back patches applied before the transa
     REQUIRE(*backend->peek_byte(Address{0x610100}) == std::byte{0x10});
 }
 
+
+TEST_CASE("Patch retains and retries a failed page-protection restoration",
+           "[patch][memory][protection]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    auto& region = backend->map_region(
+        Address{0x620000}, 0x1000, MemoryProtection::Read);
+    const std::array<std::byte, 4> original{
+        std::byte{0x10}, std::byte{0x20}, std::byte{0x30}, std::byte{0x40}};
+    backend->poke_bytes(Address{0x620100}, original);
+
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
+    auto patch_result = Patch::nop(
+        ProcessAddress{process, Address{0x620100}}, original.size());
+    REQUIRE(patch_result.has_value());
+    Patch patch = std::move(*patch_result);
+
+    region.restore_failures_remaining = 1;
+    auto apply_status = patch.apply();
+    REQUIRE_FALSE(apply_status.has_value());
+    REQUIRE(apply_status.error().code == ErrorCode::ProtectionRestoreFailed);
+    REQUIRE(patch.state() == PatchState::Applied);
+    REQUIRE(region.protection == MemoryProtection::ReadWrite);
+
+    // Patch must retain the report's ticket. restore() first retries the
+    // original Read protection, then safely writes the original bytes.
+    REQUIRE(patch.restore().has_value());
+    REQUIRE(patch.state() == PatchState::Restored);
+    REQUIRE(region.protection == MemoryProtection::Read);
+    for (std::size_t index = 0; index < original.size(); ++index) {
+        REQUIRE(backend->peek_byte(Address{0x620100 + index}) == original[index]);
+    }
+}
+
