@@ -29,6 +29,7 @@ DWORD close_handle_error = ERROR_ACCESS_DENIED;
 int thread_count = 1;
 int snapshot_thread_count = 1;
 bool create_thread_during_suspend = false;
+int create_threads_during_suspend_count = 0;
 int thread_next_calls = 0;
 int suspend_thread_fail_on_call = 0;
 DWORD suspend_thread_error = NO_ERROR;
@@ -301,9 +302,9 @@ BOOL Thread32First(HANDLE, THREADENTRY32* entry) noexcept {
 }
 BOOL Thread32Next(HANDLE, THREADENTRY32* entry) noexcept {
     ++winmock::thread_next_calls;
-    if (winmock::snapshot_thread_count > 1 && winmock::thread_next_calls == 1) {
+    if (winmock::thread_next_calls < winmock::snapshot_thread_count) {
         entry->dwSize = sizeof(THREADENTRY32);
-        entry->th32ThreadID = 78;
+        entry->th32ThreadID = 77u + static_cast<DWORD>(winmock::thread_next_calls);
         entry->th32OwnerProcessID = GetCurrentProcessId();
         return TRUE;
     }
@@ -325,6 +326,10 @@ DWORD SuspendThread(HANDLE) noexcept {
         // Model a host creating a new thread after the snapshot was captured.
         ++winmock::thread_count;
         winmock::create_thread_during_suspend = false;
+    }
+    if (winmock::create_threads_during_suspend_count > 0) {
+        ++winmock::thread_count;
+        --winmock::create_threads_during_suspend_count;
     }
     if (winmock::suspend_thread_error != NO_ERROR ||
         (winmock::suspend_thread_fail_on_call != 0 &&
