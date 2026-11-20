@@ -51,6 +51,7 @@ DWORD process_memory_protect = PAGE_EXECUTE_READ;
 std::size_t max_read_chunk = static_cast<std::size_t>(-1);
 int write_process_memory_calls = 0;
 int write_process_memory_fail_on_call = 0;
+int write_process_memory_fail_on_call_2 = 0;
 DWORD write_process_memory_error = ERROR_ACCESS_DENIED;
 std::size_t write_process_memory_partial_bytes = 0;
 int virtual_protect_calls = 0;
@@ -162,10 +163,16 @@ BOOL WriteProcessMemory(HANDLE, LPVOID address, LPCVOID buffer, SIZE_T requested
     }
     const std::size_t offset = static_cast<std::size_t>(value - base);
     const std::size_t available = winmock::process_memory.size() - offset;
-    if (winmock::write_process_memory_fail_on_call != 0 &&
-        winmock::write_process_memory_calls == winmock::write_process_memory_fail_on_call) {
-        const std::size_t partial = (std::min)({requested, available,
-                                               winmock::write_process_memory_partial_bytes});
+    const bool primary_failure =
+        winmock::write_process_memory_fail_on_call != 0 &&
+        winmock::write_process_memory_calls == winmock::write_process_memory_fail_on_call;
+    const bool secondary_failure =
+        winmock::write_process_memory_fail_on_call_2 != 0 &&
+        winmock::write_process_memory_calls == winmock::write_process_memory_fail_on_call_2;
+    if (primary_failure || secondary_failure) {
+        const std::size_t partial = primary_failure
+            ? (std::min)({requested, available, winmock::write_process_memory_partial_bytes})
+            : 0u;
         if (partial != 0) {
             std::memcpy(winmock::process_memory.data() + offset, buffer, partial);
         }
