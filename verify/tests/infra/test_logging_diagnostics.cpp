@@ -15,10 +15,10 @@ namespace {
 class RecordingObserver final : public tessera::diagnostics::DiagnosticObserver {
 public:
     void on_diagnostic(const tessera::diagnostics::DiagnosticEvent& event) noexcept override {
-        events.push_back(event);
+        events_.push_back(event);
     }
 
-    std::vector<tessera::diagnostics::DiagnosticEvent> events{};
+    std::vector<tessera::diagnostics::DiagnosticEvent> events_{};
 };
 
 } // namespace
@@ -95,7 +95,7 @@ TEST_CASE("Diagnostics format errors and notify observers", "[diagnostics]") {
     diagnostics::notify(&observer, DiagnosticSeverity::Warning, "test", "missing optional field", error);
     diagnostics::notify(&observer, DiagnosticSeverity::Error, "test", "lookup failed");
     diagnostics::notify(nullptr, DiagnosticSeverity::Info, "test", "ignored");
-    REQUIRE(observer.events.size() == 3);
+    REQUIRE(observer.events_.size() == 3);
     REQUIRE(observer.events[0].severity == DiagnosticSeverity::Info);
     REQUIRE(observer.events[1].category == "test");
     REQUIRE(observer.events[1].message == "missing optional field");

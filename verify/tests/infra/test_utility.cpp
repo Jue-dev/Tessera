@@ -129,7 +129,8 @@ TEST_CASE("Utility helpers cover empty input and malformed hex boundaries", "[ut
     REQUIRE(*storage == (std::filesystem::absolute(root / "app")).lexically_normal());
 }
 
-TEST_CASE("ScopeGuard runs on early return and exception unwinding, and transfers ownership", "[utility][scope_guard]") {
+TEST_CASE("ScopeGuard runs on early return and exception unwinding, and transfers ownership",
+          "[utility][scope_guard]") {
     using namespace tessera::utility;
 
     int calls = 0;
