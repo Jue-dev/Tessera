@@ -148,6 +148,7 @@ if(TESSERA_ENABLE_LIBFUZZER)
         tessera_fuzz_pe
         tessera_fuzz_json
         tessera_fuzz_profile_json
+        tessera_fuzz_rtti_discovery
     )
     if(TARGET tessera_fuzz_native_hook)
         list(APPEND TESSERA_FUZZ_TARGETS tessera_fuzz_native_hook)
