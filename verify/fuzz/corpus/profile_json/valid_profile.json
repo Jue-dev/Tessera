@@ -1,0 +1,1 @@
+{"formatVersion":1,"schemaVersion":1,"revision":0,"id":"fuzz-profile","name":"Fuzz Profile","description":"seed","tags":["smoke","unicode-λ"],"values":{"enabled":true,"count":7,"ratio":1.25,"label":"hello","paths":["one","two"]}}
