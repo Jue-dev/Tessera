@@ -293,7 +293,7 @@ int main() {
                 ThreadPolicy::SuspendOthersStrict);
             const bool captured_only_snapshot_threads =
                 repeated_snapshot_race && winmock::snapshot_thread_count == 4 &&
-                winmock::thread_count == 13 && winmock::open_thread_calls == 4 &&
+                winmock::thread_count == 10 && winmock::open_thread_calls == 4 &&
                 winmock::suspend_thread_calls == 4 && winmock::thread_next_calls == 4;
             if (!captured_only_snapshot_threads) {
                 repeated_snapshot_race_ok = false;
@@ -314,7 +314,7 @@ int main() {
         }
     }
     check(repeated_snapshot_race_ok,
-          "repeated thread creation during suspend never expands the captured finite snapshot");
+          "repeated thread creation during enumeration, suspend, and context never expands the finite snapshot");
 
     winmock::reset();
     winmock::thread_count = 2;
