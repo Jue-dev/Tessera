@@ -13,7 +13,7 @@ namespace tessera::platform::windows {
 namespace {
 [[noreturn]] void fail_stop_cleanup(const char* operation, DWORD error) noexcept {
     std::fprintf(stderr,
-                 "Tessera: %s failed during owned handle cleanup (error=%lu)\\n",
+                 "Tessera: %s failed during owned handle cleanup (error=%lu)\n",
                  operation,
                  static_cast<unsigned long>(error));
     std::terminate();
@@ -21,13 +21,7 @@ namespace {
 
 void close_owned_handle(HANDLE handle) noexcept {
     if (handle != nullptr && !::CloseHandle(handle)) {
-        const DWORD error = ::GetLastError();
-        std::fprintf(stderr,
-                     "Tessera: CloseHandle failed for an owned Windows handle (error=%lu)\n",
-                     static_cast<unsigned long>(error));
-        // Dropping an owned snapshot/thread handle after a failed close silently
-        // leaks process resources. The cleanup invariant is therefore fail-stop.
-        std::terminate();
+        fail_stop_cleanup("CloseHandle", ::GetLastError());
     }
 }
 } // namespace
