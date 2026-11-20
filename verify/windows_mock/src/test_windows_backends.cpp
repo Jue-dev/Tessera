@@ -300,10 +300,13 @@ int main() {
               module_api_log[0].argument3 == LIST_MODULES_ALL &&
               module_api_log[1].call == winmock::NativeApi::GetModuleInformation &&
               module_api_log[1].argument1 == 0x111 &&
+              module_api_log[1].argument3 == sizeof(MODULEINFO) &&
               module_api_log[2].call == winmock::NativeApi::GetModuleBaseNameW &&
               module_api_log[2].argument1 == 0x111 &&
+              module_api_log[2].argument3 == MAX_PATH &&
               module_api_log[3].call == winmock::NativeApi::GetModuleFileNameExW &&
               module_api_log[3].argument1 == 0x111 &&
+              module_api_log[3].argument3 == MAX_PATH * 2 &&
               module_api_log[4].call == winmock::NativeApi::GetModuleInformation &&
               module_api_log[4].argument1 == 0x222,
           "module enumeration records buffer bytes, flags, handles, and metadata/name/path query order");
