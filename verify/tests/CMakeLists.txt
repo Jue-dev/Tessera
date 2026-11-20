@@ -207,7 +207,7 @@ tessera_add_test(tessera_test_reflection
 
 tessera_add_test(tessera_test_logging_diagnostics
     SOURCES infra/test_logging_diagnostics.cpp
-    LIBS tessera::core tessera::diagnostics tessera::logging tessera::profiling
+    LIBS tessera::core tessera::diagnostics tessera::logging tessera::profiling tessera::utility
 )
 
 tessera_add_test(tessera_test_profile_targets

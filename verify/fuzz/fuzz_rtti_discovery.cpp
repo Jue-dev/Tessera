@@ -25,7 +25,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     backend->map_region(
         tessera::Address{kFuzzBase},
         region_size,
-        tessera::MemoryProtection::ExecuteReadWrite);
+        tessera::MemoryProtection::ReadWrite);
 
     if (bounded_size != 0) {
         const std::span<const std::byte> bytes{
