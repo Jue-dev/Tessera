@@ -13,9 +13,13 @@ when it cannot safely decode, relocate, patch, or restore a target.
 - `Hook::acquire()` provides a lock-backed callable lease. Install/remove waits
   for leased calls to drain. `original()` remains a raw, non-owning pointer and
   requires host-side admission/drain.
-- Thread-policy snapshots do not stop concurrent thread creation. Strict,
-  best-effort, and no-suspension modes have different safety guarantees; none
-  substitutes for host quiescence.
+- Thread-policy snapshots do not stop concurrent thread creation. A thread
+  created after snapshot capture is not part of that finite enumeration and can
+  execute while the hook transaction is in progress. Strict, best-effort, and
+  no-suspension modes have different safety guarantees; none substitutes for
+  host quiescence. Hosts must stop admission of threads that can enter the
+  target code and drain existing callers before installing/removing hooks when
+  such concurrent entry is possible.
 
 ## Deployment boundary: one backend image per process
 
