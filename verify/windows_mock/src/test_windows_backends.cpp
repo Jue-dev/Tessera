@@ -281,6 +281,40 @@ int main() {
           "owned thread handle close failure invokes the fail-stop cleanup policy");
 #endif
 
+#if defined(__linux__)
+    const pid_t mutex_release_failure_child = ::fork();
+    if (mutex_release_failure_child == 0) {
+        std::set_terminate([]() noexcept { ::_exit(94); });
+        winmock::reset();
+        winmock::release_mutex_error = ERROR_ACCESS_DENIED;
+        { ProcessWideHookLock lock; }
+        ::_exit(95);
+    }
+    int mutex_release_status = 0;
+    const pid_t mutex_release_waited = mutex_release_failure_child > 0
+        ? ::waitpid(mutex_release_failure_child, &mutex_release_status, 0)
+        : -1;
+    check(mutex_release_waited == mutex_release_failure_child &&
+              WIFEXITED(mutex_release_status) && WEXITSTATUS(mutex_release_status) == 94,
+          "owned process mutex release failure invokes the fail-stop cleanup policy");
+
+    const pid_t mutex_close_failure_child = ::fork();
+    if (mutex_close_failure_child == 0) {
+        std::set_terminate([]() noexcept { ::_exit(96); });
+        winmock::reset();
+        winmock::close_handle_fail_on_call = 1;
+        { ProcessWideHookLock lock; }
+        ::_exit(97);
+    }
+    int mutex_close_status = 0;
+    const pid_t mutex_close_waited = mutex_close_failure_child > 0
+        ? ::waitpid(mutex_close_failure_child, &mutex_close_status, 0)
+        : -1;
+    check(mutex_close_waited == mutex_close_failure_child &&
+              WIFEXITED(mutex_close_status) && WEXITSTATUS(mutex_close_status) == 96,
+          "owned process mutex close failure invokes the fail-stop cleanup policy");
+#endif
+
     winmock::reset();
     winmock::detour_update_error = 1234;
     HookOptions hook_options{};
