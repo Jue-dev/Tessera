@@ -1,5 +1,7 @@
 #include "x86_instruction_decoder.hpp"
 
+namespace tessera::detail::x86 {
+
 namespace decoder_detail {
 
 constexpr std::size_t kMaximumInstructionLength = 15;
