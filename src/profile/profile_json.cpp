@@ -4,6 +4,7 @@
 #include <new>
 
 #include "tessera/filesystem/filesystem.hpp"
+#include "json/detail/field_access.hpp"
 
 namespace tessera::profile {
 
@@ -155,25 +156,31 @@ Result<Profile> deserialize_profile_from_json(const json::JsonValue& root,
             }
             p.revision = *v;
         }
-        if (const auto* id_v = root.find("id")) {
-            auto s = id_v->as_string();
-            if (!s || s->empty()) {
-                return fail(ErrorCode::ParseError, "deserialize_profile_from_json", 0, "Invalid profile id");
-            }
-            p.id = std::string(*s);
-        } else {
-            return fail(ErrorCode::ParseError, "deserialize_profile_from_json", 0, "Missing profile id");
+        auto id = json::detail::required_field<std::string_view>(
+            root,
+            "id",
+            "deserialize_profile_from_json",
+            "Missing profile id",
+            "Invalid profile id",
+            [](const json::JsonValue& value) -> std::optional<std::string_view> {
+                auto text = value.as_string();
+                if (!text || text->empty()) {
+                    return std::nullopt;
+                }
+                return *text;
+            });
+        if (!id) {
+            return std::unexpected(id.error());
         }
+        p.id = std::string(*id);
 
-        if (const auto* nm = root.find("name")) {
-            if (auto s = nm->as_string()) {
-                p.name = std::string(*s);
-            }
+        if (auto name = json::detail::optional_field<std::string_view>(
+                root, "name", [](const json::JsonValue& value) { return value.as_string(); })) {
+            p.name = std::string(*name);
         }
-        if (const auto* desc = root.find("description")) {
-            if (auto s = desc->as_string()) {
-                p.description = std::string(*s);
-            }
+        if (auto description = json::detail::optional_field<std::string_view>(
+                root, "description", [](const json::JsonValue& value) { return value.as_string(); })) {
+            p.description = std::string(*description);
         }
         if (const auto* tags = root.find("tags"); tags != nullptr && tags->is_array()) {
             for (const auto& t : *tags->as_array()) {

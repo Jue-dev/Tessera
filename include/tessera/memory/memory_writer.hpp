@@ -28,9 +28,6 @@ struct PendingProtectionRestore {
 };
 
 struct WriteReport {
-    // A failed restore remains explicitly owned by this report. Call
-    // MemoryWriter::restore_pending_protections(report) to retry it.
-    std::vector<PendingProtectionRestore> pending_protection_restores{};
     std::size_t bytes_written = 0;
     std::size_t regions_touched = 0;
     bool rolled_back = false;
@@ -38,6 +35,9 @@ struct WriteReport {
     std::optional<Error> protection_restore_warning{};
     std::optional<Error> icache_flush_error{};
     std::optional<Error> write_error{};
+    // Appended to preserve existing positional aggregate initializers.
+    // Retry outstanding restores with MemoryWriter::restore_pending_protections(report).
+    std::vector<PendingProtectionRestore> pending_protection_restores{};
 
     [[nodiscard]] constexpr bool succeeded() const noexcept {
         return pending_protection_restores.empty() &&

@@ -202,7 +202,12 @@ tessera_add_test(tessera_test_json
 
 tessera_add_test(tessera_test_reflection
     SOURCES infra/test_reflection.cpp
-    LIBS tessera::core tessera::diagnostics tessera::utility tessera::logging tessera::profiling tessera::reflection
+    LIBS tessera::core tessera::diagnostics tessera::utility tessera::reflection
+)
+
+tessera_add_test(tessera_test_logging_diagnostics
+    SOURCES infra/test_logging_diagnostics.cpp
+    LIBS tessera::core tessera::diagnostics tessera::logging tessera::profiling
 )
 
 tessera_add_test(tessera_test_profile_targets
