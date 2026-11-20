@@ -132,14 +132,14 @@ int main() {
     winmock::virtual_protect_fail_on_call = 3;
     auto restore_retry_failure = restore_report
         ? memory_writer.restore_pending_protections(*restore_report)
-        : Status{std::unexpected(make_error(ErrorCode::InternalError, "test"))};
+        : Status{std::unexpected(make_error(ErrorCode::IoError, "test"))};
     const bool restore_ticket_retained =
         restore_report && !restore_retry_failure &&
         restore_report->pending_protection_restores.size() == 1;
     winmock::virtual_protect_fail_on_call = 0;
     auto restore_retry_success = restore_report
         ? memory_writer.restore_pending_protections(*restore_report)
-        : Status{std::unexpected(make_error(ErrorCode::InternalError, "test"))};
+        : Status{std::unexpected(make_error(ErrorCode::IoError, "test"))};
     check(restore_ticket_created && restore_ticket_retained && restore_retry_success &&
               restore_report->pending_protection_restores.empty() &&
               !restore_report->protection_restore_warning &&
