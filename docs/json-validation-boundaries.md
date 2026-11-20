@@ -32,3 +32,8 @@ The safe common boundary remains the existing JSON parser/writer and filesystem 
 ## Validation follow-up
 
 Keep parser-level malformed UTF-8/depth/size tests in the JSON module suite, profile-specific secret/schema tests in profile tests, and target-profile structural/wire-format tests in target tests. Do not infer that a successful generic JSON parse means either domain schema is valid.
+
+## PE parsing and target runtime review
+
+- `pe_image.cpp` already has an `ImageSource` boundary that centralizes header/RVA reads for mapped images and raw buffers. The two public parse entrypoints still repeat much of the PE header/directory traversal, but their admissibility rules differ: mapped images use process-address reads and a bounded `e_lfanew` policy, while raw files additionally validate section raw offsets/sizes against file length and translate RVAs through section raw ranges. Their error operation labels also intentionally identify the entrypoint. Do not merge these loops by hiding those policy differences; a future extraction should use an explicit parse policy and retain raw-file bounds checks.
+- `target_runtime.cpp` resolves different recipe kinds (RVA/export/pattern/relative/pointer chain/field/RTTI/string/Python) and applies entry-specific validation rules. Its dispatch and validation are domain-specific rather than duplicated generic JSON logic; keep the strategy branches explicit.
