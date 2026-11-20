@@ -258,6 +258,59 @@ jobs:
       - name: Run CTest after /analyze build
         run: ctest --preset x64-analyze --output-on-failure
 
+  reduced-configurations:
+    name: Reduced CMake Configuration (${{ matrix.name }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: minimal
+            options: "-DTESSERA_BUILD_PROFILE=OFF -DTESSERA_BUILD_TARGETS=OFF -DTESSERA_BUILD_LOGGING=OFF"
+          - name: no-profile
+            options: "-DTESSERA_BUILD_PROFILE=OFF"
+          - name: no-targets
+            options: "-DTESSERA_BUILD_TARGETS=OFF"
+          - name: no-logging
+            options: "-DTESSERA_BUILD_LOGGING=OFF"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Setup MSVC Developer Command Prompt (x64)
+        uses: ./.github/actions/setup-msvc
+        with:
+          arch: x64
+
+      - name: Configure reduced SDK
+        shell: pwsh
+        run: |
+          cmake -S . -B build-reduced -G Ninja -DCMAKE_BUILD_TYPE=Release -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF ${{ matrix.options }}
+
+      - name: Build reduced SDK
+        run: cmake --build build-reduced --parallel
+
+      - name: Install reduced SDK
+        run: cmake --install build-reduced --prefix install-reduced
+
+      - name: Configure and build installed-package consumer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path consumer -Force | Out-Null
+          @'
+          cmake_minimum_required(VERSION 3.28)
+          project(TesseraReducedConsumer LANGUAGES CXX)
+          find_package(Tessera CONFIG REQUIRED)
+          add_executable(tessera_consumer main.cpp)
+          target_link_libraries(tessera_consumer PRIVATE tessera::tessera)
+          '@ | Set-Content -Path consumer/CMakeLists.txt
+          'int main() { return 0; }' | Set-Content -Path consumer/main.cpp
+          cmake -S consumer -B consumer/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$env:GITHUB_WORKSPACE\install-reduced"
+          cmake --build consumer/build --parallel
+
   publish-sdk-bundle:
     # Manual validation must not assemble or publish release artifacts.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
