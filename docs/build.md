@@ -55,8 +55,8 @@ cmake --build build-bench --target tessera_bench tessera_decoder_bench tessera_p
 
 ## Workspace helper scripts
 
-- `scripts/clean.ps1` is the canonical workspace cleanup implementation; use `-DryRun` to preview removals. `scripts/clean.bat` remains as a thin Command Prompt compatibility entry point.
-- `scripts/export_sdk.ps1` is the canonical SDK export implementation; `scripts/export_sdk.bat` remains as a thin Command Prompt compatibility entry point. The README's Windows quick-start commands intentionally use these wrappers so they work from both PowerShell and classic Command Prompt workflows.
+- `scripts/clean.ps1` is the workspace cleanup entry point; use `-DryRun` to preview removals.
+- `scripts/export_sdk.ps1` builds and exports the SDK. The redundant `.bat` forwarding wrappers were removed; invoke these PowerShell scripts from a PowerShell prompt.
 
 ## Fuzz targets
 

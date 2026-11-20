@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-11-20
-- **Related work**: Issue #6; `docs/native-inline-hooks.md`; `docs/native-hook-stability-plan.md`
+- **Related work**: [Issue #24](https://github.com/Jue-dev/Tessera/issues/24); `docs/native-inline-hooks.md`; historical records in `docs/archive/native-hook/`
 
 ## Context
 
@@ -60,11 +60,29 @@ call-lifecycle tracking.
 
 ## Validation and open obligations
 
-The repository's native-hook documentation and Issue #6 audit/checklist remain
-the source of exact-head CI evidence and outstanding acceptance gates. In
-particular, deterministic Win32 failure injection, protection-restore recovery,
-cross-image coordination, and complete current-head Windows CI validation
-must not be inferred from this ADR's accepted design decisions.
+The latest exact-head validation for PR #23 completed successfully on commit
+`fb2fdc84dd409b3e8d52c9b04afd1008acf5d041`:
 
-This ADR records the safety contract; it does not claim that every open
-validation obligation has passed.
+- [Full CI matrix](https://github.com/Jue-dev/Tessera/actions/runs/44736486572):
+  x64/x86 Debug and Release builds, full CTest (13/13 suites per configuration),
+  x64/x86 Detours integration, MSVC `/analyze`, and the `/GR-` quality gate all
+  passed. The quality gate also ran all six corpus-backed fuzz smoke targets,
+  all three benchmark executables, and SDK install/package validation.
+- [Native-hook fuzz campaigns](https://github.com/Jue-dev/Tessera/actions/runs/44736487041):
+  x86 MSVC Fuzzer + ASan completed 3,916,127 executions in 301 seconds; x64
+  LLVM libFuzzer + ASan/UBSan completed 7,059,226 executions in 301 seconds.
+  Neither campaign reported a crash or sanitizer finding.
+- The x64 unwind metadata extraction in `native_unwind.cpp` was included in
+  this exact-head build and analysis matrix.
+
+These results establish the PR's current build/test/fuzz acceptance, not a
+universal production-safety certification. Remaining production obligations
+are tracked separately in [Issue #24](https://github.com/Jue-dev/Tessera/issues/24):
+deterministic Win32 failure injection, page-protection restoration recovery,
+cross-image registry coordination, thread-creation race boundaries, and
+additional semantic decoder/relocator validation.
+
+The archived Issue #6 documents are retained under `docs/archive/native-hook/`
+for historical context only; their old CI snapshots are superseded by the
+exact-head evidence above. This ADR records the safety contract and does not
+claim that the remaining Issue #24 obligations have passed.
