@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <optional>
 #include <span>
+#include <vector>
 
 #include "tessera/core/error.hpp"
 #include "tessera/core/result.hpp"
@@ -19,7 +20,15 @@ struct WriteOptions {
     bool flush_icache = true;
 };
 
+struct PendingProtectionRestore {
+    AddressRange range{};
+    MemoryProtection original_protection = MemoryProtection::None;
+};
+
 struct WriteReport {
+    // A failed restore remains explicitly owned by this report. Call
+    // MemoryWriter::restore_pending_protections(report) to retry it.
+    std::vector<PendingProtectionRestore> pending_protection_restores{};
     std::size_t bytes_written = 0;
     std::size_t regions_touched = 0;
     bool rolled_back = false;
@@ -50,6 +59,10 @@ public:
     [[nodiscard]] Result<WriteReport> write_with_report(Address address,
                                                         std::span<const std::byte> data,
                                                         WriteOptions options = {}) const;
+
+    // Retries every outstanding page-protection restoration recorded by a prior
+    // write_with_report call. Failed entries remain in the report for another retry.
+    [[nodiscard]] Status restore_pending_protections(WriteReport& report) const noexcept;
 
     [[nodiscard]] Status write(Address address,
                                std::span<const std::byte> data,
