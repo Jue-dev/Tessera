@@ -1,11 +1,9 @@
 #include "platform/windows/process_state.hpp"
-
-#include <Windows.h>
-
-#include <new>
-
 #include "tessera/core/assert.hpp"
 #include "tessera/platform/windows/native.hpp"
+
+#include <Windows.h>
+#include <new>
 
 namespace tessera::detail {
 
@@ -42,8 +40,8 @@ namespace {
 [[nodiscard]] std::uint64_t query_native_max_app_address(Architecture target_arch) noexcept {
     SYSTEM_INFO si{};
     ::GetNativeSystemInfo(&si);
-    const auto host_max = static_cast<std::uint64_t>(
-        reinterpret_cast<std::uintptr_t>(si.lpMaximumApplicationAddress));
+    const auto host_max =
+        static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(si.lpMaximumApplicationAddress));
     if (target_arch == Architecture::X86) {
         // On 64-bit Windows, WOW64 processes can address up to 4 GiB (0xFFEFFFFF); on 32-bit OS, host_max.
         if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64) {
@@ -63,9 +61,7 @@ namespace {
     }
 
     if (native_machine != IMAGE_FILE_MACHINE_AMD64 && native_machine != IMAGE_FILE_MACHINE_I386) {
-        return fail(ErrorCode::UnsupportedArchitecture,
-                    "IsWow64Process2",
-                    0,
+        return fail(ErrorCode::UnsupportedArchitecture, "IsWow64Process2", 0,
                     "Unsupported host OS architecture (only x86 and x64 are supported)");
     }
 
@@ -76,17 +72,13 @@ namespace {
     } else if (process_machine == IMAGE_FILE_MACHINE_I386) {
         target_arch = Architecture::X86;
     } else {
-        return fail(ErrorCode::UnsupportedArchitecture,
-                    "IsWow64Process2",
-                    0,
+        return fail(ErrorCode::UnsupportedArchitecture, "IsWow64Process2", 0,
                     "Unsupported target process machine type");
     }
 
     if constexpr (sizeof(void*) == 4) {
         if (target_arch == Architecture::X64) {
-            return fail(ErrorCode::UnsupportedArchitecture,
-                        "Process::open",
-                        0,
+            return fail(ErrorCode::UnsupportedArchitecture, "Process::open", 0,
                         "32-bit Tessera build cannot attach to a native 64-bit target process");
         }
     }
@@ -96,21 +88,20 @@ namespace {
 
 [[nodiscard]] ErrorCode map_win32_open_error(DWORD err) noexcept {
     switch (err) {
-        case ERROR_ACCESS_DENIED:
-        case ERROR_PRIVILEGE_NOT_HELD:
-            return ErrorCode::AccessDenied;
-        case ERROR_INVALID_PARAMETER:
-        case ERROR_NOT_FOUND:
-            return ErrorCode::ProcessNotFound;
-        default:
-            return ErrorCode::InvalidArgument;
+    case ERROR_ACCESS_DENIED:
+    case ERROR_PRIVILEGE_NOT_HELD:
+        return ErrorCode::AccessDenied;
+    case ERROR_INVALID_PARAMETER:
+    case ERROR_NOT_FOUND:
+        return ErrorCode::ProcessNotFound;
+    default:
+        return ErrorCode::InvalidArgument;
     }
 }
 
 } // namespace
 
-Process::Process(std::shared_ptr<detail::ProcessState> state) noexcept
-    : state_(std::move(state)) {
+Process::Process(std::shared_ptr<detail::ProcessState> state) noexcept : state_(std::move(state)) {
     TESSERA_ASSERT(state_ != nullptr);
 }
 
@@ -169,20 +160,15 @@ Result<Process> Process::open(ProcessId pid, const ProcessOpenOptions& options) 
     if (h == nullptr) {
         const DWORD err = ::GetLastError();
         auto error = make_error(map_win32_open_error(err), "OpenProcess", err);
-        diagnostics::notify(options.observer,
-                            DiagnosticSeverity::Error,
-                            "Process",
-                            "OpenProcess failed",
+        diagnostics::notify(options.observer, DiagnosticSeverity::Error, "Process", "OpenProcess failed",
                             error);
         return std::unexpected(std::move(error));
     }
 
-    return platform::windows::from_native_handle(
-        h, Ownership::Owned, options.access, options.observer);
+    return platform::windows::from_native_handle(h, Ownership::Owned, options.access, options.observer);
 }
 
-Result<Process> Process::from_backend(ProcessInfo info,
-                                      std::shared_ptr<IMemoryBackend> backend,
+Result<Process> Process::from_backend(ProcessInfo info, std::shared_ptr<IMemoryBackend> backend,
                                       DiagnosticObserver* observer) {
     if (!backend) {
         return fail(ErrorCode::InvalidArgument, "Process::from_backend", 0, "Backend cannot be null");
@@ -191,9 +177,7 @@ Result<Process> Process::from_backend(ProcessInfo info,
         return fail(ErrorCode::InvalidArgument, "Process::from_backend", 0, "PID cannot be zero");
     }
     if (info.pointer_size != 4 && info.pointer_size != 8) {
-        return fail(ErrorCode::InvalidArgument,
-                    "Process::from_backend",
-                    0,
+        return fail(ErrorCode::InvalidArgument, "Process::from_backend", 0,
                     "Pointer size must be 4 or 8 bytes");
     }
 
@@ -203,7 +187,7 @@ Result<Process> Process::from_backend(ProcessInfo info,
         st->ownership = Ownership::Borrowed;
         st->info = info;
         st->observer = observer;
-        st->backend = std::move(backend);
+        st->backend.store(std::move(backend), std::memory_order_release);
         return Process{std::move(st)};
     } catch (const std::bad_alloc&) {
         return fail(ErrorCode::OutOfMemory, "Process::from_backend");
@@ -222,7 +206,7 @@ DiagnosticObserver* Process::observer() const noexcept {
 
 Result<bool> Process::is_alive() const noexcept {
     TESSERA_ASSERT(state_ != nullptr);
-    if (state_->backend != nullptr && state_->handle == nullptr) {
+    if (state_->backend.load(std::memory_order_acquire) != nullptr && state_->handle == nullptr) {
         return true;
     }
     if (state_->info.is_local && state_->handle == ::GetCurrentProcess()) {
@@ -237,9 +221,7 @@ Result<bool> Process::is_alive() const noexcept {
 
 namespace platform::windows {
 
-Result<Process> from_native_handle(NativeHandle handle,
-                                   Ownership ownership,
-                                   ProcessAccess granted_access,
+Result<Process> from_native_handle(NativeHandle handle, Ownership ownership, ProcessAccess granted_access,
                                    DiagnosticObserver* observer) {
     if (handle == nullptr || handle == INVALID_HANDLE_VALUE) {
         return fail(ErrorCode::InvalidArgument, "from_native_handle", 0, "Invalid native handle");
@@ -252,7 +234,8 @@ Result<Process> from_native_handle(NativeHandle handle,
         }
     };
 
-    const DWORD pid = (win_handle == ::GetCurrentProcess()) ? ::GetCurrentProcessId() : ::GetProcessId(win_handle);
+    const DWORD pid =
+        (win_handle == ::GetCurrentProcess()) ? ::GetCurrentProcessId() : ::GetProcessId(win_handle);
     if (pid == 0) {
         const DWORD err = ::GetLastError();
         close_on_fail();
@@ -262,11 +245,8 @@ Result<Process> from_native_handle(NativeHandle handle,
     auto arch_res = detect_target_architecture(win_handle);
     if (!arch_res) {
         close_on_fail();
-        diagnostics::notify(observer,
-                            DiagnosticSeverity::Error,
-                            "Process",
-                            "Target architecture unsupported or query failed",
-                            arch_res.error());
+        diagnostics::notify(observer, DiagnosticSeverity::Error, "Process",
+                            "Target architecture unsupported or query failed", arch_res.error());
         return std::unexpected(arch_res.error());
     }
 
@@ -274,7 +254,8 @@ Result<Process> from_native_handle(NativeHandle handle,
     if (win_handle != ::GetCurrentProcess() && ::GetExitCodeProcess(win_handle, &exit_code)) {
         if (exit_code != STILL_ACTIVE) {
             close_on_fail();
-            return fail(ErrorCode::ProcessExited, "GetExitCodeProcess", 0, "Target process has already exited");
+            return fail(ErrorCode::ProcessExited, "GetExitCodeProcess", 0,
+                        "Target process has already exited");
         }
     }
 

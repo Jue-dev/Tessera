@@ -134,6 +134,17 @@ For manual replay from the repository root:
 .\scripts\run-fuzz-smoke.ps1 -Runs 500
 ```
 
-For Clang/libFuzzer with ASan/UBSan, configure with a Clang toolchain and set both `TESSERA_ENABLE_LIBFUZZER=ON` and `TESSERA_STATIC_RUNTIME=ON` (the Windows LLVM runtime requires `/MT`). On native MSVC x86, use `TESSERA_ENABLE_MSVC_FUZZER=ON` (and `TESSERA_ENABLE_ASAN=ON`) because the distributed Windows LLVM package does not provide the i386 libFuzzer archive. The exact Windows x86/x64 campaign setup, runtime checks, duration controls, and artifact collection are maintained in [native-hook-fuzz.yml](../.github/workflows/native-hook-fuzz.yml); its PowerShell steps live under [native-hook-fuzz scripts](../.github/scripts/native-hook-fuzz/).
+For Clang/libFuzzer with ASan/UBSan, configure with a Clang toolchain and set both `TESSERA_ENABLE_LIBFUZZER=ON` and `TESSERA_STATIC_RUNTIME=ON` (the Windows LLVM runtime requires `/MT`). On native MSVC x86, use `TESSERA_ENABLE_MSVC_FUZZER=ON` (and `TESSERA_ENABLE_ASAN=ON`) because the distributed Windows LLVM package does not provide the i386 libFuzzer archive. The exact Windows x86/x64 campaign setup, runtime checks, duration controls, and artifact collection are maintained in the consolidated [fuzz workflow](../.github/workflows/fuzz.yml) and [native-hook fuzz script](../.github/scripts/fuzz-native-hook.ps1).
 
 The seed corpora are checked in under `verify/fuzz/corpus/`. See [the fuzz guide](../verify/fuzz/README.md) for target coverage and campaign details.
+
+
+## Optional offline-analysis CLI
+
+The CLI is not part of the default SDK build. It has no external C++ dependency and is built only when explicitly enabled:
+
+    cmake -S . -B build-cli -G Ninja -DCMAKE_BUILD_TYPE=Release -DTESSERA_BUILD_TESTS=ON -DTESSERA_BUILD_CLI=ON
+    cmake --build build-cli --parallel
+    ctest --test-dir build-cli -R tessera_cli_smoke --output-on-failure
+
+The executable is named tessera and supports inspect, scan, rtti, profile verify, profile diff, and JSON symbol/RTTI export. TESSERA_BUILD_CLI defaults to OFF; the CLI requires target-profile support and remains separate from tessera::tessera.

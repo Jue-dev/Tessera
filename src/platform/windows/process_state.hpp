@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <memory>
 
 #include "tessera/diagnostics/diagnostic_observer.hpp"
@@ -12,7 +13,7 @@ struct ProcessState {
     Ownership ownership = Ownership::Borrowed;
     ProcessInfo info{};
     DiagnosticObserver* observer = nullptr;
-    std::shared_ptr<IMemoryBackend> backend{};
+    std::atomic<std::shared_ptr<IMemoryBackend>> backend{};
 
     ProcessState() noexcept = default;
     ~ProcessState() noexcept;

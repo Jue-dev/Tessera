@@ -52,7 +52,7 @@ try {
         $bash = Get-Command bash -ErrorAction SilentlyContinue
         if ($mockCompiler -and $bash) {
             Invoke-Logged "windows-mock" {
-                bash ./verify/windows_mock/run_windows_mock_tests.sh
+                bash ./.github/scripts/ci-windows-mock.sh
             }
         } else {
             Write-Warning "Windows mock skipped: bash and a host g++/clang++ are required. Run it from Linux/WSL separately."
@@ -73,6 +73,8 @@ try {
                 if ($LASTEXITCODE -ne 0) { throw "Build failed: $preset" }
                 ctest --preset $preset --output-on-failure
                 if ($LASTEXITCODE -ne 0) { throw "CTest failed: $preset" }
+                ctest --preset $preset --shuffle --output-on-failure
+                if ($LASTEXITCODE -ne 0) { throw "Shuffled CTest failed: $preset" }
             }
         }
     }
@@ -85,6 +87,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Analyze build failed" }
         ctest --preset x64-analyze --output-on-failure
         if ($LASTEXITCODE -ne 0) { throw "Analyze CTest failed" }
+        ctest --preset x64-analyze --shuffle --output-on-failure
+        if ($LASTEXITCODE -ne 0) { throw "Shuffled analyze CTest failed" }
     }
 
     Invoke-Logged "no-rtti-fuzz-bench-package" {
@@ -94,6 +98,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "No-RTTI build failed" }
         ctest --test-dir build-final-nortti -C Release --output-on-failure
         if ($LASTEXITCODE -ne 0) { throw "No-RTTI CTest failed" }
+        ctest --test-dir build-final-nortti -C Release --shuffle --output-on-failure
+        if ($LASTEXITCODE -ne 0) { throw "Shuffled no-RTTI CTest failed" }
         $fuzzTargets = @(
             @{ Exe = "build-final-nortti/verify/fuzz/tessera_fuzz_native_hook.exe"; Corpus = "verify/fuzz/corpus/native_hook" },
             @{ Exe = "build-final-nortti/verify/fuzz/tessera_fuzz_pe.exe"; Corpus = "verify/fuzz/corpus/pe" },
@@ -124,11 +130,16 @@ try {
             if ($LASTEXITCODE -ne 0) { throw "Benchmark smoke failed: $exe" }
             $json = & $exe --json
             if ($LASTEXITCODE -ne 0) { throw "Benchmark JSON mode failed: $exe" }
-            $null = $json | ConvertFrom-Json -ErrorAction Stop
+            $parsed = $json | ConvertFrom-Json -ErrorAction Stop
+            if ($null -eq $parsed) { throw "Benchmark JSON was empty: $exe" }
         }
+        & python ./verify/bench/validate_bench_json.py @benchmarkTargets
+        if ($LASTEXITCODE -ne 0) { throw "Benchmark JSON validator failed" }
 
         cmake --install build-final-nortti --config Release --prefix install-final-nortti
         if ($LASTEXITCODE -ne 0) { throw "Package install failed" }
+        & ./.github/scripts/ci-sdk.ps1 -Task consumer -SdkPrefix "$root/install-final-nortti"
+        if ($LASTEXITCODE -ne 0) { throw "Standalone SDK consumer failed" }
         cmake -S verify/tests/consumers/installed -B build-final-consumer -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$root/install-final-nortti"
         if ($LASTEXITCODE -ne 0) { throw "Installed SDK consumer configure failed" }
         cmake --build build-final-consumer --parallel
@@ -169,6 +180,44 @@ try {
         if (-not (Test-Path $example)) { throw "Missing safe example executable: $example" }
         & $example
         if ($LASTEXITCODE -ne 0) { throw "Safe example smoke failed: $example" }
+    }
+
+
+    Invoke-Logged "optional-cli-smoke" {
+        cmake -S . -B build-final-cli -G Ninja -DCMAKE_BUILD_TYPE=Release -DTESSERA_BUILD_TESTS=ON -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_CLI=ON
+        if ($LASTEXITCODE -ne 0) { throw "Optional CLI configure failed" }
+        cmake --build build-final-cli --parallel
+        if ($LASTEXITCODE -ne 0) { throw "Optional CLI build failed" }
+        ctest --test-dir build-final-cli -R tessera_cli_smoke --output-on-failure
+        if ($LASTEXITCODE -ne 0) { throw "Optional CLI smoke failed" }
+    }
+
+    Invoke-Logged "markdown-links" {
+        @'
+from pathlib import Path
+import re
+import sys
+import urllib.parse
+
+root = Path.cwd()
+missing = []
+for document in root.rglob("*.md"):
+    if ".git" in document.parts:
+        continue
+    contents = document.read_text(encoding="utf-8")
+    for raw in re.findall(r'!?\\[[^\\]]*\\]\\(([^)]+)\\)', contents):
+        target = raw.strip().split()[0].strip("<>")
+        if not target or target.startswith(("http://", "https://", "mailto:", "data:", "#")):
+            continue
+        relative = urllib.parse.unquote(target.split("#", 1)[0])
+        if relative and not (document.parent / relative).resolve().exists():
+            missing.append(f"{document.relative_to(root)} -> {target}")
+if missing:
+    print("\\n".join(missing))
+    sys.exit(1)
+print("All local Markdown links resolve.")
+'@ | python -
+        if ($LASTEXITCODE -ne 0) { throw "Markdown link validation failed" }
     }
 
     if ($RunDecoderOracle) {

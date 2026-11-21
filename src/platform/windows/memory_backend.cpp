@@ -1,12 +1,11 @@
 #include "tessera/memory/memory_backend.hpp"
 
-#include <Windows.h>
-
-#include <limits>
-#include <memory>
-
 #include "platform/windows/process_state.hpp"
 #include "tessera/core/assert.hpp"
+
+#include <Windows.h>
+#include <limits>
+#include <memory>
 
 namespace tessera {
 
@@ -14,18 +13,25 @@ namespace {
 
 [[nodiscard]] MemoryState from_native_state(DWORD state) noexcept {
     switch (state) {
-        case MEM_COMMIT:  return MemoryState::Committed;
-        case MEM_RESERVE: return MemoryState::Reserved;
-        default:          return MemoryState::Free;
+    case MEM_COMMIT:
+        return MemoryState::Committed;
+    case MEM_RESERVE:
+        return MemoryState::Reserved;
+    default:
+        return MemoryState::Free;
     }
 }
 
 [[nodiscard]] MemoryType from_native_type(DWORD type) noexcept {
     switch (type) {
-        case MEM_IMAGE:   return MemoryType::Image;
-        case MEM_MAPPED:  return MemoryType::Mapped;
-        case MEM_PRIVATE: return MemoryType::Private;
-        default:          return MemoryType::Unknown;
+    case MEM_IMAGE:
+        return MemoryType::Image;
+    case MEM_MAPPED:
+        return MemoryType::Mapped;
+    case MEM_PRIVATE:
+        return MemoryType::Private;
+    default:
+        return MemoryType::Unknown;
     }
 }
 
@@ -33,15 +39,32 @@ namespace {
     MemoryProtection out = MemoryProtection::None;
     const DWORD base = protect & 0xFFu;
     switch (base) {
-        case PAGE_NOACCESS:          out |= MemoryProtection::NoAccess; break;
-        case PAGE_READONLY:          out |= MemoryProtection::Read; break;
-        case PAGE_READWRITE:         out |= MemoryProtection::ReadWrite; break;
-        case PAGE_WRITECOPY:         out |= MemoryProtection::Read | MemoryProtection::CopyOnWrite; break;
-        case PAGE_EXECUTE:           out |= MemoryProtection::Execute; break;
-        case PAGE_EXECUTE_READ:      out |= MemoryProtection::ExecuteRead; break;
-        case PAGE_EXECUTE_READWRITE: out |= MemoryProtection::ExecuteReadWrite; break;
-        case PAGE_EXECUTE_WRITECOPY: out |= MemoryProtection::ExecuteWriteCopy; break;
-        default: break;
+    case PAGE_NOACCESS:
+        out |= MemoryProtection::NoAccess;
+        break;
+    case PAGE_READONLY:
+        out |= MemoryProtection::Read;
+        break;
+    case PAGE_READWRITE:
+        out |= MemoryProtection::ReadWrite;
+        break;
+    case PAGE_WRITECOPY:
+        out |= MemoryProtection::Read | MemoryProtection::CopyOnWrite;
+        break;
+    case PAGE_EXECUTE:
+        out |= MemoryProtection::Execute;
+        break;
+    case PAGE_EXECUTE_READ:
+        out |= MemoryProtection::ExecuteRead;
+        break;
+    case PAGE_EXECUTE_READWRITE:
+        out |= MemoryProtection::ExecuteReadWrite;
+        break;
+    case PAGE_EXECUTE_WRITECOPY:
+        out |= MemoryProtection::ExecuteWriteCopy;
+        break;
+    default:
+        break;
     }
     if ((protect & PAGE_GUARD) != 0) {
         out |= MemoryProtection::Guard;
@@ -100,8 +123,7 @@ class WindowsMemoryBackend final : public IMemoryBackend {
 public:
     explicit WindowsMemoryBackend(HANDLE handle) noexcept : handle_(handle) {}
 
-    [[nodiscard]] Result<std::size_t> read(Address address,
-                                           std::span<std::byte> buffer) const override {
+    [[nodiscard]] Result<std::size_t> read(Address address, std::span<std::byte> buffer) const override {
         if (buffer.empty()) {
             return std::size_t{0};
         }
@@ -116,11 +138,8 @@ public:
 
         SIZE_T bytes_read = 0;
         const BOOL ok_flag = ::ReadProcessMemory(
-            handle_,
-            reinterpret_cast<LPCVOID>(static_cast<std::uintptr_t>(address.value())),
-            buffer.data(),
-            buffer.size(),
-            &bytes_read);
+            handle_, reinterpret_cast<LPCVOID>(static_cast<std::uintptr_t>(address.value())), buffer.data(),
+            buffer.size(), &bytes_read);
 
         if (bytes_read > 0) {
             return static_cast<std::size_t>(bytes_read);
@@ -128,14 +147,12 @@ public:
         if (!ok_flag) {
             const DWORD err = ::GetLastError();
             return fail(err == ERROR_ACCESS_DENIED ? ErrorCode::AccessDenied : ErrorCode::PartialTransfer,
-                        "ReadProcessMemory",
-                        err);
+                        "ReadProcessMemory", err);
         }
         return std::size_t{0};
     }
 
-    [[nodiscard]] Result<std::size_t> write(Address address,
-                                            std::span<const std::byte> data) const override {
+    [[nodiscard]] Result<std::size_t> write(Address address, std::span<const std::byte> data) const override {
         if (data.empty()) {
             return std::size_t{0};
         }
@@ -150,11 +167,8 @@ public:
 
         SIZE_T bytes_written = 0;
         const BOOL ok_flag = ::WriteProcessMemory(
-            handle_,
-            reinterpret_cast<LPVOID>(static_cast<std::uintptr_t>(address.value())),
-            data.data(),
-            data.size(),
-            &bytes_written);
+            handle_, reinterpret_cast<LPVOID>(static_cast<std::uintptr_t>(address.value())), data.data(),
+            data.size(), &bytes_written);
 
         if (bytes_written > 0) {
             return static_cast<std::size_t>(bytes_written);
@@ -162,8 +176,7 @@ public:
         if (!ok_flag) {
             const DWORD err = ::GetLastError();
             return fail(err == ERROR_ACCESS_DENIED ? ErrorCode::AccessDenied : ErrorCode::PartialTransfer,
-                        "WriteProcessMemory",
-                        err);
+                        "WriteProcessMemory", err);
         }
         return std::size_t{0};
     }
@@ -176,18 +189,15 @@ public:
         }
 
         MEMORY_BASIC_INFORMATION mbi{};
-        const SIZE_T got = ::VirtualQueryEx(
-            handle_,
-            reinterpret_cast<LPCVOID>(static_cast<std::uintptr_t>(address.value())),
-            &mbi,
-            sizeof(mbi));
+        const SIZE_T got =
+            ::VirtualQueryEx(handle_, reinterpret_cast<LPCVOID>(static_cast<std::uintptr_t>(address.value())),
+                             &mbi, sizeof(mbi));
 
         if (got != sizeof(mbi)) {
             const DWORD err = ::GetLastError();
-            const ErrorCode code =
-                (err == ERROR_ACCESS_DENIED) ? ErrorCode::AccessDenied :
-                (err == ERROR_INVALID_PARAMETER) ? ErrorCode::OutOfRange :
-                                                    ErrorCode::IoError;
+            const ErrorCode code = (err == ERROR_ACCESS_DENIED)       ? ErrorCode::AccessDenied
+                                   : (err == ERROR_INVALID_PARAMETER) ? ErrorCode::OutOfRange
+                                                                      : ErrorCode::IoError;
             return fail(code, "VirtualQueryEx", err);
         }
 
@@ -203,8 +213,7 @@ public:
         };
     }
 
-    [[nodiscard]] Result<MemoryProtection> protect(Address address,
-                                                   std::uint64_t size,
+    [[nodiscard]] Result<MemoryProtection> protect(Address address, std::uint64_t size,
                                                    MemoryProtection new_protection) const override {
         if (address.is_null() || size == 0) {
             return fail(ErrorCode::InvalidArgument, "VirtualProtectEx");
@@ -218,11 +227,8 @@ public:
 
         DWORD old_protect = 0;
         const BOOL ok_flag = ::VirtualProtectEx(
-            handle_,
-            reinterpret_cast<LPVOID>(static_cast<std::uintptr_t>(address.value())),
-            static_cast<SIZE_T>(size),
-            to_native_protect(new_protection),
-            &old_protect);
+            handle_, reinterpret_cast<LPVOID>(static_cast<std::uintptr_t>(address.value())),
+            static_cast<SIZE_T>(size), to_native_protect(new_protection), &old_protect);
 
         if (!ok_flag) {
             return fail(ErrorCode::ProtectionFailed, "VirtualProtectEx", ::GetLastError());
@@ -241,8 +247,7 @@ public:
             }
         }
         if (!::FlushInstructionCache(
-                handle_,
-                reinterpret_cast<LPCVOID>(static_cast<std::uintptr_t>(range.begin().value())),
+                handle_, reinterpret_cast<LPCVOID>(static_cast<std::uintptr_t>(range.begin().value())),
                 static_cast<SIZE_T>(range.size()))) {
             return fail(ErrorCode::IoError, "FlushInstructionCache", ::GetLastError());
         }
@@ -258,10 +263,18 @@ private:
 const IMemoryBackend& memory_backend(const Process& process) noexcept {
     const auto& st = process.state();
     TESSERA_ASSERT(st != nullptr);
-    if (!st->backend) {
-        st->backend = std::make_shared<WindowsMemoryBackend>(static_cast<HANDLE>(st->handle));
+    auto backend = st->backend.load(std::memory_order_acquire);
+    if (!backend) {
+        auto created = std::make_shared<WindowsMemoryBackend>(static_cast<HANDLE>(st->handle));
+        std::shared_ptr<IMemoryBackend> expected;
+        if (st->backend.compare_exchange_strong(expected, created, std::memory_order_release,
+                                                std::memory_order_acquire)) {
+            backend = std::move(created);
+        } else {
+            backend = std::move(expected);
+        }
     }
-    return *st->backend;
+    return *backend;
 }
 
 } // namespace tessera

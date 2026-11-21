@@ -1,68 +1,24 @@
 # Native inline hooks (Windows x86/x64)
 
-Tessera provides a native inline-hook backend alongside Microsoft Detours.
-It supports explicitly validated x86/x64 instruction layouts and fails closed
-when it cannot safely decode, relocate, patch, or restore a target.
+Tessera provides a native x86/x64 inline-hook backend alongside optional Microsoft Detours. It uses bounded instruction metadata decoding, rollback-aware writes, trampoline relocation, and runtime unwind handling. Unsupported or unsafe instruction layouts fail closed.
 
-## Lifecycle and safety
+## Basic lifecycle
 
-- Entry writes use a rollback-capable transaction and instruction-cache flush.
-- x64 trampolines register translated runtime unwind metadata before publishing
-  the entry patch. Unsupported unwind layouts are rejected.
-- CET/IBT landing pads are recognized and preserved.
-- `Hook::acquire()` provides a lock-backed callable lease. Install/remove waits
-  for leased calls to drain. `original()` remains a raw, non-owning pointer and
-  requires host-side admission/drain.
-- Owned Toolhelp snapshot/thread handles and the process transaction mutex are checked during cleanup. If `CloseHandle` or `ReleaseMutex` fails, the backend logs the Win32 error and fails stop rather than silently dropping cleanup ownership.
-- Thread-policy snapshots do not stop concurrent thread creation. A thread
-  created after snapshot capture is not part of that finite enumeration and can
-  execute while the hook transaction is in progress. Strict, best-effort, and
-  no-suspension modes have different safety guarantees; none substitutes for
-  host quiescence. Hosts must stop admission of threads that can enter the
-  target code and drain existing callers before installing/removing hooks when
-  such concurrent entry is possible.
+Create a typed Hook<Fn>, install it, and explicitly inspect remove() when cleanup errors matter. Hook::acquire() holds a lock-backed callable lease while a call is active. original() returns a raw, non-owning trampoline pointer and does not participate in call tracking.
 
-## Deployment boundary: one backend image per process
+## Host responsibilities
 
-The process-wide hook mutex serializes patch transactions across cooperating
-Tessera images, but it does **not** make the active-hook registry shared. That
-registry is a function-local static in each loaded backend image. If two
-independently loaded DLLs each contain their own Tessera native-hook backend,
-each image can observe an empty local registry while the other image already
-owns an overlapping patch range.
+- Stop admission of new callers and drain existing callers where concurrent entry is possible. A finite thread snapshot does not cover threads created after the snapshot.
+- Choose ThreadPolicy according to the host's quiescence guarantee. None requires an externally quiescent patch window.
+- Keep the detour callback and its module alive until all callbacks and raw trampoline users have drained.
+- Call remove() and inspect its result before destruction if backend cleanup can fail.
+- Use only one loaded Tessera native-hook backend image per process. The transaction mutex is process-wide, but the active-hook registry is not shared across independent backend images.
 
-Therefore, the supported deployment boundary is **one loaded Tessera native
-hook backend image per process**. Do not statically embed or load independent
-copies of the backend into multiple DLLs in the same process. The mutex alone
-must not be interpreted as cross-image registry coordination. This limitation
-is documented rather than runtime-enforced: reliable detection of every
-independent or statically embedded copy is not currently available. A future
-shared process registry is required before multi-image deployments can be
-supported.
+## Validation and exclusions
 
-## Current CI and fuzz validation
+The four lifecycle workflows retain x86/x64 builds, Detours integration, sanitizer-backed windows_mock, decoder-oracle comparison, and bounded fuzz campaigns. See docs/adr/0002-native-inline-hook-safety-contract.md for the authoritative lifecycle and failure contract, and safety-and-boundaries.md for decoder limits.
 
-Latest exact-head validation: commit
-`059660d6b644c87b3d3b8438362abffd0cc83409`.
+Tessera does not implement ARM64/WoW64 cross-architecture hosting, process injection or hosting, DLL loader techniques, VEH hooks, hardware breakpoints, or PAGE_GUARD hooks.
 
-- [Full CI matrix](https://github.com/Jue-dev/Tessera/actions/runs/44739402959):
-  x64/x86 Debug and Release, full CTest (13/13 suites per configuration),
-  Detours x64/x86, MSVC `/analyze`, and `/GR-` quality gate passed.
-- The quality gate consumed all six checked-in fuzz corpora with `-runs=100`,
-  ran all three benchmark targets, and completed SDK install/package checks.
-- [Native-hook fuzz campaigns](https://github.com/Jue-dev/Tessera/actions/runs/44739402840):
-  x86 MSVC Fuzzer + ASan completed 4,097,386 executions / 301 seconds;
-  x64 LLVM libFuzzer + ASan/UBSan completed 7,084,210 executions / 301 seconds.
-  No crash or sanitizer finding was reported.
-- x64 trampoline unwind extraction into `native_unwind.cpp` was compiled and
-  covered by the exact-head matrix.
 
-These are exact-head CI and fuzz results, not a blanket production-safety
-certification. Remaining fault-injection, page-protection recovery, cross-image
-coordination, and concurrency-boundary work is tracked in
-[Issue #24](https://github.com/Jue-dev/Tessera/issues/24).
-
-## Architecture decision record
-
-See [ADR 0002](adr/0002-native-inline-hook-safety-contract.md) for the safety
-contract, supported boundaries, and validation caveats.
+The separate `VTableHook` API is a per-object shadow-vftable helper; configure its slots before installation and keep the object/functions alive for the entire hook lifetime.

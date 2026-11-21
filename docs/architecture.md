@@ -15,18 +15,18 @@ Tessera is a modular C++23 static library SDK for Windows process, memory, binar
   - `profiling`: High-resolution `Stopwatch`, `ScopeTimer`, and `run_benchmark`.
 - **L1 (Process/Memory)**:
   - `process`: Process enumeration, lifecycle, architecture inspection (`IsWow64Process2`), and opaque Win32 handle boundary (`platform/windows/native.hpp`).
-  - `memory`: `IMemoryBackend`, `WindowsMemoryBackend`, `MemoryReader`, transactional `MemoryWriter` (2-pass validation & rollback), `ProtectionScope`, and `ProcessAddress` (`tessera::local` fast-path).
+  - `memory`: `IMemoryBackend`, `WindowsMemoryBackend`, `MemoryReader`, transactional `MemoryWriter`, `ProtectionScope`, `ProcessAddress`, `read_scatter`, and `MemorySnapshot`/`diff` helpers.
 - **L2 (Binary Analysis & Runtime Operations)**:
   - `scanner`: Multi-region signature scanning (`Scanner`) with chunk boundary overlap (`pattern.size() - 1`) and `xref` discovery.
-  - `module`: `ModuleCatalog` snapshots and bounded `PeImage` parsing (exports, imports, `.pdata` exception functions, CodeView RSDS).
+  - `module`: `ModuleCatalog` snapshots, bounded `PeImage` parsing, and read-only `PeFileBackend` for raw PE files.
   - `resolver`: Dual-ergonomics address resolution (`AddressCursor` dot-chaining and `resolve::*` pipe adapters).
   - `rtti`:
     - `RttiCatalog`: MSVC PE32 (x86) and PE32+ (x64) `CompleteObjectLocator`, `TypeDescriptor`, `ClassHierarchyDescriptor`, `BaseClassDescriptor`, `vftable` discovery, instance identification, and PMD-based `cast_to`.
     - `BinaryExplorer`: Blind/exploratory discovery of non-virtual `.?AU`/`.?AV`/`.?AW4` types, `.pdata` + `E8` call graphs, strings + xrefs, `[rcx/ecx + disp]` struct reconstruction, live instance finding, and ReClass-style memory dissection.
     - `PythonBridgeScanner`: C++/Python bridge discovery for both external `pythonXX.dll` and statically-embedded `.exe` Python (`PythonDeployment::StaticEmbedded`), extracting `_inittab`, `PyMethodDef`, `PyMemberDef`, `PyGetSetDef`, `PyTypeObject`, and xref-linked module names.
     - `ObjectView`: Unified runtime inspection/mutation of virtual, non-virtual, and Python-exposed C++ objects.
-  - `patch`: Single-patch and multi-patch transactional memory modifications (`Patch`, `PatchTransaction`).
-  - `hook`: Type-safe inline function hooking (`Hook<Fn>`) with process-wide critical section serialization.
+  - `patch`: Memory modifications (`Patch`, `PatchTransaction`) plus atomic file edits (`DiskPatchTransaction`, `PeDiskPatcher`).
+  - `hook`: Type-safe inline hooks (`Hook<Fn>`), shadow-vftable hooks (`VTableHook`), and import-address-table hooks (`IatHook`).
   - `profile`: Versioned application settings (`SettingsSchema`, `Profile`, `ProfileManager`, `JsonProfileStore`, `ISecretStore`).
 - **L3 (`targets`)**:
   - `target_profiles`: Pure data model (`TargetProfile`, `TargetBuild`, `AddressEntry`, `ResolutionRecipe` including `RttiVTable`, `StringXref`, and `PythonMethod`).
@@ -41,7 +41,7 @@ Public headers under `include/tessera/**` define the supported SDK surface. Tran
 For invariants that constrain implementation changes, see [ADR 0002](adr/0002-native-inline-hook-safety-contract.md) for native-hook lifecycle/unwind safety and [ADR 0003](adr/0003-core-profiling-and-rtti-boundaries.md) for component boundaries.
 
 
-The supporting technical boundaries are recorded in [JSON validation](json-validation-boundaries.md), [memory write recovery](memory-write-recovery.md), and the [native decoder envelope](native-instruction-decoder-envelope.md).
+The supporting technical boundaries are consolidated in [safety and validation boundaries](safety-and-boundaries.md).
 
 ## Shared instruction decoder boundary (Wave 3)
 
@@ -58,3 +58,12 @@ The decoder rejects unsupported encodings and bounds every instruction to the ar
 ## Resolution diagnostics
 
 `ResolutionTrace` can be passed to the additive `AddressResolver::resolve_entry` overload to record the resolution stage and terminal status without changing the target-profile JSON schema. The original `resolve_entry` overload remains available and does not allocate trace records.
+
+
+## Offline PE and optional tools (Wave 4)
+
+PeFileBackend maps file-backed headers and section bytes into the existing read-only IMemoryBackend abstraction. It does not load the PE into another process or create a process-hosting or loader path. DiskPatchTransaction is a separate explicit disk-write boundary: it stages edits by file offset, validates expected bytes and the resulting PE, writes a sibling temporary file, and atomically replaces the target after optional backup and signature-policy checks.
+
+VTableHook and IatHook are additive APIs; neither introduces VEH, hardware-breakpoint, PAGE_GUARD, process-injection, or loader mechanisms. read_scatter and MemorySnapshot provide read analysis independent of hook backends.
+
+The optional tools/cli target is guarded by TESSERA_BUILD_CLI=OFF by default. It consumes the SDK APIs and is not linked into the library target.

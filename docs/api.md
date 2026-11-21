@@ -59,11 +59,11 @@ The umbrella header `tessera/tessera.hpp` includes the primary public modules. A
 
 | Area | Public entry points |
 | --- | --- |
-| Process and memory | `Process`, `IMemoryBackend`, `MemoryReader`, `MemoryWriter`, `ProtectionScope` |
-| PE/module inspection | `PeImage::from_memory`, `PeImage::from_raw_bytes`, `PeImage::from_file`, export/import and exception-directory accessors |
+| Process and memory | `Process`, `IMemoryBackend`, `MemoryReader`, `MemoryWriter`, `ProtectionScope`, `read_scatter`, `MemorySnapshot`, `diff` |
+| PE/module inspection | `PeImage` raw/mapped readers, read-only `PeFileBackend`, export/import and exception-directory accessors |
 | Pattern and scanning | `Pattern::parse`, `Scanner::scan`, `Scanner::find_first`, xref helpers |
 | Resolution | `AddressCursor` fluent operations and `tessera::resolve::*` pipe adapters |
-| Runtime modification | `Patch`, `PatchTransaction`, `Hook<Fn>` |
+| Runtime modification | `Patch`, `PatchTransaction`, `DiskPatchTransaction`, `PeDiskPatcher`, `Hook<Fn>`, `VTableHook`, `IatHook` |
 | Reflection and discovery | `TypeRegistry`, `RttiCatalog`, `BinaryExplorer`, `ObjectView`, `PythonBridgeScanner` |
 | Persistence | `ProfileManager`, `JsonProfileStore`, `TargetProfile`, `AddressResolver`, `DiscoverySession` |
 
@@ -75,14 +75,12 @@ Python bridge discovery reports runtime/framework evidence separately from deplo
 
 - Native inline-hook attach/detach, unwind, thread-coordination, and callback-lifetime obligations are defined in [ADR 0002](adr/0002-native-inline-hook-safety-contract.md) and the [native inline-hook guide](native-inline-hooks.md).
 - The compiled `core` and `profiling` components and Python bridge ownership by `rtti` are documented in [ADR 0003](adr/0003-core-profiling-and-rtti-boundaries.md).
-- The independent x86 decoder oracle is test-only (`iced-x86==1.21.0`) and is not part of the public SDK dependency graph. See the [developer workflow](development.md).
+- The independent x86 decoder oracle is test-only (`iced-x86==1.21.0`) and is not part of the public SDK dependency graph. See the [developer workflow](development-workflow.md).
 
 
 ## Related implementation and safety notes
 
-- [JSON validation boundaries](json-validation-boundaries.md) explains the separate profile and target-profile wire-format ownership.
-- [Memory write recovery](memory-write-recovery.md) documents explicit retry ownership for pending page-protection restoration.
-- [Native decoder envelope](native-instruction-decoder-envelope.md) defines the supported bounded decoder metadata and relocation rejection rules.
+- [Safety and validation boundaries](safety-and-boundaries.md) consolidates JSON/profile ownership, PE raw-versus-mapped parsing, memory-write protection recovery, and the bounded x86/x64 decoder contract.
 
 ### Wave 3 scanner and xref additions
 
@@ -99,3 +97,18 @@ Python bridge discovery reports runtime/framework evidence separately from deplo
 ## Resolution diagnostics
 
 `ResolutionTrace` can be passed to the additive `AddressResolver::resolve_entry` overload to record the resolution stage and terminal status without changing the target-profile JSON schema.
+
+
+## Offline PE and file patching
+
+PeFileBackend adapts raw PE file bytes to the read-only IMemoryBackend contract. Existing MemoryReader, Scanner, xref and RTTI tooling can inspect file-backed headers and section data without loading or executing the image. Unmapped RVAs return bounded errors. DiskPatchTransaction separately stages file-offset edits, checks optional expected bytes, validates the rebuilt PE, supports a backup, recalculates the Optional Header checksum, and requires explicit opt-in before invalidating an Authenticode signature.
+
+PeDiskPatcher::find_code_caves reports eligible runs in section alignment padding; it does not allocate or write those areas.
+
+## Hook and memory analysis helpers
+
+VTableHook owns a per-object shadow-vftable copy and atomically swaps/restores that object's vptr. The caller must supply a valid bounded slot count, set all shadow slots before installation, and keep the object and target functions alive. IatHook changes one named import slot in an already mapped module with page-protection restoration and rollback handling. read_scatter coalesces nearby reads while preserving input result order; MemorySnapshot::capture and diff report contiguous changed byte ranges.
+
+## Optional command-line tooling
+
+The offline analysis CLI is outside the core SDK and is disabled by default. Enable it with -DTESSERA_BUILD_CLI=ON (and keep TESSERA_BUILD_TARGETS=ON) to build tessera inspect, scan, rtti, profile verify/diff, and export-symbols --format json. No third-party C++ dependency is introduced.

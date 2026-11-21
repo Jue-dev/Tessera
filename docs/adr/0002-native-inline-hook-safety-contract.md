@@ -72,7 +72,7 @@ call-lifecycle tracking.
    tickets is not successful. `Patch` retains such reports across its
    lifecycle. The status-only `write` convenience API can only perform an
    immediate retry and cannot transfer persistent retry ownership to callers.
-   See [Memory write protection recovery](../memory-write-recovery.md).
+   See [Memory write protection recovery](../safety-and-boundaries.md#memory-write-protection-recovery).
 
 ## Consequences
 

@@ -1,10 +1,15 @@
 #include "tessera/module/pe_image.hpp"
+#include "tessera/module/pe_file_backend.hpp"
+#include "tessera/patch/disk_patch.hpp"
 
 #include "fuzz_corpus_runner.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <new>
+#include <utility>
+#include <vector>
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
     if (data == nullptr && size != 0) {
@@ -22,6 +27,21 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         (void)pe->sections();
         (void)pe->exception_functions();
         (void)pe->code_view();
+    }
+    (void)tessera::PeDiskPatcher::calculate_checksum(raw);
+    (void)tessera::PeDiskPatcher::find_code_caves(raw, 1);
+    try {
+        std::vector<std::byte> owned(raw.begin(), raw.end());
+        auto backend = tessera::PeFileBackend::from_bytes(std::move(owned));
+        if (backend) {
+            (void)(*backend)->rva_to_file_offset(tessera::Rva{0});
+            (void)(*backend)->rva_to_va(tessera::Rva{0});
+            (void)(*backend)->file_offset_to_rva(raw.size());
+            std::vector<std::byte> probe(raw.size());
+            (void)(*backend)->read((*backend)->base(), probe);
+        }
+    } catch (const std::bad_alloc&) {
+        // Allocation failure is a normal, fail-closed fuzz outcome.
     }
     return 0;
 }

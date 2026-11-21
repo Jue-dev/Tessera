@@ -1,0 +1,51 @@
+{
+  "formatVersion": 1,
+  "profileVersion": 1,
+  "revision": 1,
+  "application": {
+    "applicationId": "tessera-cli-smoke",
+    "displayName": "Tessera CLI Smoke Fixture",
+    "publisher": "Tessera",
+    "executables": ["rtti_virtual_branch_x64.dll"]
+  },
+  "builds": [{
+    "buildId": "fixture-x64",
+    "architecture": "x64",
+    "fingerprint": {
+      "fileVersion": "",
+      "sizeOfImage": "00000000",
+      "timestamp": "00000000",
+      "checksum": "00000000",
+      "codeViewGuid": "",
+      "codeViewAge": 0,
+      "sha256": ""
+    },
+    "modules": [{
+      "moduleId": "main",
+      "fileName": "rtti_virtual_branch_x64.dll",
+      "sizeOfImage": "00000000",
+      "timestamp": "00000000",
+      "checksum": "00000000",
+      "codeViewGuid": "",
+      "codeViewAge": 0,
+      "sha256": ""
+    }],
+    "addresses": [{
+      "id": "fixture.entry",
+      "name": "Fixture entry",
+      "description": "In-range RVA for CLI smoke coverage.",
+      "category": "smoke",
+      "kind": "global",
+      "moduleId": "main",
+      "value": { "type": "uint8", "size": 1 },
+      "resolution": { "primary": { "strategy": "rva", "rva": "00001000" } },
+      "validation": {
+        "required": [
+          { "rule": "module_range", "required": true },
+          { "rule": "section", "required": true, "value": ".text" }
+        ],
+        "minimumUniqueCandidates": 1
+      }
+    }]
+  }]
+}

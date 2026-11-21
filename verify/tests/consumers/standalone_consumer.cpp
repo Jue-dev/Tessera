@@ -5,17 +5,25 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
+#include <optional>
 #include <vector>
 #include <span>
 #include <string_view>
 
 #include "tessera/core/core.hpp"
 #include "tessera/hook/hook.hpp"
+#include "tessera/hook/iat_hook.hpp"
+#include "tessera/hook/vtable_hook.hpp"
 #include "tessera/json/json.hpp"
 #include "tessera/memory/memory_reader.hpp"
+#include "tessera/memory/read_scatter.hpp"
+#include "tessera/memory/memory_snapshot.hpp"
 #include "tessera/module/module.hpp"
 #include "tessera/module/pe_image.hpp"
+#include "tessera/module/pe_file_backend.hpp"
 #include "tessera/patch/patch.hpp"
+#include "tessera/patch/disk_patch.hpp"
 #include "tessera/pattern/pattern.hpp"
 #include "tessera/process/process.hpp"
 #include "tessera/resolver/resolver.hpp"
@@ -45,6 +53,26 @@
 namespace {
 
 using HookFn = void (*)();
+using PeBackendOpenFn = tessera::Result<std::shared_ptr<tessera::PeFileBackend>> (*)(
+    const std::filesystem::path&, tessera::Address);
+using PeBackendFromBytesFn = tessera::Result<std::shared_ptr<tessera::PeFileBackend>> (*)(
+    std::vector<std::byte>, tessera::Address);
+using DiskChecksumFn = tessera::Result<std::uint32_t> (*)(std::span<const std::byte>);
+using DiskCodeCaveFn = tessera::Result<std::vector<tessera::PeCodeCave>> (*)(
+    std::span<const std::byte>, std::size_t, tessera::SectionCharacteristics);
+using DiskPatchAddFn = tessera::Status (tessera::DiskPatchTransaction::*)(
+    std::uint64_t, std::span<const std::byte>, std::span<const std::byte>);
+using DiskPatchApplyFn = tessera::Result<tessera::DiskPatchReport> (tessera::DiskPatchTransaction::*)();
+using ReadScatterFn = tessera::Result<std::vector<tessera::MemoryReadResult>> (*)(
+    const tessera::Process&, std::span<const tessera::MemoryReadRequest>, std::size_t, std::size_t);
+using SnapshotCaptureFn = tessera::Result<tessera::MemorySnapshot> (*)(
+    const tessera::Process&, tessera::AddressRange);
+using SnapshotDiffFn = tessera::Result<std::vector<tessera::ChangedRange>> (*)(
+    const tessera::MemorySnapshot&, const tessera::MemorySnapshot&);
+using IatHookInstallFn = tessera::Result<tessera::IatHook> (*)(
+    const tessera::Process&, tessera::Address, std::string_view, std::string_view, tessera::Address);
+using IatHookRestoreFn = tessera::Status (tessera::IatHook::*)() noexcept;
+using VTableCreateFn = tessera::Result<tessera::VTableHook> (*)(void*, std::size_t);
 void consumer_noop() {}
 
 using MemoryReadFn = tessera::Status (tessera::MemoryReader::*)(tessera::Address, std::span<std::byte>) const noexcept;
@@ -88,6 +116,19 @@ using PythonDiscoverFn = tessera::Result<tessera::rtti::PythonBridgeCatalog> (*)
 using PythonFindFn = tessera::Result<tessera::rtti::PyMethodEntry> (tessera::rtti::PythonBridgeCatalog::*)(std::string_view) const;
 using PythonExportFn = tessera::Status (tessera::rtti::PythonBridgeCatalog::*)(tessera::reflection::TypeRegistry&) const;
 
+[[maybe_unused]] PeBackendOpenFn volatile g_pe_backend_open = &tessera::PeFileBackend::open;
+[[maybe_unused]] PeBackendFromBytesFn volatile g_pe_backend_from_bytes = &tessera::PeFileBackend::from_bytes;
+[[maybe_unused]] DiskChecksumFn volatile g_disk_checksum = &tessera::PeDiskPatcher::calculate_checksum;
+[[maybe_unused]] DiskCodeCaveFn volatile g_disk_code_caves = &tessera::PeDiskPatcher::find_code_caves;
+[[maybe_unused]] DiskPatchAddFn volatile g_disk_patch_add = &tessera::DiskPatchTransaction::add_patch;
+[[maybe_unused]] DiskPatchApplyFn volatile g_disk_patch_apply = &tessera::DiskPatchTransaction::apply;
+[[maybe_unused]] ReadScatterFn volatile g_read_scatter = &tessera::read_scatter;
+[[maybe_unused]] SnapshotCaptureFn volatile g_snapshot_capture = &tessera::MemorySnapshot::capture;
+[[maybe_unused]] SnapshotDiffFn volatile g_snapshot_diff = &tessera::diff;
+[[maybe_unused]] IatHookInstallFn volatile g_iat_hook_install = &tessera::IatHook::install;
+[[maybe_unused]] IatHookRestoreFn volatile g_iat_hook_restore = &tessera::IatHook::restore;
+[[maybe_unused]] VTableCreateFn volatile g_vtable_hook_create = &tessera::VTableHook::create;
+
 [[maybe_unused]] MemoryReadFn volatile g_memory_read = &tessera::MemoryReader::read_exact;
 [[maybe_unused]] ModuleSnapshotFn volatile g_module_snapshot = &tessera::ModuleCatalog::snapshot;
 [[maybe_unused]] ScanFn volatile g_scan = &tessera::Scanner::scan;
@@ -125,6 +166,11 @@ using PythonExportFn = tessera::Status (tessera::rtti::PythonBridgeCatalog::*)(t
 [[maybe_unused]] PythonFindFn volatile g_python_find = &tessera::rtti::PythonBridgeCatalog::find_method;
 [[maybe_unused]] PythonExportFn volatile g_python_export = &tessera::rtti::PythonBridgeCatalog::export_to_registry;
 
+static_assert(sizeof(tessera::PeFileBackend) > 0);
+static_assert(sizeof(tessera::DiskPatchTransaction) > 0);
+static_assert(sizeof(tessera::MemorySnapshot) > 0);
+static_assert(sizeof(tessera::VTableHook) > 0);
+static_assert(sizeof(tessera::IatHook) > 0);
 static_assert(sizeof(tessera::Process) > 0);
 static_assert(sizeof(tessera::MemoryReader) > 0);
 static_assert(sizeof(tessera::PeImage) > 0);

@@ -1,0 +1,231 @@
+name: Tessera Quality
+on:
+ pull_request: {branches: ["main"]}
+ push: {branches: ["main", "wave-4"]}
+ workflow_dispatch:
+ schedule:
+  - {cron: "17 6 * * 1"}
+  - {cron: "31 4 * * 1"}
+  - {cron: "11 5 * * 2"}
+  - {cron: "23 3 * * 3"}
+concurrency:
+ group: tessera-quality-${{ github.ref }}
+ cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+permissions: {contents: read}
+jobs:
+ format:
+  runs-on: ubuntu-24.04
+  steps:
+   - uses: actions/checkout@v5
+     with: {fetch-depth: 0, persist-credentials: false}
+   - run: sudo apt-get update && sudo apt-get install --yes clang-format-18
+
+   - name: Check changed C++ files
+     env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+      HEAD_SHA: ${{ github.sha }}
+     shell: bash
+     run: |
+      set -euo pipefail
+      if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF_NAME" != "main" ]]; then BASE_SHA="$(git merge-base origin/main "$HEAD_SHA")"; fi
+      if [[ -z "$BASE_SHA" || "$BASE_SHA" == "0000000000000000000000000000000000000000" ]]; then BASE_SHA="$(git rev-list --max-parents=0 HEAD)"; fi
+      mapfile -t files < <(git diff --name-only --diff-filter=ACMRT "$BASE_SHA" "$HEAD_SHA" -- 'src/*.c' 'src/**/*.c' 'src/*.cc' 'src/**/*.cc' 'src/*.cpp' 'src/**/*.cpp' 'src/*.cxx' 'src/**/*.cxx' 'include/*.h' 'include/**/*.h' 'include/*.hh' 'include/**/*.hh' 'include/*.hpp' 'include/**/*.hpp' 'include/*.hxx' 'include/**/*.hxx' 'examples/*.c' 'examples/**/*.c' 'examples/*.cc' 'examples/**/*.cc' 'examples/*.cpp' 'examples/**/*.cpp' 'examples/*.cxx' 'examples/**/*.cxx' 'examples/*.h' 'examples/**/*.h' 'examples/*.hh' 'examples/**/*.hh' 'examples/*.hpp' 'examples/**/*.hpp' 'examples/*.hxx' 'examples/**/*.hxx')
+      if ((${#files[@]} == 0)); then echo "No changed production sources"; exit 0; fi
+      clang-format-18 --dry-run --Werror "${files[@]}"
+ clang-tidy:
+  runs-on: windows-latest
+  timeout-minutes: 45
+  steps:
+   - uses: actions/checkout@v5
+   - uses: ilammy/msvc-dev-cmd@v1
+     with: {arch: x64}
+   - shell: pwsh
+     run: |
+      choco install llvm --version=23.1.3 --yes --no-progress
+      choco install ninja --yes --no-progress
+      "$env:ProgramFiles\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+   - shell: pwsh
+     run: cmake -S . -B build-tidy -G Ninja -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_CXX_SCAN_FOR_MODULES=OFF -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF
+   - shell: pwsh
+     run: |
+      $sources=Get-ChildItem src -Recurse -Filter *.cpp | %{$_.FullName}
+      foreach($s in $sources){& clang-tidy -p build-tidy -quiet -header-filter='.*include/tessera/.*' -extra-arg=-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH $s;if($LASTEXITCODE -ne 0){throw "clang-tidy failed: $s"}}
+ sanitizers:
+  runs-on: ubuntu-24.04
+  timeout-minutes: 45
+  strategy:
+   fail-fast: false
+   matrix:
+    include:
+     - {name: ASan-UBSan, flags: "-fsanitize=address,undefined", asan: "detect_leaks=1:halt_on_error=1", ubsan: "halt_on_error=1:print_stacktrace=1", tsan: ""}
+     - {name: TSan, flags: "-fsanitize=thread", asan: "", ubsan: "", tsan: "halt_on_error=1:second_deadlock_stack=1"}
+  steps:
+   - uses: actions/checkout@v5
+   - run: sudo apt-get update && sudo apt-get install --yes g++-13 libstdc++-13-dev
+   - name: Run mock and concurrency sanitizer checks
+     env:
+      SANITIZER_FLAGS: ${{ matrix.flags }}
+      ASAN_OPTIONS: ${{ matrix.asan }}
+      UBSAN_OPTIONS: ${{ matrix.ubsan }}
+      TSAN_OPTIONS: ${{ matrix.tsan }}
+     run: CXX=g++-13 EXTRA_CXXFLAGS="$SANITIZER_FLAGS -fno-omit-frame-pointer" bash ./verify/windows_mock/run_windows_mock_tests.sh
+   - uses: actions/upload-artifact@v7
+     if: always()
+     with:
+      name: "sanitizer-${{ matrix.name }}"
+      path: verify/windows_mock/windows_mock_tests.log
+      if-no-files-found: ignore
+ coverage:
+  runs-on: windows-latest
+  timeout-minutes: 60
+  steps:
+   - uses: actions/checkout@v5
+   - uses: ilammy/msvc-dev-cmd@v1
+     with: {arch: x64}
+   - shell: pwsh
+     run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
+   - shell: pwsh
+     run: |
+      choco install llvm --version=23.1.3 --yes --no-progress
+      choco install ninja --yes --no-progress
+      "$env:ProgramFiles\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+   - shell: pwsh
+     run: cmake -S . -B build-coverage -G Ninja -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_BUILD_TYPE=Debug -DTESSERA_BUILD_TESTS=ON -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_ENABLE_COVERAGE=ON
+   - run: cmake --build build-coverage --parallel 2
+   - shell: pwsh
+     env: {LLVM_PROFILE_FILE: "coverage-%p.profraw"}
+     run: ctest --test-dir build-coverage --output-on-failure
+   - name: Export coverage
+     if: always()
+     shell: bash
+     run: |
+      mkdir -p artifacts/coverage
+      shopt -s nullglob
+      profiles=(coverage-*.profraw)
+      if ((${#profiles[@]} == 0)); then echo "No LLVM profile data" > artifacts/coverage/summary.txt; exit 0; fi
+      llvm-profdata merge -sparse "${profiles[@]}" -o artifacts/coverage/merged.profdata
+      mapfile -t bins < <(find build-coverage/verify/tests -maxdepth 1 -type f -iname 'tessera_test_*.exe' | sort)
+      for b in "${bins[@]}"; do n="$(basename "$b" .exe)"; llvm-cov export -format=lcov "$b" -instr-profile=artifacts/coverage/merged.profdata > "artifacts/coverage/$n.info"; done
+      if ((${#bins[@]} > 0)); then args=("${bins[0]}" -instr-profile=artifacts/coverage/merged.profdata -show-branch-summary); for b in "${bins[@]:1}"; do args+=(-object "$b"); done; llvm-cov report "${args[@]}" > artifacts/coverage/summary.txt; cat artifacts/coverage/summary.txt >> "$GITHUB_STEP_SUMMARY"; fi
+   - uses: actions/upload-artifact@v7
+     if: always()
+     with: {name: tessera-coverage-report, path: artifacts/coverage/, if-no-files-found: ignore}
+ codeql:
+  runs-on: windows-latest
+  timeout-minutes: 60
+  permissions:
+   contents: read
+   actions: read
+   security-events: write
+  steps:
+   - uses: actions/checkout@v5
+   - uses: ilammy/msvc-dev-cmd@v1
+     with: {arch: x64}
+   - uses: github/codeql-action/init@v4
+     with: {languages: cpp, queries: security-extended}
+   - shell: pwsh
+     run: cmake -S . -B build-codeql -G "Visual Studio 18 2026" -A x64 -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_FUZZ=OFF -DTESSERA_BUILD_BENCH=OFF
+   - shell: pwsh
+     run: cmake --build build-codeql --config Release --parallel 2
+   - uses: github/codeql-action/analyze@v4
+ markdown-links:
+  runs-on: ubuntu-24.04
+  steps:
+   - uses: actions/checkout@v5
+   - name: Verify local Markdown links
+     shell: python
+     run: |
+      import pathlib,re,sys,urllib.parse
+      root=pathlib.Path.cwd();bad=[]
+      for doc in root.rglob("*.md"):
+       if ".git" in doc.parts: continue
+       for target in re.findall(r'!?\[[^\]]*\]\(([^)]+)\)',doc.read_text(encoding="utf-8")):
+        target=target.strip().split()[0].strip("<>")
+        if not target or target.startswith(("http://","https://","mailto:","data:","#")): continue
+        path=urllib.parse.unquote(target.split("#",1)[0])
+        if path and not (doc.parent/path).resolve().exists(): bad.append(f"{doc.relative_to(root)} -> {target}")
+      if bad: print("\n".join(bad));sys.exit(1)
+      print("All local Markdown links resolve.")
+
+ workflow-contracts:
+  name: Workflow YAML and script task parity
+  runs-on: ubuntu-24.04
+  steps:
+    - uses: actions/checkout@v5
+      with:
+        persist-credentials: false
+    - uses: actions/setup-go@v6
+      with:
+        go-version: "1.25"
+    - name: Install actionlint
+      run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+    - name: Lint workflow syntax and expressions
+      run: '"$HOME/go/bin/actionlint" -color .github/workflows/*.yml'
+    - uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+    - name: Validate lifecycle YAML, permissions, matrix and script parameters
+      shell: bash
+      run: |
+        python -m pip install --disable-pip-version-check pyyaml
+        python - <<'PY'
+        from pathlib import Path
+        import re
+        import yaml
+
+        workflows = Path(".github/workflows")
+        expected = {"ci.yml", "quality.yml", "fuzz.yml", "release.yml"}
+        actual = {p.name for p in workflows.glob("*.yml")}
+        assert actual == expected, f"Unexpected workflow set: {sorted(actual)}"
+
+        parsed = {}
+        for name in sorted(expected):
+            text = (workflows / name).read_text(encoding="utf-8")
+            data = yaml.load(text, Loader=yaml.BaseLoader)
+            assert isinstance(data, dict) and "jobs" in data, f"Invalid workflow structure: {name}"
+            parsed[name] = (text, data)
+
+        ci_text, ci = parsed["ci.yml"]
+        quality_text, quality = parsed["quality.yml"]
+        fuzz_text, fuzz = parsed["fuzz.yml"]
+        release_text, release = parsed["release.yml"]
+
+        assert "cli-smoke" in ci["jobs"], "The optional CLI smoke job is missing"
+        assert len(fuzz["jobs"]["continuous-fuzz"]["strategy"]["matrix"]["include"]) == 8
+        assert set(fuzz["jobs"]["native-hook"]["strategy"]["matrix"]["arch"]) == {"x64", "x86"}
+        assert release["concurrency"]["cancel-in-progress"].lower() == "false"
+
+        for job_name, job in quality["jobs"].items():
+            permissions = job.get("permissions", {})
+            if job_name == "codeql":
+                assert permissions.get("security-events") == "write"
+            else:
+                assert permissions.get("security-events") != "write", f"Excess CodeQL permission in {job_name}"
+
+        def allowed_sets(script_path):
+            source = Path(script_path).read_text(encoding="utf-8")
+            return [set(re.findall(r'"([^"]+)"', item))
+                    for item in re.findall(r"ValidateSet\(([^)]*)\)", source, flags=re.I)]
+
+        checks = [
+            (".github/scripts/ci-build.ps1", [ci_text], "ci-build.ps1"),
+            (".github/scripts/ci-verify.ps1", [ci_text], "ci-verify.ps1"),
+            (".github/scripts/ci-sdk.ps1", [ci_text, release_text], "ci-sdk.ps1"),
+        ]
+        for script, sources, marker in checks:
+            allowed = allowed_sets(script)[0]
+            invoked = set()
+            for source in sources:
+                invoked.update(re.findall(re.escape(marker) + r"\s+-Task\s+([A-Za-z-]+)", source, flags=re.I))
+            assert invoked <= allowed, f"{marker} unsupported tasks: {sorted(invoked - allowed)}"
+
+        native_sets = allowed_sets(".github/scripts/fuzz-native-hook.ps1")
+        stages = set(re.findall(r"fuzz-native-hook\.ps1\s+-Stage\s+([A-Za-z-]+)", fuzz_text))
+        matrix_arches = set(fuzz["jobs"]["native-hook"]["strategy"]["matrix"]["arch"])
+        assert stages == native_sets[0] == {"setup", "build", "run"}
+        assert matrix_arches == native_sets[1] == {"x86", "x64"}
+
+        scripts = {p.name for p in Path(".github/scripts").glob("*") if p.is_file()}
+        assert scripts == {"ci-build.ps1", "ci-verify.ps1", "ci-sdk.ps1", "ci-windows-mock.sh", "fuzz-native-hook.ps1"}
+        print("Workflow YAML and script task contracts validated.")
+        PY

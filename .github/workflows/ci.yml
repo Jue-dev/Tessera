@@ -1,388 +1,164 @@
-name: Tessera CI & SDK Release
-
-# Version-tag SDK packaging and publication live in release.yml; this workflow owns PR validation.
+name: Tessera CI
 on:
-  pull_request:
-    branches: [ "main" ]
-    paths:
-      - ".clang-tidy"
-      - "*.cmake"
-      - "CMakeLists.txt"
-      - "CMakePresets.json"
-      - "cmake/**"
-      - "include/**"
-      - "src/**"
-      - "verify/**"
-      - "examples/**"
-      - "scripts/**"
-      - "vcpkg.json"
-      - "vcpkg-configuration.json"
-      - ".github/workflows/**"
-      - ".github/actions/**"
-      - ".github/scripts/**"
-  push:
-    branches: [ "main" ]
-    tags: [ "v*" ]
-    paths:
-      - ".clang-tidy"
-      - "*.cmake"
-      - "CMakeLists.txt"
-      - "CMakePresets.json"
-      - "cmake/**"
-      - "include/**"
-      - "src/**"
-      - "verify/**"
-      - "examples/**"
-      - "scripts/**"
-      - "vcpkg.json"
-      - "vcpkg-configuration.json"
-      - ".github/workflows/**"
-      - ".github/actions/**"
-      - ".github/scripts/**"
-  workflow_dispatch:
-  schedule:
-    - cron: "17 3 * * 1" # Weekly full validation (Monday, 03:17 UTC).
-
+ pull_request:
+  branches: ["main"]
+  paths: [".clang-tidy","*.cmake","CMakeLists.txt","CMakePresets.json","cmake/**","include/**","src/**","verify/**","examples/**","scripts/**",
+      "tools/**","vcpkg.json","vcpkg-configuration.json",".github/workflows/**",".github/actions/**",".github/scripts/**"]
+ push:
+  branches: ["main", "wave-4"]
+  paths: [".clang-tidy","*.cmake","CMakeLists.txt","CMakePresets.json","cmake/**","include/**","src/**","verify/**","examples/**","scripts/**","tools/**","vcpkg.json","vcpkg-configuration.json",".github/workflows/**",".github/actions/**",".github/scripts/**"]
+ workflow_dispatch:
 concurrency:
-  group: tessera-full-${{ github.ref }}
-  cancel-in-progress: true
-
+ group: tessera-ci-${{ github.workflow }}-${{ github.ref }}
+ cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 permissions:
-  contents: read
-
+ contents: read
 jobs:
-  build-and-test:
-    name: Build, Test & Package (${{ matrix.preset }})
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - preset: x64-debug
-            arch: x64
-            config: Debug
-          - preset: x64-release
-            arch: x64
-            config: Release
-          - preset: x86-debug
-            arch: x86
-            config: Debug
-          - preset: x86-release
-            arch: x86
-            config: Release
+ windows-build:
+  runs-on: windows-latest
+  strategy:
+   fail-fast: false
+   matrix:
+    include:
+     - {preset: x64-debug, arch: x64, config: Debug}
+     - {preset: x64-release, arch: x64, config: Release}
+     - {preset: x86-debug, arch: x86, config: Debug}
+     - {preset: x86-release, arch: x86, config: Release}
+  steps:
+   - uses: actions/checkout@v5
+     with: {persist-credentials: false}
+   - uses: ./.github/actions/setup-msvc
+     with:
+      arch: ${{ matrix.arch }}
+   - name: Generate PE fixtures
+     shell: pwsh
+     run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
+   - run: cmake --preset ${{ matrix.preset }}
+   - run: cmake --build --preset ${{ matrix.preset }}
+   - run: ctest --preset ${{ matrix.preset }} --output-on-failure
+   - run: ctest --preset ${{ matrix.preset }} --shuffle --output-on-failure
+   - name: Safe examples smoke
+     if: matrix.preset == 'x64-release'
+     shell: pwsh
+     run: .\.github\scripts\ci-verify.ps1 -Task examples
+   - run: cmake --install artifacts/${{ matrix.arch }}/${{ matrix.config }}/build --prefix dist/TesseraSDK/${{ matrix.arch }}/${{ matrix.config }}
+   - uses: actions/upload-artifact@v7
+     with:
+      name: Tessera-SDK-${{ matrix.preset }}
+      path: dist/TesseraSDK/${{ matrix.arch }}/${{ matrix.config }}
+      if-no-files-found: error
+ decoder-oracle:
+  runs-on: windows-latest
+  steps:
+   - uses: actions/checkout@v5
+   - uses: ./.github/actions/setup-msvc
+     with: {arch: x64}
+   - uses: actions/setup-python@v6
+     with: {python-version: "3.12"}
+   - run: python -m pip install --disable-pip-version-check iced-x86==1.21.0
+   - shell: pwsh
+     run: .\.github\scripts\ci-verify.ps1 -Task decoder-oracle
+ windows-mock:
+  runs-on: ubuntu-24.04
+  steps:
+   - uses: actions/checkout@v5
+   - run: bash ./.github/scripts/ci-windows-mock.sh
+ detours-integration:
+  runs-on: windows-latest
+  strategy: {fail-fast: false, matrix: {arch: [x64, x86]}}
+  steps:
+   - uses: actions/checkout@v5
+   - uses: actions/checkout@v5
+     with: {repository: microsoft/Detours, ref: v4.0.1, path: dependencies/Detours, persist-credentials: false}
+   - uses: ./.github/actions/setup-msvc
+     with:
+      arch: ${{ matrix.arch }}
+   - shell: pwsh
+     working-directory: dependencies/Detours/src
+     run: '& "$env:GITHUB_WORKSPACE\.github\scripts\ci-build.ps1" -Task detours -Action Build -Architecture "${{ matrix.arch }}"'
+   - shell: pwsh
+     run: .\.github\scripts\ci-build.ps1 -Task detours -Action Verify -Architecture "${{ matrix.arch }}"
+   - shell: pwsh
+     run: .\.github\scripts\ci-build.ps1 -Task detours-integration -DetoursRoot "$env:GITHUB_WORKSPACE\dependencies\Detours" -Architecture "${{ matrix.arch }}" -Configuration Release
+ no-rtti-gate:
+  runs-on: windows-latest
+  steps:
+   - uses: actions/checkout@v5
+   - uses: ./.github/actions/setup-msvc
+     with: {arch: x64}
+   - shell: pwsh
+     run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
+   - shell: pwsh
+     run: .\.github\scripts\ci-build.ps1 -Task configure -Mode NoRtti
+   - run: cmake --build build-nortti --config Release --parallel
+   - run: ctest --test-dir build-nortti -C Release --output-on-failure
+   - run: ctest --test-dir build-nortti -C Release --shuffle --output-on-failure
+   - shell: pwsh
+     run: .\.github\scripts\ci-verify.ps1 -Task fuzz-bench -BuildDirectory build-nortti -Configuration Release
+   - run: cmake --install build-nortti --config Release --prefix install-nortti
+   - shell: pwsh
+     run: .\.github\scripts\ci-sdk.ps1 -Task consumer -SdkPrefix "$env:GITHUB_WORKSPACE\install-nortti"
+ optional-presets:
+  runs-on: windows-latest
+  timeout-minutes: 60
+  strategy: {fail-fast: false, matrix: {preset: [x64-bench, x64-fuzz-smoke]}}
+  steps:
+   - uses: actions/checkout@v5
+   - uses: ./.github/actions/setup-msvc
+     with: {arch: x64}
+   - shell: pwsh
+     run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
+   - shell: pwsh
+     run: .\.github\scripts\ci-build.ps1 -Task preset -Preset "${{ matrix.preset }}"
+ msvc-analysis:
+  runs-on: windows-latest
+  steps:
+   - uses: actions/checkout@v5
+   - uses: ./.github/actions/setup-msvc
+     with: {arch: x64}
+   - run: cmake --preset x64-analyze
+   - run: cmake --build --preset x64-analyze --parallel
+   - run: ctest --preset x64-analyze --output-on-failure
+   - run: ctest --preset x64-analyze --shuffle --output-on-failure
+ reduced-consumers:
+  runs-on: windows-latest
+  strategy:
+   fail-fast: false
+   matrix:
+    include:
+     - {name: minimal, options: "-DTESSERA_BUILD_PROFILE=OFF -DTESSERA_BUILD_TARGETS=OFF -DTESSERA_BUILD_LOGGING=OFF"}
+     - {name: no-profile, options: "-DTESSERA_BUILD_PROFILE=OFF"}
+     - {name: no-targets, options: "-DTESSERA_BUILD_TARGETS=OFF"}
+     - {name: no-logging, options: "-DTESSERA_BUILD_LOGGING=OFF"}
+  steps:
+   - uses: actions/checkout@v5
+   - uses: ./.github/actions/setup-msvc
+     with: {arch: x64}
+   - shell: pwsh
+     run: .\.github\scripts\ci-build.ps1 -Task configure -Mode Reduced -Options '${{ matrix.options }}'
+   - run: cmake --build build-reduced --parallel
+   - run: cmake --install build-reduced --prefix install-reduced
+   - shell: pwsh
+     run: .\.github\scripts\ci-sdk.ps1 -Task consumer -Options '${{ matrix.options }}' -SdkPrefix "$env:GITHUB_WORKSPACE\install-reduced"
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - name: Setup MSVC Developer Command Prompt (${{ matrix.arch }})
-        uses: ./.github/actions/setup-msvc
-        with:
-          arch: ${{ matrix.arch }}
-
-      - name: Generate PE test fixtures
-        shell: pwsh
-        run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
-
-      - name: Configure CMake (${{ matrix.preset }})
-        run: cmake --preset ${{ matrix.preset }}
-
-      - name: Build (${{ matrix.preset }})
-        run: cmake --build --preset ${{ matrix.preset }}
-
-      - name: Run CTest (${{ matrix.preset }})
-        run: ctest --preset ${{ matrix.preset }} --output-on-failure
-      - name: Run safe example smoke (x64 Release)
-        if: matrix.preset == 'x64-release'
-        shell: pwsh
-        run: .\.github\scripts\ci\run-safe-example-smoke.ps1
-
-      - name: Stage Installed SDK (${{ matrix.preset }})
-        run: cmake --install artifacts/${{ matrix.arch }}/${{ matrix.config }}/build --prefix dist/TesseraSDK/${{ matrix.arch }}/${{ matrix.config }}
-
-      - name: Upload SDK Artifact (Tessera-SDK-${{ matrix.preset }})
-        uses: actions/upload-artifact@v7
-        with:
-          name: Tessera-SDK-${{ matrix.preset }}
-          path: dist/TesseraSDK/${{ matrix.arch }}/${{ matrix.config }}
-          if-no-files-found: error
-
-  decoder-differential:
-    name: Independent Decoder Differential (iced-x86)
-    runs-on: windows-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - name: Setup MSVC Developer Command Prompt (x64)
-        uses: ./.github/actions/setup-msvc
-        with:
-          arch: x64
-
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Install pinned test-only decoder oracle
-        run: python -m pip install --disable-pip-version-check iced-x86==1.21.0
-
-      - name: Configure, build and compare decoder boundaries against iced-x86
-        shell: pwsh
-        run: .\.github\scripts\ci\run-decoder-differential.ps1
-
-  windows-backend-mock:
-    name: Windows Backend Mock (Linux)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - name: Run Windows backend mock tests (normal and ASan/UBSan)
-        run: bash ./.github/scripts/ci/run-windows-mock-validation.sh
-
-  detours-integration:
-    name: Live Microsoft Detours Hook (${{ matrix.arch }})
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x64
-          - arch: x86
-
-    steps:
-      - name: Checkout Tessera
-        uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - name: Checkout Microsoft Detours v4.0.1
-        uses: actions/checkout@v5
-        with:
-          repository: microsoft/Detours
-          ref: v4.0.1
-          path: dependencies/Detours
-          persist-credentials: false
-
-      - name: Setup MSVC Developer Command Prompt (${{ matrix.arch }})
-        uses: ./.github/actions/setup-msvc
-        with:
-          arch: ${{ matrix.arch }}
-
-      - name: Generate PE test fixtures
-        shell: pwsh
-        run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
-
-      - name: Build Microsoft Detours for ${{ matrix.arch }}
-        shell: pwsh
-        working-directory: dependencies/Detours/src
-        run: '& "$env:GITHUB_WORKSPACE\.github\scripts\ci\detours.ps1" -Action Build -Architecture "${{ matrix.arch }}"'
-      - name: Verify architecture-specific Detours outputs
-        shell: pwsh
-        run:  .\.github\scripts\ci\detours.ps1 -Action Verify -Architecture "${{ matrix.arch }}"
-      - name: Build Tessera and run the live Detours test
-        shell: pwsh
-        run: .\.github\scripts\ci\detours-integration.ps1 -DetoursRoot "$env:GITHUB_WORKSPACE\dependencies\Detours" -Architecture "${{ matrix.arch }}" -Configuration Release
-
-  no-rtti-and-packaging-gate:
-    name: Quality Gate (/GR- No-RTTI, .bench & .fuzz Smoke)
-    runs-on: windows-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - name: Setup MSVC Developer Command Prompt (x64)
-        uses: ./.github/actions/setup-msvc
-        with:
-          arch: x64
- 
-      - name: Generate PE test fixtures
-        shell: pwsh
-        run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
-
-      - name: Configure with Compiler RTTI Disabled (/GR-) and Benchmarks/Fuzz Enabled
-        run:  .\.github\scripts\ci\configure.ps1 -Mode NoRtti
-      - name: Build Release with /GR-
-        run: cmake --build build-nortti --config Release --parallel
-
-      - name: Run All Tests Under /GR-
-        run: ctest --test-dir build-nortti -C Release --output-on-failure
-
-      - name: Run Fuzz & Benchmark Smoke Targets (verify/fuzz & verify/bench)
-        shell: pwsh
-        run:  .\.github\scripts\ci\run-fuzz-bench-smoke.ps1 -BuildDirectory "build-nortti" -Configuration "Release"
-      - name: Verify CMake Install Package (Single tessera.lib)
-        run: cmake --install build-nortti --config Release --prefix install-nortti
-
-  optional-cmake-presets:
-    name: Optional CMake Presets (${{ matrix.preset }})
-    runs-on: windows-latest
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        preset: [x64-bench, x64-fuzz-smoke]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - name: Setup MSVC Developer Command Prompt (x64)
-        uses: ./.github/actions/setup-msvc
-        with:
-          arch: x64
-
-      - name: Generate PE test fixtures
-        shell: pwsh
-        run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
-
-      - name: Configure, build, test and compare optional preset
-        shell: pwsh
-        run: .\.github\scripts\ci\run-optional-cmake-preset.ps1 -Preset "${{ matrix.preset }}"
-
-  msvc-static-analysis:
-    name: MSVC Static Analysis (/analyze, x64)
-    runs-on: windows-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - name: Setup MSVC Developer Command Prompt (x64)
-        uses: ./.github/actions/setup-msvc
-        with:
-          arch: x64
- 
-      - name: Generate PE test fixtures
-        shell: pwsh
-        run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
-
-      - name: Configure MSVC Code Analysis
-        run: cmake --preset x64-analyze
-
-      - name: Build with /analyze
-        run: cmake --build --preset x64-analyze --parallel
-
-      - name: Run CTest after /analyze build
-        run: ctest --preset x64-analyze --output-on-failure
-
-  reduced-configurations:
-    name: Reduced CMake Configuration (${{ matrix.name }})
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: minimal
-            options: "-DTESSERA_BUILD_PROFILE=OFF -DTESSERA_BUILD_TARGETS=OFF -DTESSERA_BUILD_LOGGING=OFF"
-          - name: no-profile
-            options: "-DTESSERA_BUILD_PROFILE=OFF"
-          - name: no-targets
-            options: "-DTESSERA_BUILD_TARGETS=OFF"
-          - name: no-logging
-            options: "-DTESSERA_BUILD_LOGGING=OFF"
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - name: Setup MSVC Developer Command Prompt (x64)
-        uses: ./.github/actions/setup-msvc
-        with:
-          arch: x64
-
-      - name: Configure reduced SDK
-        shell: pwsh
-        run:  .\.github\scripts\ci\configure.ps1 -Mode Reduced -Options '${{ matrix.options }}'
-      - name: Build reduced SDK
-        run: cmake --build build-reduced --parallel
-
-      - name: Install reduced SDK
-        run: cmake --install build-reduced --prefix install-reduced
-
-      - name: Configure and build installed-package consumer
-        shell: pwsh
-        run:  .\.github\scripts\ci\test-installed-sdk-consumer.ps1 -Options '${{ matrix.options }}'
-
-  release-package-dry-run:
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
-    name: Release SDK Package (tag-independent dry run)
-    needs: [build-and-test]
-    runs-on: windows-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - name: Download all architecture/configuration SDK artifacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: Tessera-SDK-*
-          path: sdk-Input
-          merge-multiple: false
-
-      - name: Assemble, checksum and validate the unified SDK package
-        shell: pwsh
-        run: .\.github\scripts\ci\package-sdk-release.ps1
-
-      - name: Upload validated dry-run package
-        uses: actions/upload-artifact@v7
-        with:
-          name: Tessera-SDK-release-dry-run
-          path: |
-            Tessera-SDK-Windows.zip
-            SHA256SUMS.txt
-          if-no-files-found: error
-
-  publish-sdk-bundle:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    name: Bundle Full SDK & Publish GitHub Release
-    needs: [build-and-test, no-rtti-and-packaging-gate, detours-integration, msvc-static-analysis]
-    runs-on: windows-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - name: Download All Built SDK Artifacts
-        uses: actions/download-artifact@v8
-        with:
-          path: sdk-Input
-
-      - name: Assemble, checksum and validate Unified Tessera SDK Package
-        shell: pwsh
-        run: .\.github\scripts\ci\package-sdk-release.ps1
-
-      - name: Upload Combined SDK Bundle Artifact (Tessera-SDK-Full)
-        uses: actions/upload-artifact@v7
-        with:
-          name: Tessera-SDK-Full
-          path: |
-            Tessera-SDK-Windows.zip
-            SHA256SUMS.txt
-
-      - name: Publish GitHub Release (On Tag Push v*)
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            Tessera-SDK-Windows.zip
-            SHA256SUMS.txt
-          generate_release_notes: true
+ cli-smoke:
+  name: Optional offline CLI and JSON smoke
+  runs-on: windows-latest
+  steps:
+    - uses: actions/checkout@v5
+      with:
+        persist-credentials: false
+    - uses: ./.github/actions/setup-msvc
+      with:
+        arch: x64
+    - name: Generate PE fixtures
+      shell: pwsh
+      run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
+    - name: Configure optional CLI
+      shell: pwsh
+      run: cmake -S . -B build-cli -G Ninja -DCMAKE_BUILD_TYPE=Release -DTESSERA_BUILD_TESTS=ON -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_CLI=ON
+    - name: Build optional CLI and tests
+      run: cmake --build build-cli --parallel 2
+    - name: Run CLI command and JSON smoke suite
+      shell: pwsh
+      run: ctest --test-dir build-cli -R tessera_cli_smoke --output-on-failure
