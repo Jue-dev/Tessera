@@ -100,6 +100,11 @@ public:
         AddressRange range,
         std::span<const Pattern> patterns,
         const ScanOptions& options = {}) const;
+    [[nodiscard]] Result<std::vector<ScanResult>> scan_batch(
+        AddressRange range,
+        std::span<const Pattern> patterns,
+        const ScanOptions& options,
+        ScanWorkspace& workspace) const;
 
     [[nodiscard]] Result<Address> find_first(AddressRange range,
                                              const Pattern& pattern,
@@ -126,6 +131,11 @@ private:
         ScanReadPolicy read_policy,
         ScanWorkspace* workspace,
         FunctionRef<bool(Address)> on_match) const;
+    [[nodiscard]] Result<std::vector<ScanResult>> scan_batch_impl(
+        AddressRange range,
+        std::span<const Pattern> patterns,
+        const ScanOptions& options,
+        ScanWorkspace* workspace) const;
 
     Process process_;
 };
