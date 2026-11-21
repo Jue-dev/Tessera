@@ -352,6 +352,52 @@ TEST_CASE("Scanner supports deterministic concurrent read-only scans", "[scanner
     REQUIRE(successful_scans.load(std::memory_order_relaxed) == 4);
 }
 
+TEST_CASE("Decoded xrefs reject CALL opcode bytes embedded inside instruction immediates",
+          "[xref][decoder][false-positive]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    constexpr std::uint64_t base = 0x740000;
+    constexpr std::uint64_t target_value = base + 0x1007;
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    std::vector<std::byte> code(0x1000, std::byte{0x90});
+
+    // MOV RAX, imm64. Its immediate begins with bytes that look like CALL rel32.
+    code[0] = std::byte{0x48};
+    code[1] = std::byte{0xB8};
+    code[2] = std::byte{0xE8};
+    code[3] = std::byte{0x00};
+    code[4] = std::byte{0x10};
+    code[5] = std::byte{0x00};
+    code[6] = std::byte{0x00};
+    code[7] = std::byte{0x90};
+    code[8] = std::byte{0x90};
+    code[9] = std::byte{0x90};
+
+    const std::int32_t call_displacement =
+        static_cast<std::int32_t>(target_value - (base + 0x105));
+    code[0x100] = std::byte{0xE8};
+    std::memcpy(code.data() + 0x101, &call_displacement, sizeof(call_displacement));
+    backend->map_region(Address{base}, code.size(), MemoryProtection::ExecuteRead);
+    backend->poke_bytes(Address{base}, code);
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
+    const AddressRange range{Address{base}, code.size()};
+    const Address target{target_value};
+
+    auto byte_scan = xref::find_calls(process, range, target);
+    REQUIRE(byte_scan.has_value());
+    REQUIRE(byte_scan->size() == 2);
+
+    ScanOptions options{};
+    options.filter.executable_only = true;
+    auto decoded = xref::find_decoded_xrefs(process, range, target, options);
+    REQUIRE(decoded.has_value());
+    REQUIRE(decoded->references.size() == 1);
+    REQUIRE(decoded->references.front().instruction == Address{base + 0x100});
+    REQUIRE(decoded->references.front().target == target);
+    REQUIRE(decoded->references.front().kind == xref::XrefKind::DirectCall);
+}
+
 TEST_CASE("Scanner reports query failures and rejects chunk overlap overflow", "[scanner][safety]") {
     using namespace tessera;
     using namespace tessera::literals;
