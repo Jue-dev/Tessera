@@ -338,6 +338,32 @@ Result<std::vector<ScanResult>> Scanner::scan_batch_impl(
     }
 
     try {
+        struct AnchorGroup {
+            std::size_t anchor_index = 0;
+            std::byte anchor_value{};
+            std::vector<std::size_t> pattern_indices{};
+        };
+        std::vector<AnchorGroup> groups;
+        std::vector<std::size_t> anchorless;
+        groups.reserve(patterns.size());
+        anchorless.reserve(patterns.size());
+        for (std::size_t i = 0; i < patterns.size(); ++i) {
+            const auto anchor = patterns[i].anchor_index();
+            if (!anchor) {
+                anchorless.push_back(i);
+                continue;
+            }
+            const std::byte value = patterns[i].bytes()[*anchor];
+            auto group = std::find_if(groups.begin(), groups.end(), [&](const AnchorGroup& item) {
+                return item.anchor_index == *anchor && item.anchor_value == value;
+            });
+            if (group == groups.end()) {
+                groups.push_back(AnchorGroup{.anchor_index = *anchor, .anchor_value = value});
+                group = std::prev(groups.end());
+            }
+            group->pattern_indices.push_back(i);
+        }
+
         std::vector<ScanResult> results(patterns.size());
         const std::size_t align = options.alignment > 0 ? options.alignment : 1;
         bool cancelled = false;
@@ -354,28 +380,77 @@ Result<std::vector<ScanResult>> Scanner::scan_batch_impl(
                 std::uint64_t total_bytes) -> bool {
                 std::size_t aggregate_hits = 0;
                 bool active = false;
-                for (std::size_t i = 0; i < patterns.size(); ++i) {
-                    auto& result = results[i];
-                    if (options.max_results > 0 && result.hits.size() >= options.max_results) {
+                const auto quota_reached = [&](std::size_t index) {
+                    return options.max_results > 0 &&
+                           results[index].hits.size() >= options.max_results;
+                };
+
+                for (const auto& group : groups) {
+                    bool group_active = false;
+                    for (const std::size_t index : group.pattern_indices) {
+                        group_active = group_active || !quota_reached(index);
+                    }
+                    if (!group_active || group.anchor_index >= data.size()) {
                         continue;
                     }
-                    patterns[i].search(data, start_limit, [&](std::size_t match_off) -> bool {
-                        const std::uint64_t hit_addr = chunk_base.value() + match_off;
-                        if (align > 1 && (hit_addr % align) != 0) {
+
+                    std::size_t offset = 0;
+                    while (offset < start_limit &&
+                           group.anchor_index < data.size() - offset) {
+                        const auto* found = static_cast<const std::byte*>(std::memchr(
+                            data.data() + offset + group.anchor_index,
+                            std::to_integer<unsigned char>(group.anchor_value),
+                            start_limit - offset));
+                        if (found == nullptr) {
+                            break;
+                        }
+                        const std::size_t anchor_position =
+                            static_cast<std::size_t>(found - data.data());
+                        const std::size_t candidate = anchor_position - group.anchor_index;
+                        for (const std::size_t index : group.pattern_indices) {
+                            if (quota_reached(index) ||
+                                !patterns[index].matches(data.subspan(candidate))) {
+                                continue;
+                            }
+                            const std::uint64_t hit_address = chunk_base.value() + candidate;
+                            if (align > 1 && (hit_address % align) != 0) {
+                                continue;
+                            }
+                            auto& result = results[index];
+                            result.hits.emplace_back(hit_address);
+                            ++aggregate_hits;
+                            if (quota_reached(index)) {
+                                result.truncated = true;
+                            }
+                        }
+                        offset = candidate + 1;
+                    }
+                    for (const std::size_t index : group.pattern_indices) {
+                        active = active || !quota_reached(index);
+                    }
+                }
+
+                for (const std::size_t index : anchorless) {
+                    auto& result = results[index];
+                    if (quota_reached(index)) {
+                        continue;
+                    }
+                    patterns[index].search(data, start_limit, [&](std::size_t match_off) -> bool {
+                        const std::uint64_t hit_address = chunk_base.value() + match_off;
+                        if (align > 1 && (hit_address % align) != 0) {
                             return true;
                         }
-                        result.hits.emplace_back(hit_addr);
-                        if (options.max_results > 0 && result.hits.size() >= options.max_results) {
+                        result.hits.emplace_back(hit_address);
+                        ++aggregate_hits;
+                        if (quota_reached(index)) {
                             result.truncated = true;
                             return false;
                         }
                         return true;
                     });
-                    if (options.max_results == 0 || result.hits.size() < options.max_results) {
-                        active = true;
-                    }
-                    aggregate_hits += result.hits.size();
+                    active = active || !quota_reached(index);
                 }
+
                 if (options.on_progress) {
                     const ScanProgress progress{
                         .bytes_scanned = scanned_so_far,
@@ -385,7 +460,7 @@ Result<std::vector<ScanResult>> Scanner::scan_batch_impl(
                     options.on_progress(progress);
                 }
                 return active;
-            },
+            }            },
             ScanReadPolicy::BestEffort,
             workspace ? &workspace->buffer_ : nullptr);
         if (!stats_res) {
