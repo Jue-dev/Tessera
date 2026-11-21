@@ -231,6 +231,28 @@ TEST_CASE("Scanner chunk overlap, contiguous region merging, bad page skip, and 
     REQUIRE(bad_ptr_xref.error().code == ErrorCode::OutOfRange);
 }
 
+TEST_CASE("Scanner exposes strict and best-effort partial-read policies", "[scanner][read-policy]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    auto& region = backend->map_region(
+        Address{0x730000}, 0x1000, MemoryProtection::ExecuteRead);
+    region.readable_prefix_limit = 0x800;
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
+    Scanner scanner{process};
+    constexpr Pattern pattern = "90"_sig;
+    const AddressRange range{Address{0x730000}, 0x1000};
+
+    auto best_effort = scanner.scan(range, pattern);
+    REQUIRE(best_effort.has_value());
+    REQUIRE(best_effort->stats.read_errors == 1);
+
+    auto strict = scanner.scan(range, pattern, ScanOptions{}, ScanReadPolicy::Strict);
+    REQUIRE_FALSE(strict.has_value());
+    REQUIRE(strict.error().code == ErrorCode::PartialTransfer);
+}
+
 TEST_CASE("Scanner supports deterministic concurrent read-only scans", "[scanner][concurrency]") {
     using namespace tessera;
     using namespace tessera::testing;
