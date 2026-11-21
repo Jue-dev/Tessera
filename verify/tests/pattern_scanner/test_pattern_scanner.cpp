@@ -191,6 +191,9 @@ TEST_CASE("Scanner chunk overlap, contiguous region merging, bad page skip, and 
 
     ScanWorkspace workspace;
     workspace.reserve(opts.chunk_size + sig.size() - 1);
+    auto workspace_batch = scanner.scan_batch(scan_range, batch_patterns, opts, workspace);
+    REQUIRE(workspace_batch.has_value());
+    REQUIRE(workspace_batch->size() == 2);
     auto workspace_scan = scanner.scan(scan_range, sig, opts, workspace);
     REQUIRE(workspace_scan.has_value());
     REQUIRE(workspace_scan->hits.size() == 2);
