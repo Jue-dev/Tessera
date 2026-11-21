@@ -39,7 +39,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes clang g++-13 libstdc++-13-dev
           clang++ --version
-                    printf '#include <expected>\n#include <bit>\nint main(){std::expected<int,int> x=1; return std::byteswap(1u)==1u && x.value()==1 ? 0 : 1;}\n' | clang++ -stdlib=libstdc++ -isystem /usr/include/c++/13 -isystem /usr/include/x86_64-linux-gnu/c++/13 -isystem /usr/include/c++/13/backward -std=c++23 -x c++ -fsyntax-only -
+                    printf '#include <expected>\n#include <bit>\nint main(){std::expected<int,int> x=1; return std::byteswap(1u)==1u && x.value()==1 ? 0 : 1;}\n' | clang++ --gcc-toolchain=/usr -stdlib=libstdc++ -isystem /usr/include/c++/13 -isystem /usr/include/x86_64-linux-gnu/c++/13 -isystem /usr/include/c++/13/backward -std=c++23 -x c++ -fsyntax-only -
 
       - name: Build and run portable Windows-backend mock tests under sanitizer
         env:
@@ -48,7 +48,7 @@ jobs:
           UBSAN_OPTIONS: ${{ matrix.env_ubsan }}
           TSAN_OPTIONS: ${{ matrix.env_tsan }}
         run: |
-          CXX=clang++ EXTRA_CXXFLAGS="$SANITIZER_FLAGS -fno-omit-frame-pointer -stdlib=libstdc++ -isystem /usr/include/c++/13 -isystem /usr/include/x86_64-linux-gnu/c++/13 -isystem /usr/include/c++/13/backward" bash ./verify/windows_mock/run_windows_mock_tests.sh
+          CXX=clang++ EXTRA_CXXFLAGS="$SANITIZER_FLAGS -fno-omit-frame-pointer -stdlib=libstdc++ -isystem /usr/include/c++/13 -isystem /usr/include/x86_64-linux-gnu/c++/13 -isystem /usr/include/c++/13/backward -L/usr/lib/gcc/x86_64-linux-gnu/13 -Wl,-rpath,/usr/lib/gcc/x86_64-linux-gnu/13" bash ./verify/windows_mock/run_windows_mock_tests.sh
 
       - name: Record sanitizer environment
         if: always()
