@@ -8,7 +8,6 @@
 #include <unordered_set>
 
 namespace {
-int concurrency_hook_target(int value) { return value + 1; }
 int concurrency_hook_detour(int value) { return value + 2; }
 
 class ConcurrentRegistryBackend final : public tessera::HookBackend {
