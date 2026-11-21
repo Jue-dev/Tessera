@@ -4,7 +4,8 @@ param(
     [switch]$RunFuzz,
     [ValidateSet(60, 300, 900)]
     [int]$FuzzSeconds = 300,
-    [switch]$SkipWindowsMock
+    [switch]$SkipWindowsMock,
+    [switch]$RunDecoderOracle
 )
 
 $ErrorActionPreference = "Stop"
@@ -93,20 +94,47 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "No-RTTI build failed" }
         ctest --test-dir build-final-nortti -C Release --output-on-failure
         if ($LASTEXITCODE -ne 0) { throw "No-RTTI CTest failed" }
-        $smokes = @(
-            "build-final-nortti/verify/fuzz/tessera_fuzz_pattern.exe",
-            "build-final-nortti/verify/fuzz/tessera_fuzz_pe.exe",
-            "build-final-nortti/verify/fuzz/tessera_fuzz_json.exe",
-            "build-final-nortti/verify/fuzz/tessera_fuzz_native_hook.exe",
-            "build-final-nortti/verify/bench/tessera_bench.exe"
+        $fuzzTargets = @(
+            @{ Exe = "build-final-nortti/verify/fuzz/tessera_fuzz_native_hook.exe"; Corpus = "verify/fuzz/corpus/native_hook" },
+            @{ Exe = "build-final-nortti/verify/fuzz/tessera_fuzz_pe.exe"; Corpus = "verify/fuzz/corpus/pe" },
+            @{ Exe = "build-final-nortti/verify/fuzz/tessera_fuzz_json.exe"; Corpus = "verify/fuzz/corpus/json" },
+            @{ Exe = "build-final-nortti/verify/fuzz/tessera_fuzz_pattern.exe"; Corpus = "verify/fuzz/corpus/pattern" },
+            @{ Exe = "build-final-nortti/verify/fuzz/tessera_fuzz_profile_json.exe"; Corpus = "verify/fuzz/corpus/profile_json" },
+            @{ Exe = "build-final-nortti/verify/fuzz/tessera_fuzz_rtti_discovery.exe"; Corpus = "verify/fuzz/corpus/rtti_discovery" },
+            @{ Exe = "build-final-nortti/verify/fuzz/tessera_fuzz_python_bridge.exe"; Corpus = "verify/fuzz/corpus/python_bridge" },
+            @{ Exe = "build-final-nortti/verify/fuzz/tessera_fuzz_scanner.exe"; Corpus = "verify/fuzz/corpus/scanner" }
         )
-        foreach ($exe in $smokes) {
-            if (-not (Test-Path $exe)) { throw "Missing smoke executable: $exe" }
-            & $exe
-            if ($LASTEXITCODE -ne 0) { throw "Smoke executable failed: $exe" }
+        foreach ($entry in $fuzzTargets) {
+            if (-not (Test-Path $entry.Exe)) { throw "Missing fuzz smoke executable: $($entry.Exe)" }
+            if (-not (Test-Path $entry.Corpus)) { throw "Missing fuzz corpus: $($entry.Corpus)" }
+            & $entry.Exe $entry.Corpus "-runs=100"
+            if ($LASTEXITCODE -ne 0) { throw "Fuzz corpus replay failed: $($entry.Exe)" }
         }
+
+        $benchmarkTargets = @(
+            "build-final-nortti/verify/bench/tessera_bench.exe",
+            "build-final-nortti/verify/bench/tessera_decoder_bench.exe",
+            "build-final-nortti/verify/bench/tessera_pe_bench.exe",
+            "build-final-nortti/verify/bench/tessera_json_bench.exe",
+            "build-final-nortti/verify/bench/tessera_rtti_discovery_bench.exe"
+        )
+        foreach ($exe in $benchmarkTargets) {
+            if (-not (Test-Path $exe)) { throw "Missing benchmark executable: $exe" }
+            & $exe
+            if ($LASTEXITCODE -ne 0) { throw "Benchmark smoke failed: $exe" }
+            $json = & $exe --json
+            if ($LASTEXITCODE -ne 0) { throw "Benchmark JSON mode failed: $exe" }
+            $null = $json | ConvertFrom-Json -ErrorAction Stop
+        }
+
         cmake --install build-final-nortti --config Release --prefix install-final-nortti
         if ($LASTEXITCODE -ne 0) { throw "Package install failed" }
+        cmake -S verify/tests/consumers/installed -B build-final-consumer -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$root/install-final-nortti"
+        if ($LASTEXITCODE -ne 0) { throw "Installed SDK consumer configure failed" }
+        cmake --build build-final-consumer --parallel
+        if ($LASTEXITCODE -ne 0) { throw "Installed SDK consumer build failed" }
+        & "build-final-consumer/tessera_installed_consumer.exe"
+        if ($LASTEXITCODE -ne 0) { throw "Installed SDK consumer execution failed" }
     }
 
     if ($DetoursRoot) {
@@ -130,6 +158,33 @@ try {
         $summary.Add([pscustomobject]@{ Stage = "detours-x86-x64"; Result = "SKIP"; Log = "DetoursRoot not supplied" })
     }
 
+    $safeExamples = @(
+        "artifacts/x64/Release/build/examples/tessera_example_01_scan_and_resolve.exe",
+        "artifacts/x64/Release/build/examples/tessera_example_03_rtti_and_reflection.exe",
+        "artifacts/x64/Release/build/examples/tessera_example_04_blind_discovery.exe",
+        "artifacts/x64/Release/build/examples/tessera_example_05_python_bridge.exe",
+        "artifacts/x64/Release/build/examples/tessera_example_06_profiles_and_targets.exe"
+    )
+    foreach ($example in $safeExamples) {
+        if (-not (Test-Path $example)) { throw "Missing safe example executable: $example" }
+        & $example
+        if ($LASTEXITCODE -ne 0) { throw "Safe example smoke failed: $example" }
+    }
+
+    if ($RunDecoderOracle) {
+        Invoke-Logged "iced-x86-decoder-oracle" {
+            python -m pip install --disable-pip-version-check iced-x86==1.21.0
+            if ($LASTEXITCODE -ne 0) { throw "iced-x86 installation failed" }
+            cmake -S . -B build-final-decoder-oracle -G Ninja -DCMAKE_BUILD_TYPE=Release -DTESSERA_BUILD_TESTS=ON -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_ENABLE_DECODER_ORACLE=ON
+            if ($LASTEXITCODE -ne 0) { throw "Decoder oracle configure failed" }
+            cmake --build build-final-decoder-oracle --target tessera_decoder_probe --parallel
+            if ($LASTEXITCODE -ne 0) { throw "Decoder probe build failed" }
+            ctest --test-dir build-final-decoder-oracle -R tessera_decoder_differential --output-on-failure
+            if ($LASTEXITCODE -ne 0) { throw "iced-x86 decoder differential failed" }
+        }
+    } else {
+        $summary.Add([pscustomobject]@{ Stage = "iced-x86-decoder-oracle"; Result = "SKIP"; Log = "RunDecoderOracle not supplied" })
+    }
     if ($RunFuzz) {
         Set-MsvcEnvironment "x64"
         Invoke-Logged "native-hook-libfuzzer-$FuzzSeconds" {
