@@ -35,9 +35,22 @@ done
 
 echo "[CXX MOCK-WIN32] verify/windows_mock/src/api_stubs.cpp"
 "$CXX" "${COMMON[@]}" -c "$ROOT/verify/windows_mock/src/api_stubs.cpp" -o "$OUT/api_stubs.o"
-echo "[CXX MOCK-WIN32] verify/windows_mock/src/test_windows_backends.cpp"
-"$CXX" "${COMMON[@]}" -c "$ROOT/verify/windows_mock/src/test_windows_backends.cpp" -o "$OUT/test_windows_backends.o"
+TEST_SOURCES=(
+  verify/windows_mock/src/test_windows_backends.cpp
+  verify/windows_mock/src/test_windows_memory_module.cpp
+  verify/windows_mock/src/test_windows_process_thread.cpp
+  verify/windows_mock/src/test_windows_detours_hook.cpp
+)
+TEST_OBJECTS=()
+for src in "${TEST_SOURCES[@]}"; do
+  name="$(basename "${src%.cpp}")"
+  obj="$OUT/${name}.o"
+  echo "[CXX MOCK-WIN32] $src"
+  "$CXX" "${COMMON[@]}" -c "$ROOT/$src" -o "$obj"
+  TEST_OBJECTS+=("$obj")
+done
+
 echo "[LINK] windows_mock_backends"
-"$CXX" "${EXTRA_CXXFLAGS_ARRAY[@]}" -pthread "${OBJECTS[@]}" "$OUT/api_stubs.o" "$OUT/test_windows_backends.o" -o "$OUT/windows_mock_backends"
+"$CXX" "${EXTRA_CXXFLAGS_ARRAY[@]}" -pthread "${OBJECTS[@]}" "$OUT/api_stubs.o" "${TEST_OBJECTS[@]}" -o "$OUT/windows_mock_backends"
 "$OUT/windows_mock_backends" | tee "$LOG"
 echo "WINDOWS_MOCK_VALIDATION_COMPLETE"
