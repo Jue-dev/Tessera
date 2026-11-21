@@ -649,7 +649,7 @@ Result<XrefBatchScanResult> find_decoded_xrefs_batch(
                         decoded.opcode2 <= 0x8Fu;
                     if (direct_call || direct_jump || short_conditional || near_conditional) {
                         resolved_target = Address{*destination};
-                        matched = resolved_target == target;
+                        matched = true;
                         kind = direct_call ? XrefKind::DirectCall
                                : direct_jump ? XrefKind::DirectJump
                                              : XrefKind::ConditionalBranch;
@@ -717,11 +717,16 @@ Result<XrefBatchScanResult> find_decoded_xrefs_batch(
             }
 
             if (matched) {
-                const auto target_it = std::find(targets.begin(), targets.end(), resolved_target);
-                if (target_it != targets.end()) {
-                    const std::size_t target_index =
-                        static_cast<std::size_t>(target_it - targets.begin());
+                for (std::size_t target_index = 0; target_index < targets.size(); ++target_index) {
+                    if (targets[target_index] != resolved_target) {
+                        continue;
+                    }
                     auto& result = batch.results[target_index];
+                    if (options.max_results > 0 &&
+                        result.references.size() >= options.max_results) {
+                        result.truncated = true;
+                        continue;
+                    }
                     result.references.push_back(XrefMatch{
                         .instruction = Address{cursor},
                         .target = resolved_target,
