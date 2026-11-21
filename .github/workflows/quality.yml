@@ -69,7 +69,10 @@ jobs:
      run: CXX=g++-13 EXTRA_CXXFLAGS="$SANITIZER_FLAGS -fno-omit-frame-pointer" bash ./verify/windows_mock/run_windows_mock_tests.sh
    - uses: actions/upload-artifact@v7
      if: always()
-     with: {name: sanitizer-${{ matrix.name }}, path: verify/windows_mock/windows_mock_tests.log, if-no-files-found: ignore}
+     with:
+      name: "sanitizer-${{ matrix.name }}"
+      path: verify/windows_mock/windows_mock_tests.log
+      if-no-files-found: ignore
  coverage:
   runs-on: windows-latest
   timeout-minutes: 60
