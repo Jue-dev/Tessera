@@ -103,6 +103,14 @@ private:
     std::span<const std::byte> data_;
 };
 
+[[nodiscard]] Result<std::vector<BaseRelocation>> parse_base_relocations(
+    const ImageSource& source,
+    std::uint32_t directory_rva,
+    std::uint32_t directory_size,
+    PeKind kind,
+    std::span<const Section> sections,
+    std::uint32_t size_of_image);
+
 } // namespace pe_detail
 
 using pe_detail::ImageSource;
