@@ -388,18 +388,20 @@ ValidationReport AddressResolver::run_validation_checks(const TargetModuleContex
     return report;
 }
 
-ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
-                                                 std::string_view entry_id,
-                                                 PersistPolicy persist_policy,
-                                                 TargetProfileStore* store) {
+ResolutionOutcome AddressResolver::resolve_entry(
+    TargetProfile& profile,
+    std::string_view entry_id,
+    PersistPolicy persist_policy,
+    TargetProfileStore* store) {
     return resolve_entry(profile, entry_id, persist_policy, store, nullptr);
 }
 
-ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
-                                                 std::string_view entry_id,
-                                                 PersistPolicy persist_policy,
-                                                 TargetProfileStore* store,
-                                                 ResolutionTrace* trace) {
+ResolutionOutcome AddressResolver::resolve_entry(
+    TargetProfile& profile,
+    std::string_view entry_id,
+    PersistPolicy persist_policy,
+    TargetProfileStore* store,
+    ResolutionTrace* trace) {
     ResolutionOutcome outcome{};
     if (trace != nullptr) {
         trace->steps.clear();
@@ -554,11 +556,12 @@ ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
             if (outcome.report.all_required_passed) {
                 outcome.status = ResolutionStatus::VerifiedExactBuild;
                 const Rva verified_rva = outcome.candidate_rva.value_or(Rva{0});
-                outcome.verified_ = VerifiedAddress{cand,
-                                                    verified_rva,
-                                                    entry->id,
-                                                    entry->module_id,
-                                                    ResolutionStatus::VerifiedExactBuild};
+                outcome.verified_ = VerifiedAddress{
+                    cand,
+                    verified_rva,
+                    entry->id,
+                    entry->module_id,
+                    ResolutionStatus::VerifiedExactBuild};
                 session_cache_.push_back(SessionCacheItem{
                     .pid = process_.pid(),
                     .profile_revision = profile.revision,
@@ -594,7 +597,8 @@ ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
 
     auto compat_cands = execute_recipe(process_, *mod_ctx, compat_recipe);
     if (!compat_cands || compat_cands->empty()) {
-        outcome.status = (exact_build != nullptr) ? ResolutionStatus::Stale : ResolutionStatus::NotFound;
+        outcome.status = (exact_build != nullptr) ? ResolutionStatus::Stale
+                                                  : ResolutionStatus::NotFound;
         return finish();
     }
     if (compat_cands->size() > 1) {
@@ -615,7 +619,8 @@ ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
         outcome.report.has_independent_check = true;
     }
     if (!outcome.report.all_required_passed) {
-        outcome.status = (exact_build != nullptr) ? ResolutionStatus::Stale : ResolutionStatus::CandidateFound;
+        outcome.status = (exact_build != nullptr) ? ResolutionStatus::Stale
+                                                  : ResolutionStatus::CandidateFound;
         return finish();
     }
 
@@ -628,11 +633,12 @@ ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
 
     outcome.status = ResolutionStatus::VerifiedCompatibleBuild;
     const Rva verified_rva = outcome.candidate_rva.value_or(Rva{0});
-    outcome.verified_ = VerifiedAddress{cand,
-                                        verified_rva,
-                                        entry->id,
-                                        entry->module_id,
-                                        ResolutionStatus::VerifiedCompatibleBuild};
+    outcome.verified_ = VerifiedAddress{
+        cand,
+        verified_rva,
+        entry->id,
+        entry->module_id,
+        ResolutionStatus::VerifiedCompatibleBuild};
 
     session_cache_.push_back(SessionCacheItem{
         .pid = process_.pid(),
@@ -652,7 +658,8 @@ ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
         new_build.build_id = std::format(
             "auto-{}-{}",
             proc_arch == TargetArch::X64 ? "x64" : "x86",
-            mod_ctx->fingerprint.sha256.empty() ? "mem" : mod_ctx->fingerprint.sha256.substr(0, 8));
+            mod_ctx->fingerprint.sha256.empty() ? "mem"
+                                                : mod_ctx->fingerprint.sha256.substr(0, 8));
         new_build.architecture = proc_arch;
         new_build.fingerprint.size_of_image = mod_ctx->fingerprint.size_of_image;
         new_build.fingerprint.timestamp = mod_ctx->fingerprint.timestamp;
