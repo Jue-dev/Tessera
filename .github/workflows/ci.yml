@@ -377,5 +377,7 @@ jobs:
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: |\n            Tessera-SDK-Windows.zip\n            SHA256SUMS.txt
+          files: |
+            Tessera-SDK-Windows.zip
+            SHA256SUMS.txt
           generate_release_notes: true
