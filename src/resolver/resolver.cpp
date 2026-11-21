@@ -3,10 +3,12 @@
 #include <array>
 #include <cstring>
 #include <limits>
+#include <unordered_set>
 
 #include "tessera/core/checked_math.hpp"
 #include "tessera/memory/memory_backend.hpp"
 #include "tessera/memory/memory_reader.hpp"
+#include "disasm/x86_instruction_decoder.hpp"
 
 namespace tessera::resolve {
 
@@ -262,6 +264,210 @@ Result<ProcessAddress> follow_rip_impl(const ProcessAddress& pa) noexcept {
         return next_ip;
     }
     return next_ip->offset(disp);
+}
+
+namespace {
+
+[[nodiscard]] Result<detail::x86::DecodedInstruction> decode_at(
+    const ProcessAddress& pa, std::array<std::byte, 15>& raw) noexcept {
+    if (pa.is_null()) {
+        return fail(ErrorCode::NullAddress, "resolve::decode_at");
+    }
+    const auto read = memory_backend(pa.process()).read(pa.address(), raw);
+    if (!read || *read == 0) {
+        return fail(ErrorCode::PartialTransfer, "resolve::decode_at");
+    }
+    detail::x86::DecodedInstruction decoded{};
+    const auto mode = pa.process().pointer_size() == 8
+                          ? detail::x86::Mode::x64
+                          : detail::x86::Mode::x86;
+    if (!detail::x86::decode_instruction(raw.data(), *read, mode, decoded)) {
+        return fail(ErrorCode::UnsupportedInstruction, "resolve::decode_at");
+    }
+    return decoded;
+}
+
+[[nodiscard]] Result<ProcessAddress> add_signed_operand(
+    const ProcessAddress& pa, std::size_t instruction_length,
+    std::int64_t displacement) noexcept {
+    auto next_ip = pa.offset(static_cast<std::int64_t>(instruction_length));
+    if (!next_ip) {
+        return next_ip;
+    }
+    return next_ip->offset(displacement);
+}
+
+} // namespace
+
+Result<ProcessAddress> step_instructions_impl(
+    const ProcessAddress& pa, std::size_t count) noexcept {
+    if (pa.is_null()) {
+        return fail(ErrorCode::NullAddress, "resolve::step_instructions");
+    }
+    ProcessAddress current = pa;
+    for (std::size_t i = 0; i < count; ++i) {
+        std::array<std::byte, 15> raw{};
+        auto decoded = decode_at(current, raw);
+        if (!decoded) {
+            return std::unexpected(decoded.error());
+        }
+        auto next = current.offset(decoded->length);
+        if (!next) {
+            return next;
+        }
+        current = *next;
+    }
+    return current;
+}
+
+Result<ProcessAddress> find_next_call_impl(
+    const ProcessAddress& pa, std::size_t max_bytes) noexcept {
+    if (pa.is_null()) {
+        return fail(ErrorCode::NullAddress, "resolve::find_next_call");
+    }
+    std::size_t offset = 0;
+    while (offset < max_bytes) {
+        auto current = pa.offset(static_cast<std::int64_t>(offset));
+        if (!current) {
+            return current;
+        }
+        std::array<std::byte, 15> raw{};
+        auto decoded = decode_at(*current, raw);
+        if (!decoded) {
+            return std::unexpected(decoded.error());
+        }
+        if (decoded->has_relative_operand &&
+            ((decoded->opcode == 0xE8u) ||
+             (decoded->opcode == 0xFFu && decoded->modrm_reg == 2u))) {
+            return current;
+        }
+        if (decoded->length == 0 || decoded->length > max_bytes - offset) {
+            break;
+        }
+        offset += decoded->length;
+    }
+    return fail(ErrorCode::NotFound, "resolve::find_next_call");
+}
+
+Result<ProcessAddress> find_next_rip_relative_impl(
+    const ProcessAddress& pa, std::size_t max_bytes) noexcept {
+    if (pa.is_null()) {
+        return fail(ErrorCode::NullAddress, "resolve::find_next_rip_relative");
+    }
+    if (pa.process().pointer_size() != 8) {
+        return fail(ErrorCode::UnsupportedArchitecture, "resolve::find_next_rip_relative");
+    }
+    std::size_t offset = 0;
+    while (offset < max_bytes) {
+        auto current = pa.offset(static_cast<std::int64_t>(offset));
+        if (!current) {
+            return current;
+        }
+        std::array<std::byte, 15> raw{};
+        auto decoded = decode_at(*current, raw);
+        if (!decoded) {
+            return std::unexpected(decoded.error());
+        }
+        if (decoded->has_rip_relative_operand) {
+            return current;
+        }
+        if (decoded->length == 0 || decoded->length > max_bytes - offset) {
+            break;
+        }
+        offset += decoded->length;
+    }
+    return fail(ErrorCode::NotFound, "resolve::find_next_rip_relative");
+}
+
+Result<ProcessAddress> resolve_operand_target_impl(const ProcessAddress& pa) noexcept {
+    std::array<std::byte, 15> raw{};
+    auto decoded = decode_at(pa, raw);
+    if (!decoded) {
+        return std::unexpected(decoded.error());
+    }
+
+    if (decoded->has_relative_operand) {
+        std::int64_t displacement = 0;
+        if (decoded->relative_size == 1) {
+            displacement = static_cast<std::int8_t>(
+                std::to_integer<std::uint8_t>(raw[decoded->relative_offset]));
+        } else if (decoded->relative_size == 4) {
+            std::int32_t rel32 = 0;
+            std::memcpy(&rel32, raw.data() + decoded->relative_offset, sizeof(rel32));
+            displacement = rel32;
+        } else {
+            return fail(ErrorCode::UnsupportedInstruction, "resolve::resolve_operand_target");
+        }
+        return add_signed_operand(pa, decoded->length, displacement);
+    }
+
+    if (decoded->has_rip_relative_operand) {
+        if (decoded->rip_displacement_offset + sizeof(std::int32_t) > decoded->length) {
+            return fail(ErrorCode::UnsupportedInstruction, "resolve::resolve_operand_target");
+        }
+        std::int32_t displacement = 0;
+        std::memcpy(&displacement, raw.data() + decoded->rip_displacement_offset,
+                    sizeof(displacement));
+        auto slot = add_signed_operand(pa, decoded->length, displacement);
+        if (!slot) {
+            return slot;
+        }
+        if (decoded->opcode == 0xFFu &&
+            (decoded->modrm_reg == 2u || decoded->modrm_reg == 4u)) {
+            auto pointer = ProcessAddress{pa.process(), slot->address()}.read<std::uint64_t>();
+            if (!pointer) {
+                return std::unexpected(pointer.error());
+            }
+            return ProcessAddress{pa.process(), Address{*pointer}};
+        }
+        return slot;
+    }
+
+    return fail(ErrorCode::UnsupportedInstruction, "resolve::resolve_operand_target",
+                0, "Instruction has no supported relative or RIP-relative operand");
+}
+
+Result<ProcessAddress> resolve_thunk_chain_impl(
+    const ProcessAddress& pa, std::size_t max_hops) noexcept {
+    if (pa.is_null()) {
+        return fail(ErrorCode::NullAddress, "resolve::resolve_thunk_chain");
+    }
+    if (max_hops == 0) {
+        return fail(ErrorCode::InvalidArgument, "resolve::resolve_thunk_chain");
+    }
+    try {
+        std::unordered_set<std::uint64_t> visited;
+        ProcessAddress current = pa;
+        for (std::size_t hop = 0; hop < max_hops; ++hop) {
+            if (!visited.insert(current.value()).second) {
+                return fail(ErrorCode::Conflict, "resolve::resolve_thunk_chain",
+                            0, "Thunk chain contains a cycle");
+            }
+            std::array<std::byte, 15> raw{};
+            auto decoded = decode_at(current, raw);
+            if (!decoded) {
+                return std::unexpected(decoded.error());
+            }
+            const bool direct_jump =
+                decoded->opcode == 0xE9u || decoded->opcode == 0xEBu ||
+                (decoded->opcode == 0x0Fu && decoded->opcode2 >= 0x80u &&
+                 decoded->opcode2 <= 0x8Fu);
+            const bool indirect_jump =
+                decoded->opcode == 0xFFu && decoded->modrm_reg == 4u;
+            if (!direct_jump && !indirect_jump) {
+                return current;
+            }
+            auto target = resolve_operand_target_impl(current);
+            if (!target) {
+                return std::unexpected(target.error());
+            }
+            current = *target;
+        }
+        return fail(ErrorCode::OutOfRange, "resolve::resolve_thunk_chain",
+                    0, "Maximum thunk hop count reached");
+    } catch (const std::bad_alloc&) {
+        return fail(ErrorCode::OutOfMemory, "resolve::resolve_thunk_chain");
+    }
 }
 
 Result<ProcessAddress> abs32_impl(const ProcessAddress& pa,
