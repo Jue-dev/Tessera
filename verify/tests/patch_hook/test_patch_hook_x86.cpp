@@ -10,6 +10,7 @@
 #include <cstring>
 #include <memory>
 #include <span>
+#include <utility>
 
 #include <Windows.h>
 
@@ -634,14 +635,51 @@ TEST_CASE("Native x86 strict thread policy rejects an EIP inside the displaced p
 
     // Let the OS thread bootstrap reach the test stub, then hold it and pin EIP
     // to the first byte of the displaced CMP instruction.
+    struct ScopedTestThread {
+        HANDLE handle = nullptr;
+        ~ScopedTestThread() {
+            if (handle == nullptr) {
+                return;
+            }
+            ::InterlockedExchange(&g_x86_thread_stop, 1);
+            DWORD previous_count = ::ResumeThread(handle);
+            while (previous_count != static_cast<DWORD>(-1) && previous_count > 1) {
+                previous_count = ::ResumeThread(handle);
+            }
+            (void)::WaitForSingleObject(handle, 5000);
+            (void)::CloseHandle(handle);
+        }
+    } thread_guard{thread};
+
     REQUIRE(::ResumeThread(thread) != static_cast<DWORD>(-1));
-    ::Sleep(2);
-    REQUIRE(::SuspendThread(thread) != static_cast<DWORD>(-1));
-    CONTEXT context{};
-    context.ContextFlags = CONTEXT_CONTROL;
-    REQUIRE(::GetThreadContext(thread, &context) != FALSE);
-    context.Eip = static_cast<DWORD>(reinterpret_cast<std::uintptr_t>(target + 1));
-    REQUIRE(::SetThreadContext(thread, &context) != FALSE);
+    bool pinned_inside_patch = false;
+    bool manually_suspended = false;
+    for (std::size_t attempt = 0; attempt < 1000 && !pinned_inside_patch; ++attempt) {
+        if (::SuspendThread(thread) == static_cast<DWORD>(-1)) {
+            break;
+        }
+        manually_suspended = true;
+        CONTEXT context{};
+        context.ContextFlags = CONTEXT_CONTROL;
+        if (::GetThreadContext(thread, &context) != FALSE) {
+            const DWORD instruction_pointer = static_cast<DWORD>(context.Eip);
+            const DWORD stub_begin =
+                static_cast<DWORD>(reinterpret_cast<std::uintptr_t>(target + 1));
+            const DWORD stub_end =
+                static_cast<DWORD>(reinterpret_cast<std::uintptr_t>(target + 11));
+            if (instruction_pointer >= stub_begin && instruction_pointer < stub_end) {
+                context.Eip = stub_begin;
+                pinned_inside_patch = ::SetThreadContext(thread, &context) != FALSE;
+            }
+        }
+        if (!pinned_inside_patch) {
+            (void)::ResumeThread(thread);
+            manually_suspended = false;
+            ::Sleep(1);
+        }
+    }
+    REQUIRE(pinned_inside_patch);
+    REQUIRE(manually_suspended);
 
     std::array<std::byte, 13> before{};
     std::memcpy(before.data(), target, before.size());
@@ -657,9 +695,5 @@ TEST_CASE("Native x86 strict thread policy rejects an EIP inside the displaced p
     REQUIRE(status.error().code == ErrorCode::Conflict);
     REQUIRE(std::memcmp(target, before.data(), before.size()) == 0);
 
-    ::InterlockedExchange(&g_x86_thread_stop, 1);
-    REQUIRE(::ResumeThread(thread) != static_cast<DWORD>(-1));
-    REQUIRE(::WaitForSingleObject(thread, 5000) == WAIT_OBJECT_0);
-    REQUIRE(::CloseHandle(thread) != FALSE);
 }
 

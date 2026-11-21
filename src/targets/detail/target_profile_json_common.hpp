@@ -11,6 +11,7 @@
 #include "json/detail/field_access.hpp"
 
 namespace tessera::targets::target_profile_json_detail {
+namespace {
 
 
 [[nodiscard]] inline std::string_view arch_to_str(TargetArch a) noexcept {
@@ -290,4 +291,5 @@ namespace tessera::targets::target_profile_json_detail {
 
 
 
+} // namespace
 } // namespace tessera::targets::target_profile_json_detail

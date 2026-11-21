@@ -333,7 +333,9 @@ jobs:
 
       - name: Configure and build installed-package consumer
         shell: pwsh
-        run:  .\.github\scripts\ci\test-installed-sdk-consumer.ps1 -Options '${{ matrix.options }}'  publish-sdk-bundle:
+        run:  .\.github\scripts\ci\test-installed-sdk-consumer.ps1 -Options '${{ matrix.options }}'
+
+  publish-sdk-bundle:
     # Manual validation must not assemble or publish release artifacts.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     name: Bundle Full SDK & Publish GitHub Release
