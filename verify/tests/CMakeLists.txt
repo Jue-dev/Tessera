@@ -169,6 +169,7 @@ tessera_add_test(tessera_test_patch_hook
     LIBS
         tessera::core
         tessera::diagnostics
+        tessera::utility
         tessera::process
         tessera::memory
         tessera::pattern
