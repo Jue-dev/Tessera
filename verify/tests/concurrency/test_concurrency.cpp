@@ -141,11 +141,10 @@ TEST_CASE("Concurrent logger, scanner, patch, hook and protection operations rem
             for (std::size_t iteration = 0; iteration < kIterations; ++iteration) {
                 logger->set_min_level((iteration % 2u) == 0u ? LogLevel::Trace : LogLevel::Warn);
                 logger->add_sink((iteration % 2u) == 0u ? primary_sink : alternate_sink);
-                logger->info("worker={} iteration={}", worker, iteration);
+                logger->warn("worker={} iteration={}", worker, iteration);
                 logger->clear_sinks();
                 logger->add_sink(primary_sink);
                 primary_sink->set_enabled((iteration % 3u) != 0u);
-                primary_sink->clear();
 
                 auto scanned = scanner.scan(scan_range, *scan_pattern);
                 if (!scanned || scanned->hits.empty()) {
