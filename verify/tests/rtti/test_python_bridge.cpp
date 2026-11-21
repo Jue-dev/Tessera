@@ -363,7 +363,7 @@ TEST_CASE("PythonBridgeScanner bounds type metadata and tolerates partial reads"
     };
 
     constexpr std::uint64_t base = 0x1A0000000ULL;
-    auto invalid_name = scan_type(base, base + 0x4000, 24, 0, 0, std::nullopt, "demo.InvalidName");
+    auto invalid_name = scan_type(base, base + 0x4000, 0x100, 0, 0, std::nullopt, "demo.InvalidName");
     REQUIRE(invalid_name.has_value());
     REQUIRE(invalid_name->empty());
 
@@ -372,25 +372,25 @@ TEST_CASE("PythonBridgeScanner bounds type metadata and tolerates partial reads"
     REQUIRE(oversized_basic.has_value());
     REQUIRE(oversized_basic->empty());
 
-    auto oversized_item = scan_type(base + 0x20000, base + 0x20800, 24, 0x1001, 0,
+    auto oversized_item = scan_type(base + 0x20000, base + 0x20800, 0x100, 0x1001, 0,
                                     std::nullopt, "demo.OversizedItem");
     REQUIRE(oversized_item.has_value());
     REQUIRE(oversized_item->empty());
 
     const std::string long_name(97, 'A');
-    auto oversized_name = scan_type(base + 0x30000, base + 0x30800, 24, 0, 0,
+    auto oversized_name = scan_type(base + 0x30000, base + 0x30800, 0x100, 0, 0,
                                     std::nullopt, long_name);
     REQUIRE(oversized_name.has_value());
     REQUIRE(oversized_name->empty());
 
-    auto invalid_methods = scan_type(base + 0x40000, base + 0x40800, 24, 0,
+    auto invalid_methods = scan_type(base + 0x40000, base + 0x40800, 0x100, 0,
                                      base + 0x44000, std::nullopt, "demo.InvalidMethods");
     REQUIRE(invalid_methods.has_value());
     REQUIRE(invalid_methods->size() == 1);
     REQUIRE(invalid_methods->front().type_name == "demo.InvalidMethods");
     REQUIRE(invalid_methods->front().methods_table_address.is_null());
 
-    auto partial = scan_type(base + 0x50000, base + 0x50800, 24, 0, 0,
+    auto partial = scan_type(base + 0x50000, base + 0x50800, 0x100, 0, 0,
                              std::size_t{0x180}, "demo.PartialRead");
     REQUIRE(partial.has_value());
     REQUIRE(partial->empty());
