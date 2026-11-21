@@ -79,8 +79,7 @@ Result<std::vector<BaseRelocation>> parse_base_relocations(
                     return fail(ErrorCode::InvalidPe, "PeImage::relocations", 0,
                                 "Relocation target width exceeds SizeOfImage");
                 }
-                if ((kind == PeKind::Pe32 && type == 10u) ||
-                    (kind == PeKind::Pe32Plus && type == 3u && width != 4u)) {
+                if (kind == PeKind::Pe32 && type == 10u) {
                     return fail(ErrorCode::InvalidPe, "PeImage::relocations", 0,
                                 "Relocation type is incompatible with the PE architecture");
                 }
