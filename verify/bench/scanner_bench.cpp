@@ -195,69 +195,56 @@ int main(int argc, char** argv) {
         }
     });
 
-    // 2. RttiCatalog + BinaryExplorer + PythonBridgeScanner over 64 KiB synthetic module
-    constexpr std::uint64_t kModBase = 0x140000000ULL;
-    auto backend = std::make_shared<testing::FakeMemoryBackend>();
-    backend->map_region(Address{kModBase + 0x1000}, 0x8000, MemoryProtection::ExecuteRead);
-    auto& rdata = backend->map_region(Address{kModBase + 0x9000}, 0x8000, MemoryProtection::Read);
-
-    const char* sample_td = ".?AVBenchmarkEntity@Engine@@";
-    std::memcpy(rdata.storage.data() + 0x100 + 16, sample_td, std::strlen(sample_td) + 1);
-    const char* sample_py = "builtin_function_or_method";
-    std::memcpy(rdata.storage.data() + 0x200, sample_py, std::strlen(sample_py) + 1);
-
-    Process proc = testing::FakeMemoryBackend::make_process(backend, Architecture::X64);
-    const AddressRange mod_range{Address{kModBase}, 0x11000};
-
-    auto disc_metrics = profiling::run_benchmark(20, [&]() {
-        auto tds = rtti::BinaryExplorer::scan_all_type_descriptors(proc, mod_range);
-        auto py = rtti::PythonBridgeScanner::detect_environment(proc, mod_range);
-        if (!tds.has_value() || tds->empty() || !py.has_value()) {
-            std::abort();
-        }
-    });
-
     if (json) {
         const auto throughput = [&](std::chrono::nanoseconds duration, std::size_t bytes) {
             const double seconds = static_cast<double>(duration.count()) / 1.0e9;
             return seconds > 0.0 ? (static_cast<double>(bytes) / seconds) / 1.0e6 : 0.0;
         };
-        std::cout << "{\"benchmarks\":["
-                  << "{\"name\":\"pattern_search_wildcard_4mib\",\"iterations\":" << pat_metrics.iterations
-                  << ",\"ns_per_op\":" << pat_metrics.mean.count() << ",\"mb_per_s\":" << throughput(pat_metrics.mean, buffer.size()) << "},"
-                  << "{\"name\":\"pattern_search_exact_4mib\",\"iterations\":" << exact_metrics.iterations
-                  << ",\"ns_per_op\":" << exact_metrics.mean.count() << ",\"mb_per_s\":" << throughput(exact_metrics.mean, buffer.size()) << "},"
-                  << "{\"name\":\"pattern_search_nibble_4mib\",\"iterations\":" << nibble_metrics.iterations
-                  << ",\"ns_per_op\":" << nibble_metrics.mean.count() << ",\"mb_per_s\":" << throughput(nibble_metrics.mean, buffer.size()) << "},"
-                  << "{\"name\":\"scanner_chunked_4mib\",\"iterations\":" << scanner_metrics.iterations
-                  << ",\"ns_per_op\":" << scanner_metrics.mean.count() << ",\"mb_per_s\":" << throughput(scanner_metrics.mean, buffer.size()) << "},"
-                  << "{\"name\":\"scanner_batch_four_patterns_4mib\",\"iterations\":" << batch_metrics.iterations
-                  << ",\"ns_per_op\":" << batch_metrics.mean.count() << ",\"mb_per_s\":" << throughput(batch_metrics.mean, buffer.size()) << "},"
-                  << "{\"name\":\"rtti_python_discovery_64k\",\"iterations\":" << disc_metrics.iterations
-                  << ",\"ns_per_op\":" << disc_metrics.mean.count() << ",\"mb_per_s\":" << throughput(disc_metrics.mean, 0x10000u) << "}] }\n";
+        std::cout << "{\\"benchmarks\\":["
+                  << "{\\"name\\":\\"pattern_masked_4mib\\",\\"iterations\\":" << pat_metrics.iterations
+                  << ",\\"ns_per_op\\":" << pat_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(pat_metrics.mean, buffer.size()) << "},"
+                  << "{\\"name\\":\\"pattern_exact_literal_4mib\\",\\"iterations\\":" << exact_metrics.iterations
+                  << ",\\"ns_per_op\\":" << exact_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(exact_metrics.mean, buffer.size()) << "},"
+                  << "{\\"name\\":\\"pattern_high_frequency_prolog_4mib\\",\\"iterations\\":" << prolog_metrics.iterations
+                  << ",\\"ns_per_op\\":" << prolog_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(prolog_metrics.mean, buffer.size()) << "},"
+                  << "{\\"name\\":\\"pattern_leading_wildcard_4mib\\",\\"iterations\\":" << leading_metrics.iterations
+                  << ",\\"ns_per_op\\":" << leading_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(leading_metrics.mean, buffer.size()) << "},"
+                  << "{\\"name\\":\\"pattern_dense_nibble_4mib\\",\\"iterations\\":" << nibble_metrics.iterations
+                  << ",\\"ns_per_op\\":" << nibble_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(nibble_metrics.mean, buffer.size()) << "},"
+                  << "{\\"name\\":\\"scanner_50_patterns_separate_4mib\\",\\"iterations\\":" << fifty_separate_metrics.iterations
+                  << ",\\"ns_per_op\\":" << fifty_separate_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(fifty_separate_metrics.mean, buffer.size() * fifty_patterns.size()) << "},"
+                  << "{\\"name\\":\\"scanner_50_patterns_batch_4mib\\",\\"iterations\\":" << fifty_batch_metrics.iterations
+                  << ",\\"ns_per_op\\":" << fifty_batch_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(fifty_batch_metrics.mean, buffer.size()) << "},"
+                  << "{\\"name\\":\\"xref_raw_pattern_16kib\\",\\"iterations\\":" << raw_xref_metrics.iterations
+                  << ",\\"ns_per_op\\":" << raw_xref_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(raw_xref_metrics.mean, xref_code.size()) << "},"
+                  << "{\\"name\\":\\"xref_decoder_verified_16kib\\",\\"iterations\\":" << decoded_xref_metrics.iterations
+                  << ",\\"ns_per_op\\":" << decoded_xref_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(decoded_xref_metrics.mean, xref_code.size()) << "}] }\\n";
         return 0;
     }
 
-
-    const auto print_metric = [](int index, std::string_view name, const auto& metrics) {
-        std::cout << "Benchmark " << index << ": " << name << "\n"
-                  << "  Iterations : " << metrics.iterations << "\n"
-                  << "  Min (us)   : " << metrics.min.count() / 1000.0 << "\n"
-                  << "  Mean (us)  : " << metrics.mean.count() / 1000.0 << "\n"
-                  << "  Max (us)   : " << metrics.max.count() / 1000.0 << "\n\n";
+    const auto print_metric = [](int index, std::string_view name, const auto& metrics,
+                                  std::size_t bytes) {
+        const double seconds = static_cast<double>(metrics.mean.count()) / 1.0e9;
+        const double mb_per_s = seconds > 0.0
+                                    ? (static_cast<double>(bytes) / seconds) / 1.0e6
+                                    : 0.0;
+        std::cout << "Benchmark " << index << ": " << name << "\\n"
+                  << "  Iterations : " << metrics.iterations << "\\n"
+                  << "  Min (us)   : " << metrics.min.count() / 1000.0 << "\\n"
+                  << "  Mean (us)  : " << metrics.mean.count() / 1000.0 << "\\n"
+                  << "  Max (us)   : " << metrics.max.count() / 1000.0 << "\\n"
+                  << "  Throughput : " << mb_per_s << " MB/s\\n\\n";
     };
-    print_metric(1, "Pattern::search wildcard (4 MiB)", pat_metrics);
-    print_metric(2, "Pattern::search exact literal (4 MiB)", exact_metrics);
-    print_metric(3, "Pattern::search nibble mask (4 MiB)", nibble_metrics);
-    print_metric(4, "Scanner::scan chunked (4 MiB)", scanner_metrics);
-    print_metric(5, "Scanner::scan_batch four patterns (4 MiB)", batch_metrics);
-
-    std::cout << "Benchmark 6: BinaryExplorer + PythonBridgeScanner (64 KiB module)\n"
-              << "  Iterations : " << disc_metrics.iterations << "\n"
-              << "  Min (us)   : " << disc_metrics.min.count() / 1000.0 << "\n"
-              << "  Mean (us)  : " << disc_metrics.mean.count() / 1000.0 << "\n"
-              << "  Max (us)   : " << disc_metrics.max.count() / 1000.0 << "\n";
-
+    print_metric(1, "Masked Pattern::search (4 MiB)", pat_metrics, buffer.size());
+    print_metric(2, "Exact literal Pattern::search (4 MiB)", exact_metrics, buffer.size());
+    print_metric(3, "Common x64 prolog Pattern::search (4 MiB)", prolog_metrics, buffer.size());
+    print_metric(4, "Leading wildcard Pattern::search (4 MiB)", leading_metrics, buffer.size());
+    print_metric(5, "Dense nibble mask Pattern::search (4 MiB)", nibble_metrics, buffer.size());
+    print_metric(6, "50 patterns scanned separately (4 MiB each)", fifty_separate_metrics,
+                 buffer.size() * fifty_patterns.size());
+    print_metric(7, "50 patterns scanned in one batch (4 MiB)", fifty_batch_metrics, buffer.size());
+    print_metric(8, "Raw byte-pattern CALL xref (16 KiB)", raw_xref_metrics, xref_code.size());
+    print_metric(9, "Decoder-verified CALL xref (16 KiB)", decoded_xref_metrics, xref_code.size());
 
     return 0;
 }
