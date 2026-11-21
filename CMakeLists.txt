@@ -37,7 +37,9 @@ option(TESSERA_ENABLE_COVERAGE    "Enable GCC/Clang line and branch coverage" OF
 option(TESSERA_PATTERN_FORCE_SCALAR "Disable pattern SIMD dispatch for scalar-fallback validation" OFF)
 
 if(TESSERA_ENABLE_COVERAGE)
-    if(MSVC OR NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    if((MSVC AND NOT (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND
+                      CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")) OR
+       NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         message(FATAL_ERROR "TESSERA_ENABLE_COVERAGE requires GCC or Clang on a supported host.")
     endif()
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
