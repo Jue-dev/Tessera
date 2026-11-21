@@ -8,6 +8,7 @@
 #include <unordered_set>
 
 namespace {
+int concurrency_hook_target(int value) { return value + 1; }
 int concurrency_hook_detour(int value) { return value + 2; }
 
 class ConcurrentRegistryBackend final : public tessera::HookBackend {
@@ -57,7 +58,8 @@ TEST_CASE("Hook registry serializes concurrent duplicate installs and releases o
     using namespace tessera;
 
     constexpr std::size_t worker_count = 8;
-    constexpr std::uint64_t target_address = 0x6F0000;
+    const auto target_address = static_cast<std::uint64_t>(
+        reinterpret_cast<std::uintptr_t>(&concurrency_hook_target));
     ConcurrentRegistryBackend backend;
     std::barrier gate{static_cast<std::ptrdiff_t>(worker_count)};
     std::array<std::jthread, worker_count> workers{};
