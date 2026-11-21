@@ -18,7 +18,7 @@ using detail::for_each_readable_chunk;
 
 
 
-[[nodiscard]] bool is_python_identifier(std::string_view s, bool allow_dots = false) noexcept {
+[[maybe_unused, nodiscard]] bool is_python_identifier(std::string_view s, bool allow_dots = false) noexcept {
     if (s.size() < 2 || s.size() > 96) {
         return false;
     }
@@ -37,7 +37,7 @@ using detail::for_each_readable_chunk;
     return true;
 }
 
-[[nodiscard]] bool is_valid_meth_flags(std::uint32_t flags) noexcept {
+[[maybe_unused, nodiscard]] bool is_valid_meth_flags(std::uint32_t flags) noexcept {
     if (flags == 0) {
         return false;
     }
@@ -50,7 +50,7 @@ using detail::for_each_readable_chunk;
     return (flags & (0x01u | 0x02u | 0x04u | 0x08u | 0x80u)) != 0;
 }
 
-[[nodiscard]] bool is_plausible_python_refcount(std::uint64_t refcnt) noexcept {
+[[maybe_unused, nodiscard]] bool is_plausible_python_refcount(std::uint64_t refcnt) noexcept {
     // Ordinary live objects have small positive counts. CPython 3.13 marks
     // immortal objects with UINT_MAX on 64-bit and UINT_MAX >> 2 on 32-bit.
     // Accept those exact encodings (plus the all-ones encoding used by some
@@ -63,7 +63,7 @@ using detail::for_each_readable_chunk;
             refcnt == kImmortal32 || refcnt == kAllOnes);
 }
 
-[[nodiscard]] std::uint64_t read_ptr_at(std::span<const std::byte> buf,
+[[maybe_unused, nodiscard]] std::uint64_t read_ptr_at(std::span<const std::byte> buf,
                                         std::size_t off,
                                         std::uint8_t ptr_size) noexcept {
     if (ptr_size == 8) {
