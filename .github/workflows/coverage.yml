@@ -1,0 +1,67 @@
+name: Coverage Report
+
+on:
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+  schedule:
+    - cron: "11 5 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    name: Linux Clang line and branch coverage
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Install LLVM tools
+        run: sudo apt-get update && sudo apt-get install --yes clang llvm ninja-build
+
+      - name: Configure coverage build
+        run: |
+          CC=clang CXX=clang++ cmake -S . -B build-coverage -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug -DTESSERA_BUILD_TESTS=ON \
+            -DTESSERA_ENABLE_COVERAGE=ON
+
+      - name: Build
+        run: cmake --build build-coverage --parallel 2
+
+      - name: Run all CTest suites
+        env:
+          LLVM_PROFILE_FILE: "${{ github.workspace }}/coverage-%p.profraw"
+        run: ctest --test-dir build-coverage --output-on-failure
+
+      - name: Export coverage
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p artifacts/coverage
+          shopt -s nullglob
+          profiles=(coverage-*.profraw)
+          if ((${#profiles[@]} == 0)); then
+            echo "No LLVM profile data produced." > artifacts/coverage/summary.txt
+            exit 0
+          fi
+          llvm-profdata merge -sparse "${profiles[@]}" -o artifacts/coverage/merged.profdata
+          mapfile -t binaries < <(find build-coverage/verify/tests -maxdepth 1 -type f -executable -name 'tessera_test_*' | sort)
+          for binary in "${binaries[@]}"; do
+            name="$(basename "$binary")"
+            llvm-cov export -format=lcov "$binary" -instr-profile=artifacts/coverage/merged.profdata > "artifacts/coverage/$name.info"
+          done
+          if ((${#binaries[@]} > 0)); then
+            llvm-cov report "${binaries[0]}" -instr-profile=artifacts/coverage/merged.profdata > artifacts/coverage/summary.txt
+            cat artifacts/coverage/summary.txt
+          fi
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tessera-coverage-report
+          path: artifacts/coverage/
+          if-no-files-found: ignore
