@@ -2,6 +2,7 @@
 #include "pattern_simd.hpp"
 
 #include <bit>
+#include <algorithm>
 #include <cstring>
 #include <format>
 #include <new>
@@ -249,10 +250,15 @@ void Pattern::search(std::span<const std::byte> data,
 
         static const bool avx2_available = detail::cpu_supports_avx2();
         static const bool sse2_available = detail::cpu_supports_sse2();
+        const std::size_t last_anchor = (std::max)(anchor_, secondary_index);
+        const std::size_t simd_limit =
+            data.size() > last_anchor + 31u
+                ? (std::min)(limit, data.size() - last_anchor - 31u)
+                : 0u;
         std::size_t off = 0;
 
         if (avx2_available) {
-            while (limit - off >= 32u) {
+            while (simd_limit - off >= 32u) {
                 std::uint32_t mask = detail::dual_anchor_mask_avx2(
                     raw, off, anchor_, primary_value, secondary_index, secondary_value);
                 while (mask != 0) {
@@ -267,7 +273,7 @@ void Pattern::search(std::span<const std::byte> data,
         }
 
         if (sse2_available) {
-            while (limit - off >= 16u) {
+            while (simd_limit - off >= 16u) {
                 std::uint32_t mask = detail::dual_anchor_mask_sse2(
                     raw, off, anchor_, primary_value, secondary_index, secondary_value);
                 while (mask != 0) {
