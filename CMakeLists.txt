@@ -407,6 +407,7 @@ if(TESSERA_BUILD_TARGETS)
         SOURCES
             src/targets/target_profile_json_read.cpp
             src/targets/target_profile_json_write.cpp
+            src/targets/target_profile_json_common.cpp
         PUBLIC_HEADERS
             include/tessera/targets/target_profile_json.hpp
         PUBLIC_DEPS
