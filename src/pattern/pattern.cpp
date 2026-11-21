@@ -252,7 +252,7 @@ void Pattern::search(std::span<const std::byte> data,
         std::size_t off = 0;
 
         if (avx2_available) {
-            while (off + 32u <= limit) {
+            while (limit - off >= 32u) {
                 std::uint32_t mask = detail::dual_anchor_mask_avx2(
                     raw, off, anchor_, primary_value, secondary_index, secondary_value);
                 while (mask != 0) {
@@ -267,7 +267,7 @@ void Pattern::search(std::span<const std::byte> data,
         }
 
         if (sse2_available) {
-            while (off + 16u <= limit) {
+            while (limit - off >= 16u) {
                 std::uint32_t mask = detail::dual_anchor_mask_sse2(
                     raw, off, anchor_, primary_value, secondary_index, secondary_value);
                 while (mask != 0) {
