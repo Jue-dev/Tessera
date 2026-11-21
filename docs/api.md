@@ -83,3 +83,12 @@ Python bridge discovery reports runtime/framework evidence separately from deplo
 - [JSON validation boundaries](json-validation-boundaries.md) explains the separate profile and target-profile wire-format ownership.
 - [Memory write recovery](memory-write-recovery.md) documents explicit retry ownership for pending page-protection restoration.
 - [Native decoder envelope](native-instruction-decoder-envelope.md) defines the supported bounded decoder metadata and relocation rejection rules.
+
+### Wave 3 scanner and xref additions
+
+- `Scanner::scan_batch(range, patterns, options)` reads each memory chunk once for the full pattern span and returns one `ScanResult` per input pattern in the same order. `max_results` is applied independently to each result.
+- `xref::find_pointer_refs_batch` scans multiple pointer targets through the batch scanner.
+- `xref::find_conditional_branches` resolves near conditional branches (`0F 8x rel32`) to a target.
+- `xref::find_indirect_refs` verifies x86 absolute and x64 RIP-relative indirect CALL/JMP slots by decoding the instruction and dereferencing the pointer operand.
+- `AddressCursor` exposes bounded instruction stepping, call/RIP-relative instruction discovery, operand-target resolution, and cycle/hop-limited thunk following. These operations use the internal shared decoder and return errors for unsupported or unreadable instructions.
+
