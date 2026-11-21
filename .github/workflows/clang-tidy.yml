@@ -29,4 +29,7 @@ jobs:
             -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF
 
       - name: Run clang-tidy over library sources
-        run: run-clang-tidy -p build-tidy -quiet -j 2 -header-filter='.*include/tessera/.*' 'src/.*\\.cpp'
+        shell: bash
+        run: |
+          mapfile -t sources < <(find src -type f -name '*.cpp' | sort)
+          run-clang-tidy -p build-tidy -quiet -j 2 -header-filter='.*include/tessera/.*' "${sources[@]}"
