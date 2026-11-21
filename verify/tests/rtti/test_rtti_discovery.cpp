@@ -178,6 +178,18 @@ TEST_CASE("RTTI discovery rejects a vftable whose first virtual target escapes t
     write_u64(image.storage, 0x2500, base + 0x2400);
     write_u64(image.storage, 0x2508, 0xDEAD0000ULL);
 
+    // A second candidate has a mismatched COL pSelf RVA and must be rejected
+    // before vftable inspection, even though its type name and meta-slot exist.
+    write_cstr(image.storage, 0x2180 + 16, ".?AVBadLocator@Game@@");
+    write_u32(image.storage, 0x2440 + 0, 1);
+    write_u32(image.storage, 0x2440 + 4, 0);
+    write_u32(image.storage, 0x2440 + 8, 0);
+    write_u32(image.storage, 0x2440 + 12, 0x2180);
+    write_u32(image.storage, 0x2440 + 16, 0x23C0);
+    write_u32(image.storage, 0x2440 + 20, 0x2400); // Deliberately wrong: should be 0x2440.
+    write_u64(image.storage, 0x2510, base + 0x2440);
+    write_u64(image.storage, 0x2518, base + 0x1100);
+
     Process process = testing::FakeMemoryBackend::make_process(backend, Architecture::X64);
     auto catalog = RttiCatalog::discover_all(process, AddressRange{Address{base}, 0x5000});
     REQUIRE(catalog.has_value());
