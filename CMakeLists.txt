@@ -470,6 +470,11 @@ target_include_directories(tessera_static PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
+target_compile_definitions(tessera_static PUBLIC
+    TESSERA_CMAKE_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+    TESSERA_CMAKE_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+    TESSERA_CMAKE_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+)
 tessera_apply_target_options(tessera_static)
 if(ALL_TESSERA_SYS_LIBS)
     target_link_libraries(tessera_static PUBLIC ${ALL_TESSERA_SYS_LIBS})
