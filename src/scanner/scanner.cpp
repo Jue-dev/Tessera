@@ -457,7 +457,191 @@ Result<Address> Scanner::find_unique(AddressRange range,
 
 namespace xref {
 
+Result<XrefScanResult> find_decoded_xrefs(
+    const Process& process,
+    AddressRange instruction_range,
+    Address target,
+    const ScanOptions& options) {
+    if (instruction_range.empty() || target.is_null()) {
+        return fail(ErrorCode::InvalidArgument, "xref::find_decoded_xrefs");
+    }
+    auto range_end = instruction_range.end();
+    if (!range_end) {
+        return std::unexpected(range_end.error());
+    }
+    auto max_exclusive = checked_add<std::uint64_t>(
+        process.info().max_application_address, 1u);
+    if (!max_exclusive || range_end->value() > *max_exclusive) {
+        return fail(ErrorCode::OutOfRange, "xref::find_decoded_xrefs");
+    }
+
+    try {
+        XrefScanResult result{};
+        const IMemoryBackend& backend = memory_backend(process);
+        std::uint64_t cursor = instruction_range.begin().value();
+        std::uint64_t region_end = 0;
+        std::uint64_t current_region_base = 0;
+        while (cursor < range_end->value()) {
+            if (options.stop.stop_requested()) {
+                result.cancelled = true;
+                break;
+            }
+
+            if (cursor >= region_end) {
+                auto region = backend.query(Address{cursor});
+                if (!region) {
+                    return std::unexpected(region.error());
+                }
+                if (!matches_region_filter(*region, options.filter)) {
+                    return fail(ErrorCode::AccessDenied, "xref::find_decoded_xrefs",
+                                0, "Instruction sweep entered a filtered or inaccessible region");
+                }
+                auto next_region = checked_add<std::uint64_t>(
+                    region->base.value(), region->size);
+                if (!next_region || *next_region <= cursor) {
+                    return fail(ErrorCode::OutOfRange, "xref::find_decoded_xrefs",
+                                0, "Memory-region query returned an invalid range");
+                }
+                region_end = *next_region;
+                current_region_base = region->base.value();
+                ++result.stats.regions_scanned;
+            }
+
+            const std::uint64_t remaining = range_end->value() - cursor;
+            const std::size_t available = static_cast<std::size_t>(
+                (std::min)(std::uint64_t{15}, remaining));
+            std::array<std::byte, 15> raw{};
+            auto read = backend.read(Address{cursor}, std::span<std::byte>{raw}.first(available));
+            if (!read || *read != available) {
+                ++result.stats.read_errors;
+                return fail(ErrorCode::PartialTransfer, "xref::find_decoded_xrefs",
+                            read ? 0 : read.error().native,
+                            "Instruction sweep requires complete bounded reads");
+            }
+
+            ::tessera::detail::x86::DecodedInstruction decoded{};
+            const auto mode = process.pointer_size() == 8
+                                  ? ::tessera::detail::x86::Mode::x64
+                                  : ::tessera::detail::x86::Mode::x86;
+            if (!::tessera::detail::x86::decode_instruction(
+                    raw.data(), available, mode, decoded) ||
+                decoded.length == 0 || decoded.length > remaining) {
+                return fail(ErrorCode::UnsupportedInstruction, "xref::find_decoded_xrefs",
+                            0, "Instruction boundary cannot be established at sweep cursor");
+            }
+
+            bool matched = false;
+            Address resolved_target{};
+            XrefKind kind = XrefKind::DirectCall;
+            if (decoded.has_relative_operand &&
+                decoded.relative_offset + decoded.relative_size <= decoded.length) {
+                std::int64_t displacement = 0;
+                if (decoded.relative_size == 1) {
+                    displacement = static_cast<std::int8_t>(
+                        std::to_integer<std::uint8_t>(raw[decoded.relative_offset]));
+                } else if (decoded.relative_size == 4) {
+                    std::int32_t rel32 = 0;
+                    std::memcpy(&rel32, raw.data() + decoded.relative_offset, sizeof(rel32));
+                    displacement = rel32;
+                }
+                auto next_ip = checked_add<std::uint64_t>(
+                    cursor, static_cast<std::uint64_t>(decoded.length));
+                if (!next_ip) {
+                    return fail(ErrorCode::OutOfRange, "xref::find_decoded_xrefs");
+                }
+                auto destination = checked_offset<std::uint64_t>(*next_ip, displacement);
+                if (destination) {
+                    const bool direct_call = decoded.opcode == 0xE8u;
+                    const bool direct_jump = decoded.opcode == 0xE9u || decoded.opcode == 0xEBu;
+                    const bool short_conditional =
+                        decoded.opcode >= 0x70u && decoded.opcode <= 0x7Fu;
+                    const bool near_conditional =
+                        decoded.opcode == 0x0Fu && decoded.opcode2 >= 0x80u &&
+                        decoded.opcode2 <= 0x8Fu;
+                    if (direct_call || direct_jump || short_conditional || near_conditional) {
+                        resolved_target = Address{*destination};
+                        matched = resolved_target == target;
+                        kind = direct_call ? XrefKind::DirectCall
+                               : direct_jump ? XrefKind::DirectJump
+                                             : XrefKind::ConditionalBranch;
+                    }
+                }
+            }
+
+            if (!matched && decoded.has_rip_relative_operand &&
+                decoded.rip_displacement_offset + sizeof(std::int32_t) <= decoded.length) {
+                std::int32_t displacement = 0;
+                std::memcpy(&displacement, raw.data() + decoded.rip_displacement_offset,
+                            sizeof(displacement));
+                auto next_ip = checked_add<std::uint64_t>(
+                    cursor, static_cast<std::uint64_t>(decoded.length));
+                if (!next_ip) {
+                    return fail(ErrorCode::OutOfRange, "xref::find_decoded_xrefs");
+                }
+                auto slot = checked_offset<std::uint64_t>(*next_ip, displacement);
+                if (slot) {
+                    resolved_target = Address{*slot};
+                    const bool indirect_call =
+                        decoded.opcode == 0xFFu && decoded.modrm_reg == 2u;
+                    const bool indirect_jump =
+                        decoded.opcode == 0xFFu && decoded.modrm_reg == 4u;
+                    if (indirect_call || indirect_jump) {
+                        std::array<std::byte, sizeof(std::uint64_t)> pointer_bytes{};
+                        const std::size_t pointer_size = process.pointer_size();
+                        auto pointer_read = backend.read(
+                            *slot, std::span<std::byte>{pointer_bytes}.first(pointer_size));
+                        if (pointer_read && *pointer_read == pointer_size) {
+                            std::uint64_t pointer_value = 0;
+                            if (pointer_size == 8u) {
+                                std::memcpy(&pointer_value, pointer_bytes.data(), sizeof(pointer_value));
+                            } else {
+                                std::uint32_t pointer32 = 0;
+                                std::memcpy(&pointer32, pointer_bytes.data(), sizeof(pointer32));
+                                pointer_value = pointer32;
+                            }
+                            resolved_target = Address{pointer_value};
+                            matched = resolved_target == target;
+                            kind = indirect_call ? XrefKind::IndirectCall : XrefKind::IndirectJump;
+                        }
+                    } else {
+                        matched = resolved_target == target;
+                        kind = XrefKind::RipRelativeData;
+                    }
+                }
+            }
+
+            if (matched) {
+                result.references.push_back(XrefMatch{
+                    .instruction = Address{cursor},
+                    .target = resolved_target,
+                    .kind = kind,
+                });
+                if (options.max_results > 0 &&
+                    result.references.size() >= options.max_results) {
+                    result.truncated = true;
+                    break;
+                }
+            }
+
+            cursor += decoded.length;
+            result.stats.bytes_scanned += decoded.length;
+            if (options.on_progress) {
+                options.on_progress(ScanProgress{
+                    .bytes_scanned = result.stats.bytes_scanned,
+                    .total_bytes = instruction_range.size(),
+                    .hits_found = result.references.size(),
+                });
+            }
+        }
+        (void)current_region_base;
+        return result;
+    } catch (const std::bad_alloc&) {
+        return fail(ErrorCode::OutOfMemory, "xref::find_decoded_xrefs");
+    }
+}
+
 namespace {
+
 
 template <class Predicate>
 [[nodiscard]] Result<std::vector<Address>> filter_decoded_references(
