@@ -17,6 +17,7 @@ if ($Mode -eq "NoRtti") {
         "-DTESSERA_ENABLE_MSVC_FUZZER=ON",
         "-DTESSERA_ENABLE_ASAN=ON",
         "-DTESSERA_STATIC_RUNTIME=ON",
+        "-DTESSERA_PATTERN_FORCE_SCALAR=ON",
         "-DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=ProgramDatabase",
         "-DCMAKE_CXX_FLAGS=/GR-"
     )
