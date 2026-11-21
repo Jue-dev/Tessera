@@ -44,6 +44,7 @@ using HookFn = void (*)();
 void consumer_noop() {}
 
 using MemoryReadFn = decltype(&tessera::MemoryReader::read_exact);
+using ModuleSnapshotFn = decltype(&tessera::ModuleCatalog::snapshot);
 using ScanFn = decltype(&tessera::Scanner::scan);
 using CursorOffsetFn = decltype(&tessera::AddressCursor::offset);
 using PatchNopFn = decltype(&tessera::Patch::nop);
@@ -68,6 +69,7 @@ using PythonFindFn = decltype(&tessera::rtti::PythonBridgeCatalog::find_method);
 using PythonExportFn = decltype(&tessera::rtti::PythonBridgeCatalog::export_to_registry);
 
 [[maybe_unused]] MemoryReadFn volatile g_memory_read = &tessera::MemoryReader::read_exact;
+[[maybe_unused]] ModuleSnapshotFn volatile g_module_snapshot = &tessera::ModuleCatalog::snapshot;
 [[maybe_unused]] ScanFn volatile g_scan = &tessera::Scanner::scan;
 [[maybe_unused]] CursorOffsetFn volatile g_cursor_offset = &tessera::AddressCursor::offset;
 [[maybe_unused]] PatchNopFn volatile g_patch_nop = &tessera::Patch::nop;
