@@ -64,8 +64,8 @@ CONCURRENCY_COMMON=(
 CONCURRENCY_SOURCES=(
   src/core/core.cpp
   src/diagnostics/diagnostics.cpp
-  src/utility/utility.cpp
   src/logging/logging.cpp
+  verify/windows_mock/src/encoding_stub.cpp
   src/pattern/pattern.cpp
   src/pattern/pattern_simd.cpp
   src/pattern/pattern_simd_avx2.cpp
