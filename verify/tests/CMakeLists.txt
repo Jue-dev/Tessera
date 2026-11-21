@@ -77,19 +77,11 @@ tessera_add_test(tessera_test_standalone_consumers
     SOURCES
         consumers/standalone_consumer.cpp
     LIBS
-        tessera::core
-        tessera::diagnostics
-        tessera::pattern
-        tessera::utility
-        tessera::filesystem
-        tessera::json
-        tessera::logging
-        tessera::profiling
-        tessera::profile
-        tessera::profile_json
-        tessera::target_profiles
-        tessera::target_profiles_json
-        tessera::reflection
+        tessera::tessera
+)
+target_compile_definitions(tessera_test_standalone_consumers PRIVATE
+    TESSERA_CONSUMER_WITH_PROFILE=$<BOOL:${TESSERA_BUILD_PROFILE}>
+    TESSERA_CONSUMER_WITH_TARGETS=$<BOOL:${TESSERA_BUILD_TARGETS}>
 )
 
 # ------------------------------------------------------------------------------
@@ -167,6 +159,7 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
 endif()
 target_include_directories(tessera_test_patch_hook PRIVATE
     ${PROJECT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/support
 )
 if(TESSERA_WITH_DETOURS)
     target_compile_definitions(tessera_test_patch_hook PRIVATE TESSERA_TEST_WITH_DETOURS=1)

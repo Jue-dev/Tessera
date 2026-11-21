@@ -68,3 +68,23 @@ Gerçek LLVM libFuzzer koşumları, corpus hazırlığı ve sanitizer seçenekle
 - [Derleme ve CMake Seçenekleri](docs/build.md)
 - [API Kullanım Kılavuzu](docs/api.md)
 - [Geliştirici İş Akışı ve Mimari Kararlar](docs/development-workflow.md)
+
+
+## Optional CMake validation presets
+
+The repository provides matching configure/build presets for x64 and x86 Debug/Release, plus x64 AddressSanitizer, MSVC static analysis, benchmark, and fuzz-smoke configurations. On Windows with the MSVC developer environment and Ninja available, the optional benchmark and deterministic corpus-replay workflows are:
+
+```powershell
+cmake --preset x64-bench
+cmake --build --preset x64-bench --parallel
+ctest --preset x64-bench --output-on-failure
+
+cmake --preset x64-fuzz-smoke
+cmake --build --preset x64-fuzz-smoke --parallel
+ctest --preset x64-fuzz-smoke --output-on-failure
+.\scripts\run-fuzz-smoke.ps1
+```
+
+The five benchmark executables are `tessera_bench` (scanner), `tessera_decoder_bench`, `tessera_pe_bench`, `tessera_json_bench`, and `tessera_rtti_discovery_bench`. The eight fuzz harnesses are `tessera_fuzz_pattern`, `tessera_fuzz_pe`, `tessera_fuzz_json`, `tessera_fuzz_profile_json`, `tessera_fuzz_python_bridge`, `tessera_fuzz_scanner`, `tessera_fuzz_rtti_discovery`, and the Windows-only `tessera_fuzz_native_hook`. The standalone smoke script replays each checked-in corpus through the same `LLVMFuzzerTestOneInput` entry point; it complements, but does not replace, longer coverage-guided campaigns.
+
+The optional `decoder-differential` CI job installs the test-only `iced-x86==1.21.0` Python package and compares the in-house x86 decoder's instruction boundaries against that independent oracle. The dependency is confined to the validation job and is not part of the Tessera runtime or installed SDK.

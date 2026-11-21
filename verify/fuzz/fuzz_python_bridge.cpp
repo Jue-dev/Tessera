@@ -62,6 +62,54 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     const auto pointer = [&](std::size_t offset, std::uint64_t value) {
         backend->poke_value(tessera::Address{kFuzzBase + offset}, value);
     };
+
+    // Model one minimal 64-bit PyTypeObject and its three optional metadata
+    // tables so the same harness exercises cyclic object/table references.
+    constexpr std::size_t kTypeObjectOffset = 0xA00;
+    constexpr std::size_t kTypeNameOffset = 0xB00;
+    constexpr std::size_t kTypeMethodsOffset = 0xC00;
+    constexpr std::size_t kTypeMembersOffset = 0xD00;
+    constexpr std::size_t kTypeGetSetOffset = 0xE00;
+    write_string(*backend, kTypeNameOffset, "bridge.Type");
+
+    pointer(kTypeObjectOffset + 0u * 8u, 2u); // ob_refcnt
+    pointer(kTypeObjectOffset + 2u * 8u, 0u); // ob_size
+    pointer(kTypeObjectOffset + 3u * 8u, kFuzzBase + kTypeNameOffset); // tp_name
+    pointer(kTypeObjectOffset + 4u * 8u, 16u); // tp_basicsize
+    pointer(kTypeObjectOffset + 5u * 8u, 0u); // tp_itemsize
+    pointer(kTypeObjectOffset + 29u * 8u, kFuzzBase + kTypeMethodsOffset); // tp_methods
+    pointer(kTypeObjectOffset + 30u * 8u, kFuzzBase + kTypeMembersOffset); // tp_members
+    pointer(kTypeObjectOffset + 31u * 8u, kFuzzBase + kTypeGetSetOffset); // tp_getset
+
+    // PyMethodDef: {ml_name, ml_meth, ml_flags, pad, ml_doc}, followed by a
+    // zero sentinel. The executable candidate remains in the RX page.
+    pointer(kTypeMethodsOffset + 0u, kFuzzBase + 0x500);
+    pointer(kTypeMethodsOffset + 8u, kFuzzBase + 2u * kPageSize);
+    backend->poke_value(tessera::Address{kFuzzBase + kTypeMethodsOffset + 16u},
+                        std::uint32_t{0x01});
+    backend->poke_value(tessera::Address{kFuzzBase + kTypeMethodsOffset + 20u},
+                        std::uint32_t{0});
+    pointer(kTypeMethodsOffset + 24u, kFuzzBase + 0x700);
+
+    // PyMemberDef: name, type, pad, offset, flags, pad, doc; then sentinel.
+    pointer(kTypeMembersOffset + 0u, kFuzzBase + 0x500);
+    backend->poke_value(tessera::Address{kFuzzBase + kTypeMembersOffset + 8u},
+                        std::int32_t{1});
+    backend->poke_value(tessera::Address{kFuzzBase + kTypeMembersOffset + 12u},
+                        std::int32_t{0});
+    pointer(kTypeMembersOffset + 16u, 8u);
+    backend->poke_value(tessera::Address{kFuzzBase + kTypeMembersOffset + 24u},
+                        std::int32_t{0});
+    backend->poke_value(tessera::Address{kFuzzBase + kTypeMembersOffset + 28u},
+                        std::int32_t{0});
+    pointer(kTypeMembersOffset + 32u, kFuzzBase + 0x700);
+
+    // PyGetSetDef: name, getter, setter, doc, closure; then sentinel.
+    pointer(kTypeGetSetOffset + 0u, kFuzzBase + 0x500);
+    pointer(kTypeGetSetOffset + 8u, kFuzzBase + 2u * kPageSize);
+    pointer(kTypeGetSetOffset + 16u, 0u);
+    pointer(kTypeGetSetOffset + 24u, kFuzzBase + 0x700);
+    pointer(kTypeGetSetOffset + 32u, 0u);
     pointer(0x200, kFuzzBase + 0x500);        // PyMethodDef.ml_name
     pointer(0x208, kFuzzBase + 2u * kPageSize); // PyMethodDef.ml_meth
     backend->poke_value(tessera::Address{kFuzzBase + 0x210}, std::uint32_t{0x01});
@@ -83,12 +131,22 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     write_input_field(*backend, 0x300, data, size, 32, 8);
     write_input_field(*backend, 0x308, data, size, 40, 8);
 
-    // Exercise bounded C-string reads (96-byte method name, 256-byte doc,
-    // 64-byte module name) independently of the pointer-field mutations.
-    if (size > 48) {
-        const std::size_t copied = (std::min)(size - 48, kMaxStringInput);
+    // Extended inputs can mutate type/table references without changing the
+    // original 48-byte PyMethodDef + _inittab corpus contract.
+    write_input_field(*backend, kTypeObjectOffset + 3u * 8u, data, size, 48, 8);
+    write_input_field(*backend, kTypeObjectOffset + 29u * 8u, data, size, 56, 8);
+    write_input_field(*backend, kTypeObjectOffset + 30u * 8u, data, size, 64, 8);
+    write_input_field(*backend, kTypeObjectOffset + 31u * 8u, data, size, 72, 8);
+    write_input_field(*backend, kTypeMethodsOffset, data, size, 80, 8);
+    write_input_field(*backend, kTypeMethodsOffset + 8u, data, size, 88, 8);
+    write_input_field(*backend, kTypeMembersOffset, data, size, 96, 8);
+    write_input_field(*backend, kTypeGetSetOffset, data, size, 104, 8);
+
+    // Exercise bounded C-string reads after the extended pointer mutations.
+    if (size > 112) {
+        const std::size_t copied = (std::min)(size - 112, kMaxStringInput);
         const std::span<const std::byte> bytes{
-            reinterpret_cast<const std::byte*>(data + 48), copied};
+            reinterpret_cast<const std::byte*>(data + 112), copied};
         backend->poke_bytes(tessera::Address{kFuzzBase + 0x500}, bytes);
         backend->poke_value(tessera::Address{kFuzzBase + 0x500 + copied}, std::byte{0});
     }

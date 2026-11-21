@@ -20,6 +20,7 @@ on:
       - "vcpkg-configuration.json"
       - ".github/workflows/**"
       - ".github/actions/**"
+      - ".github/scripts/**"
   # Full validation on main and manually on any selected branch.
   # Tag pushes still run the release pipeline; path filters do not apply to tags.
   push:
@@ -40,6 +41,7 @@ on:
       - "vcpkg-configuration.json"
       - ".github/workflows/**"
       - ".github/actions/**"
+      - ".github/scripts/**"
   # Select the develop branch in the Actions UI for manual development validation.
   workflow_dispatch:
   schedule:
@@ -192,22 +194,10 @@ jobs:
       - name: Build Microsoft Detours for ${{ matrix.arch }}
         shell: pwsh
         working-directory: dependencies/Detours/src
-        run: |
-          $targetProcessor = if ('${{ matrix.arch }}' -eq 'x86') { 'X86' } else { 'X64' }
-          nmake /nologo "DETOURS_TARGET_PROCESSOR=$targetProcessor"
-          if ($LASTEXITCODE -ne 0) { throw "Detours NMake failed ($LASTEXITCODE)." }
-
+        run: '& "$env:GITHUB_WORKSPACE\.github\scripts\ci\build-detours.ps1" -Architecture "${{ matrix.arch }}"'
       - name: Verify architecture-specific Detours outputs
         shell: pwsh
-        run: |
-          $detoursArch = if ('${{ matrix.arch }}' -eq 'x86') { 'X86' } else { 'X64' }
-          $library = Join-Path $env:GITHUB_WORKSPACE "dependencies/Detours/lib.$detoursArch/detours.lib"
-          $header = Join-Path $env:GITHUB_WORKSPACE "dependencies/Detours/include/detours.h"
-          if (-not (Test-Path $library)) { throw "Missing architecture-specific library: $library" }
-          if (-not (Test-Path $header)) { throw "Missing Detours header: $header" }
-          Write-Host "Detours header: $header"
-          Write-Host "Detours library: $library"
-
+        run:  .\.github\scripts\ci\verify-detours.ps1 -Architecture "${{ matrix.arch }}"
       - name: Build Tessera and run the live Detours test
         shell: pwsh
         run: |
@@ -235,9 +225,7 @@ jobs:
         run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
 
       - name: Configure with Compiler RTTI Disabled (/GR-) and Benchmarks/Fuzz Enabled
-        run: |
-          cmake -S . -B build-nortti -G "Visual Studio 18 2026" -A x64 -DTESSERA_BUILD_TESTS=ON -DTESSERA_BUILD_BENCH=ON -DTESSERA_BUILD_FUZZ=ON -DTESSERA_ENABLE_MSVC_FUZZER=ON -DTESSERA_ENABLE_ASAN=ON -DTESSERA_STATIC_RUNTIME=ON -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=ProgramDatabase -DCMAKE_CXX_FLAGS="/GR-"
-
+        run:  .\.github\scripts\ci\configure-no-rtti.ps1
       - name: Build Release with /GR-
         run: cmake --build build-nortti --config Release --parallel
 
@@ -246,41 +234,7 @@ jobs:
 
       - name: Run Fuzz & Benchmark Smoke Targets (verify/fuzz & verify/bench)
         shell: pwsh
-        run: |
-          $fuzzTargets = @(
-            @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_pattern.exe"; Corpus = "verify/fuzz/corpus/pattern" },
-            @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_pe.exe"; Corpus = "verify/fuzz/corpus/pe" },
-            @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_json.exe"; Corpus = "verify/fuzz/corpus/json" },
-            @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_profile_json.exe"; Corpus = "verify/fuzz/corpus/profile_json" },
-            @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_python_bridge.exe"; Corpus = "verify/fuzz/corpus/python_bridge" },
-            @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_scanner.exe"; Corpus = "verify/fuzz/corpus/scanner" },
-            @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_rtti_discovery.exe"; Corpus = "verify/fuzz/corpus/rtti_discovery" },
-            @{ Path = "build-nortti/verify/fuzz/Release/tessera_fuzz_native_hook.exe"; Corpus = "verify/fuzz/corpus/native_hook" }
-          )
-          foreach ($entry in $fuzzTargets) {
-            $target = $entry.Path
-            $corpus = $entry.Corpus
-            if (-not (Test-Path $target)) { throw "Missing Release fuzz smoke target: $target" }
-            if (-not (Test-Path $corpus)) { throw "Missing fuzz seed corpus: $corpus" }
-            Write-Host "Running $target with seed corpus $corpus"
-            & $target $corpus "-runs=100"
-            if ($LASTEXITCODE -ne 0) { throw "Fuzz smoke failed ($LASTEXITCODE): $target" }
-          }
-
-          $benchmarkTargets = @(
-            "build-nortti/verify/bench/Release/tessera_bench.exe",
-            "build-nortti/verify/bench/Release/tessera_decoder_bench.exe",
-            "build-nortti/verify/bench/Release/tessera_pe_bench.exe",
-            "build-nortti/verify/bench/Release/tessera_json_bench.exe",
-            "build-nortti/verify/bench/Release/tessera_rtti_discovery_bench.exe"
-          )
-          foreach ($target in $benchmarkTargets) {
-            if (-not (Test-Path $target)) { throw "Missing Release benchmark smoke target: $target" }
-            Write-Host "Running $target"
-            & $target
-            if ($LASTEXITCODE -ne 0) { throw "Benchmark smoke failed ($LASTEXITCODE): $target" }
-          }
-
+        run:  .\.github\scripts\ci\run-fuzz-bench-smoke.ps1 -BuildDirectory "build-nortti" -Configuration "Release"
       - name: Verify CMake Install Package (Single tessera.lib)
         run: cmake --install build-nortti --config Release --prefix install-nortti
 
@@ -372,9 +326,7 @@ jobs:
 
       - name: Configure reduced SDK
         shell: pwsh
-        run: |
-          cmake -S . -B build-reduced -G Ninja -DCMAKE_BUILD_TYPE=Release -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF ${{ matrix.options }}
-
+        run:  .\.github\scripts\ci\configure-reduced.ps1 -Options '${{ matrix.options }}'
       - name: Build reduced SDK
         run: cmake --build build-reduced --parallel
 
@@ -383,91 +335,7 @@ jobs:
 
       - name: Configure and build installed-package consumer
         shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path consumer -Force | Out-Null
-          @'
-          cmake_minimum_required(VERSION 3.28)
-          project(TesseraReducedConsumer LANGUAGES CXX)
-          find_package(Tessera CONFIG REQUIRED)
-          add_executable(tessera_consumer main.cpp)
-          target_link_libraries(tessera_consumer PRIVATE tessera::tessera)
-          target_compile_definitions(tessera_consumer PRIVATE
-              TESSERA_CONSUMER_WITH_PROFILE=${TESSERA_CONSUMER_WITH_PROFILE}
-              TESSERA_CONSUMER_WITH_TARGETS=${TESSERA_CONSUMER_WITH_TARGETS})
-          '@ | Set-Content -Path consumer/CMakeLists.txt
-          @'
-          #include <tessera/tessera.hpp>
-          #include <cstddef>
-          #include <span>
-          #include <string_view>
-          
-          using HookFn = void (*)();
-          using MemoryReadFn = tessera::Status (tessera::MemoryReader::*)(
-              tessera::Address, std::span<std::byte>) const noexcept;
-          using ScanFn = tessera::Result<tessera::ScanResult> (tessera::Scanner::*)(
-              tessera::AddressRange, const tessera::Pattern&, const tessera::ScanOptions&) const;
-          using CursorOffsetFn = tessera::AddressCursor (tessera::AddressCursor::*)(
-              std::int64_t) const noexcept;
-          using PatchNopFn = tessera::Result<tessera::Patch> (*)(
-              tessera::ProcessAddress, std::size_t, tessera::PatchOptions);
-          using HookCreateFn = tessera::Result<tessera::Hook<HookFn>> (*)(
-              tessera::Address, HookFn, tessera::HookBackend*) noexcept;
-          using PeParseFn = tessera::Result<tessera::PeImage> (*)(
-              std::span<const std::byte>, tessera::Address);
-          using PatternParseFn = tessera::Result<tessera::Pattern> (*)(std::string_view,
-              tessera::PatternError*);
-          using JsonParseFn = tessera::Result<tessera::json::JsonValue> (*)(
-              std::string_view, const tessera::json::JsonParseOptions&, tessera::json::JsonParseError*);
-          using PythonFindFn = tessera::Result<tessera::rtti::PyMethodEntry> (
-              tessera::rtti::PythonBridgeCatalog::*)(std::string_view) const;
-          
-          [[maybe_unused]] MemoryReadFn volatile g_memory_read = &tessera::MemoryReader::read_exact;
-          [[maybe_unused]] ScanFn volatile g_scan = &tessera::Scanner::scan;
-          [[maybe_unused]] CursorOffsetFn volatile g_cursor_offset = &tessera::AddressCursor::offset;
-          [[maybe_unused]] PatchNopFn volatile g_patch_nop = &tessera::Patch::nop;
-          [[maybe_unused]] HookCreateFn volatile g_hook_create = &tessera::Hook<HookFn>::create;
-          [[maybe_unused]] PeParseFn volatile g_pe_parse = &tessera::PeImage::from_raw_bytes;
-          [[maybe_unused]] PatternParseFn volatile g_pattern_parse = &tessera::Pattern::parse;
-          [[maybe_unused]] JsonParseFn volatile g_json_parse = &tessera::json::parse;
-          [[maybe_unused]] PythonFindFn volatile g_python_find =
-              &tessera::rtti::PythonBridgeCatalog::find_method;
-          
-          static_assert(sizeof(tessera::Process) > 0);
-          static_assert(sizeof(tessera::MemoryReader) > 0);
-          static_assert(sizeof(tessera::PeImage) > 0);
-          static_assert(sizeof(tessera::Scanner) > 0);
-          static_assert(sizeof(tessera::AddressCursor) > 0);
-          static_assert(sizeof(tessera::Patch) > 0);
-          static_assert(sizeof(tessera::Hook<HookFn>) > 0);
-          static_assert(sizeof(tessera::rtti::RttiCatalog) > 0);
-          static_assert(sizeof(tessera::rtti::PythonBridgeScanner) > 0);
-          
-          int main() {
-              const auto pattern = tessera::Pattern::parse("90");
-              const auto pe = tessera::PeImage::from_raw_bytes(std::span<const std::byte>{});
-              const auto json = tessera::json::parse("null");
-              const auto python = tessera::rtti::PythonBridgeCatalog{}.find_method("missing");
-              if (!pattern || pe || !json || python) return 1;
-          
-          #if TESSERA_CONSUMER_WITH_PROFILE
-              tessera::profile::SettingsSchema schema(1);
-              tessera::profile::ProfileManager manager(schema);
-              if (!manager.snapshot()) return 2;
-          #endif
-          
-          #if TESSERA_CONSUMER_WITH_TARGETS
-              tessera::targets::TargetProfile target{};
-              target.application.application_id = "consumer.test";
-              target.application.executables = {"consumer.exe"};
-              if (!tessera::targets::validate_target_profile_schema(target)) return 3;
-          #endif
-              return 0;
-          }
-          '@ | Set-Content -Path consumer/main.cpp
-          $profileEnabled = if ('${{ matrix.options }}' -match 'TESSERA_BUILD_PROFILE=OFF') { 0 } else { 1 }
-          $targetsEnabled = if ('${{ matrix.options }}' -match 'TESSERA_BUILD_TARGETS=OFF') { 0 } else { 1 }
-          cmake -S consumer -B consumer/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$env:GITHUB_WORKSPACE\install-reduced" -DTESSERA_CONSUMER_WITH_PROFILE=$profileEnabled -DTESSERA_CONSUMER_WITH_TARGETS=$targetsEnabled
-          cmake --build consumer/build --parallel
+        run:  .\.github\scripts\ci\test-installed-sdk-consumer.ps1 -Options '${{ matrix.options }}'
 
   publish-sdk-bundle:
     # Manual validation must not assemble or publish release artifacts.
@@ -490,20 +358,7 @@ jobs:
 
       - name: Assemble Unified Tessera-SDK-Windows Package
         shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path "TesseraSDK" -Force | Out-Null
-          Copy-Item -Path "include" -Destination "TesseraSDK\include" -Recurse -Force
-          foreach ($preset in @("x64-release", "x64-debug", "x86-release", "x86-debug")) {
-            $parts = $preset.Split("-")
-            $arch = $parts[0]
-            $cfg  = if ($parts[1] -eq "debug") { "Debug" } else { "Release" }
-            $srcDir = "sdk-Input\Tessera-SDK-$preset"
-            $dstDir = "TesseraSDK\$arch\$cfg"
-            New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
-            Copy-Item -Path "$srcDir\*" -Destination $dstDir -Recurse -Force
-          }
-          Compress-Archive -Path "TesseraSDK\*" -DestinationPath "Tessera-SDK-Windows.zip" -Force
-
+        run:  .\.github\scripts\ci\package-sdk-bundle.ps1
       - name: Upload Combined SDK Bundle Artifact (Tessera-SDK-Full)
         uses: actions/upload-artifact@v7
         with:
