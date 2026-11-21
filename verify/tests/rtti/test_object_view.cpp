@@ -113,6 +113,11 @@ TEST_CASE("ObjectView validates unaligned fields, invalid pointers, overflow, an
     ObjectView invalid{process, Address{0xDEAD0000}, derived};
     auto invalid_read = invalid.read_field<std::uint32_t>("unaligned");
     REQUIRE_FALSE(invalid_read.has_value());
+
+    backend->map_region(Address{0xA20000}, 0x1000, MemoryProtection::NoAccess);
+    ObjectView unreadable{process, Address{0xA20000}, derived};
+    auto unreadable_read = unreadable.read_field<std::uint32_t>("unaligned");
+    REQUIRE_FALSE(unreadable_read.has_value());
 }
 
 TEST_CASE("ObjectView owns its Process and resolves virtual bases without adding vbptr offset",
