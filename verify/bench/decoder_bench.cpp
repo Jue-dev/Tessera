@@ -3,7 +3,7 @@
 #include <cstdlib>
 #include <iostream>
 
-#include "hook/backends/x86_instruction_decoder.hpp"
+#include "disasm/x86_instruction_decoder.hpp"
 #include "tessera/profiling/profiling.hpp"
 
 int main() {
