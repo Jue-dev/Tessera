@@ -354,7 +354,16 @@ if(TESSERA_WITH_DETOURS)
             "but they were not found.")
     endif()
     list(APPEND TESSERA_HOOK_PRIVATE_DEFS "TESSERA_WITH_DETOURS_ENABLED=1")
-    list(APPEND TESSERA_HOOK_SYSTEM_LIBS "${DETOURS_LIBRARY}")
+    # Export a named package dependency instead of baking the build-machine
+    # Detours library path into TesseraTargets.cmake.
+    if(NOT TARGET Tessera::Detours)
+        add_library(Tessera::Detours UNKNOWN IMPORTED GLOBAL)
+        set_target_properties(Tessera::Detours PROPERTIES
+            IMPORTED_LOCATION "${DETOURS_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${DETOURS_INCLUDE_DIRS}"
+        )
+    endif()
+    list(APPEND TESSERA_HOOK_SYSTEM_LIBS Tessera::Detours)
 endif()
 
 tessera_add_module(
@@ -505,9 +514,6 @@ target_compile_definitions(tessera_static PUBLIC
 tessera_apply_target_options(tessera_static)
 if(ALL_TESSERA_SYS_LIBS)
     target_link_libraries(tessera_static PUBLIC ${ALL_TESSERA_SYS_LIBS})
-endif()
-if(TESSERA_WITH_DETOURS AND DETOURS_LIBRARY)
-    target_link_libraries(tessera_static PUBLIC "${DETOURS_LIBRARY}")
 endif()
 
 install(TARGETS tessera_static
