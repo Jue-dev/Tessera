@@ -245,6 +245,8 @@ TEST_CASE("Native x64 unwind unregister failure restores the patch and keeps the
 
 #endif
 
+
+
 #if defined(_M_X64) || defined(__x86_64__)
 TEST_CASE("Native x64 unwind registration failure does not publish ownership",
           "[hook][native][unwind][failure]") {
