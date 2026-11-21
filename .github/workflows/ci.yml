@@ -298,8 +298,8 @@ jobs:
         if: matrix.preset == 'x64-bench'
         shell: pwsh
         run: |
-          $simdExe = ".\artifacts\x64\Bench\build\verify\bench\Release\tessera_bench.exe"
-          $scalarExe = ".\artifacts\x64\Bench\Scalar\build\verify\bench\Release\tessera_bench.exe"
+          $simdExe = ".\artifacts\x64\Bench\build\verify\bench\tessera_bench.exe"
+          $scalarExe = ".\artifacts\x64\Bench\Scalar\build\verify\bench\tessera_bench.exe"
           foreach ($exe in @($simdExe, $scalarExe)) {
             if (-not (Test-Path $exe)) { throw "Missing benchmark executable: $exe" }
           }
