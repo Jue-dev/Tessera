@@ -248,8 +248,8 @@ void Pattern::search(std::span<const std::byte> data,
             return !full_match || on_match(candidate);
         };
 
-        static const bool avx2_available = detail::cpu_supports_avx2();
-        static const bool sse2_available = detail::cpu_supports_sse2();
+        static const bool avx2_available = pattern::detail::cpu_supports_avx2();
+        static const bool sse2_available = pattern::detail::cpu_supports_sse2();
         const std::size_t last_anchor = (std::max)(anchor_, secondary_index);
         const std::size_t simd_limit =
             data.size() > last_anchor + 31u
@@ -259,7 +259,7 @@ void Pattern::search(std::span<const std::byte> data,
 
         if (avx2_available) {
             while (simd_limit - off >= 32u) {
-                std::uint32_t mask = detail::dual_anchor_mask_avx2(
+                std::uint32_t mask = pattern::detail::dual_anchor_mask_avx2(
                     raw, off, anchor_, primary_value, secondary_index, secondary_value);
                 while (mask != 0) {
                     const unsigned bit = std::countr_zero(mask);
@@ -274,7 +274,7 @@ void Pattern::search(std::span<const std::byte> data,
 
         if (sse2_available) {
             while (simd_limit - off >= 16u) {
-                std::uint32_t mask = detail::dual_anchor_mask_sse2(
+                std::uint32_t mask = pattern::detail::dual_anchor_mask_sse2(
                     raw, off, anchor_, primary_value, secondary_index, secondary_value);
                 while (mask != 0) {
                     const unsigned bit = std::countr_zero(mask);
