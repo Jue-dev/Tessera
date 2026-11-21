@@ -218,12 +218,23 @@ tessera_add_test(tessera_test_logging_diagnostics
     LIBS tessera::core tessera::diagnostics tessera::logging tessera::profiling tessera::utility
 )
 
-tessera_add_test(tessera_test_profile_targets
-    SOURCES
-        profile_targets/test_profile_targets.cpp
-    LIBS
-        tessera::tessera
-)
+if(TESSERA_BUILD_PROFILE)
+    tessera_add_test(tessera_test_profile
+        SOURCES profile_targets/test_profile.cpp
+        LIBS tessera::tessera
+    )
+endif()
+
+if(TESSERA_BUILD_TARGETS)
+    tessera_add_test(tessera_test_target_runtime
+        SOURCES profile_targets/test_target_runtime.cpp
+        LIBS tessera::tessera
+    )
+    tessera_add_test(tessera_test_target_profile
+        SOURCES profile_targets/test_target_profile.cpp
+        LIBS tessera::tessera
+    )
+endif()
 
 tessera_add_test(tessera_test_rtti
     SOURCES
