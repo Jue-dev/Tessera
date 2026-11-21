@@ -231,8 +231,7 @@ void Pattern::search(std::span<const std::byte> data, std::size_t start_limit,
         static const bool sse2_available = pattern::detail::cpu_supports_sse2();
         const std::size_t last_anchor = (std::max)(anchor_, secondary_index);
         const std::size_t anchor_tail = data.size() - last_anchor;
-        const std::size_t simd_limit =
-            anchor_tail > 31u ? (std::min)(limit, anchor_tail - 31u) : 0u;
+        const std::size_t simd_limit = anchor_tail > 31u ? (std::min)(limit, anchor_tail - 31u) : 0u;
         std::size_t off = 0;
 
         if (avx2_available) {
