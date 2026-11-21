@@ -39,6 +39,66 @@ int main(int argc, char** argv) {
         }
     });
 
+    constexpr auto exact_pat = "48 8B 05 12 34 56 78 48 85 C0"_sig;
+    constexpr auto nibble_pat = "4? 8B 05 1? 34 ?? ?? 48 85 C0"_sig;
+
+    auto exact_metrics = profiling::run_benchmark(25, [&]() {
+        std::optional<std::size_t> found;
+        exact_pat.search(buffer, buffer.size(), [&](std::size_t idx) {
+            found = idx;
+            return false;
+        });
+        if (!found || *found != pos) {
+            std::abort();
+        }
+    });
+
+    auto nibble_metrics = profiling::run_benchmark(25, [&]() {
+        std::optional<std::size_t> found;
+        nibble_pat.search(buffer, buffer.size(), [&](std::size_t idx) {
+            found = idx;
+            return false;
+        });
+        if (!found || *found != pos) {
+            std::abort();
+        }
+    });
+
+    constexpr std::uint64_t kScanBase = 0x30000000ULL;
+    auto scan_backend = std::make_shared<testing::FakeMemoryBackend>();
+    scan_backend->map_region(Address{kScanBase}, buffer.size(), MemoryProtection::ExecuteRead);
+    scan_backend->poke_bytes(Address{kScanBase}, buffer);
+    Process scan_process = testing::FakeMemoryBackend::make_process(
+        scan_backend, Architecture::X64);
+    Scanner scanner{scan_process};
+    const AddressRange scan_range{Address{kScanBase}, buffer.size()};
+    ScanOptions scan_options{};
+    scan_options.chunk_size = 256u * 1024u;
+    scan_options.max_results = 16;
+
+    auto scanner_metrics = profiling::run_benchmark(10, [&]() {
+        auto result = scanner.scan(scan_range, pat, scan_options);
+        if (!result || result->hits.size() != 1 ||
+            result->hits.front() != Address{kScanBase + pos}) {
+            std::abort();
+        }
+    });
+
+    const std::array<Pattern, 4> batch_patterns{
+        pat, exact_pat, nibble_pat, "90 90 90 90"_sig};
+    ScanOptions batch_options = scan_options;
+    batch_options.max_results = 8;
+    auto batch_metrics = profiling::run_benchmark(10, [&]() {
+        auto result = scanner.scan_batch(scan_range, batch_patterns, batch_options);
+        if (!result || result->size() != 4 ||
+            (*result)[0].hits.size() != 1 ||
+            (*result)[1].hits.size() != 1 ||
+            (*result)[2].hits.size() != 1 ||
+            (*result)[3].hits.size() != 8) {
+            std::abort();
+        }
+    });
+
     std::cout << "Benchmark 1: Pattern::search (4 MiB)\n"
               << "  Iterations : " << pat_metrics.iterations << "\n"
               << "  Min (us)   : " << pat_metrics.min.count() / 1000.0 << "\n"
