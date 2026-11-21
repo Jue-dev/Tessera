@@ -38,6 +38,8 @@ struct XrefScanResult {
     bool cancelled = false;
 };
 
+// Linear sweep from instruction_range.begin; the caller must provide a
+// known instruction boundary. Undecodable or unreadable bytes fail closed.
 [[nodiscard]] Result<XrefScanResult> find_decoded_xrefs(
     const Process& process,
     AddressRange instruction_range,
