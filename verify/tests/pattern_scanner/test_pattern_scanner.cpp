@@ -233,6 +233,7 @@ TEST_CASE("Scanner chunk overlap, contiguous region merging, bad page skip, and 
 
 TEST_CASE("Scanner exposes strict and best-effort partial-read policies", "[scanner][read-policy]") {
     using namespace tessera;
+    using namespace tessera::literals;
     using namespace tessera::testing;
 
     auto backend = std::make_shared<FakeMemoryBackend>();
