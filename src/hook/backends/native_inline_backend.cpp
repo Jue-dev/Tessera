@@ -29,7 +29,7 @@
 #else
     #error "Tessera native inline hooks support only x86 and x64."
 #endif
-#include "x86_instruction_decoder.hpp"
+#include "disasm/x86_instruction_decoder.hpp"
 
 namespace tessera {
 namespace {
