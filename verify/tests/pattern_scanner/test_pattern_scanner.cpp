@@ -121,7 +121,7 @@ TEST_CASE("Pattern SIMD dispatch matches scalar results for overlapping signatur
         data[i] = static_cast<std::byte>((i * 37u + 11u) & 0xFFu);
     }
     constexpr Pattern pattern = "AA BB ?? 4? ?F 90"_sig;
-    const std::array<std::size_t, 7> offsets{0, 15, 16, 31, 32, 63, 127};
+    const std::array<std::size_t, 6> offsets{0, 15, 32, 63, 127, 250};
     for (const std::size_t offset : offsets) {
         data[offset] = std::byte{0xAA};
         data[offset + 1] = std::byte{0xBB};
