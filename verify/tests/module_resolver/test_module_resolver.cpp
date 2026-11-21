@@ -128,6 +128,40 @@ TEST_CASE("Resolver fluent AddressCursor and pipe/monadic adapters", "[resolver]
     REQUIRE(rip_target.has_value());
     REQUIRE(*rip_target == Address{0x401000});
 
+    auto stepped = ProcessAddress{proc, Address{0x400100}}.cursor().step_instructions().address();
+    REQUIRE(stepped.has_value());
+    REQUIRE(*stepped == Address{0x400107});
+    auto rip_cursor = ProcessAddress{proc, Address{0x400100}}
+                          .cursor().find_next_rip_relative(0x20).address();
+    REQUIRE(rip_cursor.has_value());
+    REQUIRE(*rip_cursor == Address{0x400100});
+    auto operand_target = ProcessAddress{proc, Address{0x400100}}
+                              .cursor().resolve_operand_target().address();
+    REQUIRE(operand_target.has_value());
+    REQUIRE(*operand_target == Address{0x401000});
+
+    // Decoder-backed call discovery and bounded thunk-chain following.
+    const std::int32_t call_disp = 0x401200 - (0x400305);
+    backend->poke_value<std::uint8_t>(Address{0x400300}, 0xE8u);
+    backend->poke_value<std::int32_t>(Address{0x400301}, call_disp);
+    auto next_call = ProcessAddress{proc, Address{0x400300}}
+                         .cursor().find_next_call(0x20).address();
+    REQUIRE(next_call.has_value());
+    REQUIRE(*next_call == Address{0x400300});
+    auto call_target = ProcessAddress{proc, Address{0x400300}}
+                           .cursor().resolve_operand_target().address();
+    REQUIRE(call_target.has_value());
+    REQUIRE(*call_target == Address{0x401200});
+
+    const std::int32_t thunk_disp = 0x400350 - (0x400315);
+    backend->poke_value<std::uint8_t>(Address{0x400310}, 0xE9u);
+    backend->poke_value<std::int32_t>(Address{0x400311}, thunk_disp);
+    backend->poke_value<std::uint8_t>(Address{0x400350}, 0x90u);
+    auto thunk_end = ProcessAddress{proc, Address{0x400310}}
+                         .cursor().resolve_thunk_chain().address();
+    REQUIRE(thunk_end.has_value());
+    REQUIRE(*thunk_end == Address{0x400350});
+
     // Cheat-Engine style pointer_chain: [[base + 0x10] + 0x20] + 0x30 (last offset only added)
     backend->poke_value<std::uint64_t>(Address{0x403010}, 0x403100ULL);
     backend->poke_value<std::uint64_t>(Address{0x403120}, 0x403200ULL);
