@@ -390,6 +390,37 @@ Result<Address> Scanner::find_unique(AddressRange range,
 
 namespace xref {
 
+namespace {
+
+template <class Predicate>
+[[nodiscard]] Result<std::vector<Address>> filter_decoded_references(
+    const Process& process, std::vector<Address> candidates, Predicate&& predicate) {
+    std::vector<Address> verified;
+    try {
+        verified.reserve(candidates.size());
+        for (const Address address : candidates) {
+            std::array<std::byte, 15> raw{};
+            auto read = memory_backend(process).read(address, raw);
+            if (!read || *read == 0) {
+                continue;
+            }
+            ::tessera::detail::x86::DecodedInstruction decoded{};
+            const auto mode = process.pointer_size() == 8
+                                  ? ::tessera::detail::x86::Mode::x64
+                                  : ::tessera::detail::x86::Mode::x86;
+            if (::tessera::detail::x86::decode_instruction(raw.data(), *read, mode, decoded) &&
+                predicate(decoded)) {
+                verified.push_back(address);
+            }
+        }
+        return verified;
+    } catch (const std::bad_alloc&) {
+        return fail(ErrorCode::OutOfMemory, "xref::filter_decoded_references");
+    }
+}
+
+} // namespace
+
 Result<std::vector<Address>> find_pointer_refs(const Process& process,
                                                AddressRange range,
                                                Address target,
@@ -589,7 +620,16 @@ Result<std::vector<Address>> find_calls(const Process& process,
     if (!pat) {
         return std::unexpected(pat.error());
     }
-    return find_rel32_refs(process, range, target, *pat, 0, options);
+    auto candidates = find_rel32_refs(process, range, target, *pat, 0, options);
+    if (!candidates) {
+        return std::unexpected(candidates.error());
+    }
+    return filter_decoded_references(
+        process, std::move(*candidates),
+        [](const ::tessera::detail::x86::DecodedInstruction& decoded) {
+            return decoded.opcode == 0xE8u && decoded.has_relative_operand &&
+                   decoded.relative_size == 4;
+        });
 }
 
 Result<std::vector<Address>> find_jumps(const Process& process,
@@ -601,7 +641,16 @@ Result<std::vector<Address>> find_jumps(const Process& process,
     if (!pat) {
         return std::unexpected(pat.error());
     }
-    return find_rel32_refs(process, range, target, *pat, 0, options);
+    auto candidates = find_rel32_refs(process, range, target, *pat, 0, options);
+    if (!candidates) {
+        return std::unexpected(candidates.error());
+    }
+    return filter_decoded_references(
+        process, std::move(*candidates),
+        [](const ::tessera::detail::x86::DecodedInstruction& decoded) {
+            return decoded.opcode == 0xE9u && decoded.has_relative_operand &&
+                   decoded.relative_size == 4;
+        });
 }
 
 Result<std::vector<Address>> find_conditional_branches(
@@ -611,7 +660,17 @@ Result<std::vector<Address>> find_conditional_branches(
     if (!prefix) {
         return std::unexpected(prefix.error());
     }
-    return find_rel32_refs(process, range, target, *prefix, 0, options);
+    auto candidates = find_rel32_refs(process, range, target, *prefix, 0, options);
+    if (!candidates) {
+        return std::unexpected(candidates.error());
+    }
+    return filter_decoded_references(
+        process, std::move(*candidates),
+        [](const ::tessera::detail::x86::DecodedInstruction& decoded) {
+            return decoded.opcode == 0x0Fu && decoded.opcode2 >= 0x80u &&
+                   decoded.opcode2 <= 0x8Fu && decoded.has_relative_operand &&
+                   decoded.relative_size == 4;
+        });
 }
 
 Result<std::vector<Address>> find_indirect_refs(
