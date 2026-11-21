@@ -258,6 +258,24 @@ TEST_CASE("PE parser rejects malformed headers and reports missing sections and 
     REQUIRE_FALSE(image->find_section(".missing").has_value());
     REQUIRE_FALSE(image->find_export("MissingExport").has_value());
 
+    // The same logical image must parse consistently from a raw file and a
+    // mapped image after section raw data is placed at its virtual RVA.
+    using namespace tessera::testing;
+    auto mapped_backend = std::make_shared<FakeMemoryBackend>();
+    mapped_backend->map_region(Address{0x500000}, 0x2000, MemoryProtection::ExecuteReadWrite);
+    mapped_backend->poke_bytes(Address{0x500000}, std::span<const std::byte>{bytes}.first(0x200));
+    mapped_backend->poke_bytes(Address{0x501000}, std::span<const std::byte>{bytes}.subspan(0x200, 0x200));
+    Process mapped_process = FakeMemoryBackend::make_process(mapped_backend, Architecture::X64);
+    auto mapped_image = PeImage::from_memory(mapped_process, Address{0x500000});
+    REQUIRE(mapped_image.has_value());
+    REQUIRE(mapped_image->machine() == image->machine());
+    REQUIRE(mapped_image->kind() == image->kind());
+    REQUIRE(mapped_image->image_base() == image->image_base());
+    REQUIRE(mapped_image->size_of_image() == image->size_of_image());
+    REQUIRE(mapped_image->sections().size() == image->sections().size());
+    REQUIRE(mapped_image->sections()[0].name == image->sections()[0].name);
+    REQUIRE(mapped_image->sections()[0].rva == image->sections()[0].rva);
+
     auto malformed_lfanew = bytes;
     malformed_lfanew[0x3C] = std::byte{0xF0};
     malformed_lfanew[0x3D] = std::byte{0xFF};
