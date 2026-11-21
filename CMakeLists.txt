@@ -432,6 +432,8 @@ if(TESSERA_BUILD_TARGETS)
         NAME target_runtime
         SOURCES
             src/targets/target_runtime.cpp
+            src/targets/target_fingerprinter.cpp
+            src/targets/discovery_session.cpp
         PUBLIC_HEADERS
             include/tessera/targets/target_runtime.hpp
         PUBLIC_DEPS
