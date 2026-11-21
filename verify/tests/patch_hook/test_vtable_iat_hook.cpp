@@ -9,6 +9,7 @@
 #include "tessera/hook/vtable_hook.hpp"
 #include "tessera/hook/iat_hook.hpp"
 #include "tessera/memory/memory_reader.hpp"
+#include "tessera/module/pe_image.hpp"
 
 namespace {
 struct VirtualSample { virtual int first(){return 11;} virtual int second(){return 22;} };
