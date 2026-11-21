@@ -1,0 +1,97 @@
+name: Continuous Fuzzing
+
+on:
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - "include/**"
+      - "src/**"
+      - "verify/fuzz/**"
+      - "verify/tests/**"
+      - ".github/actions/**"
+      - ".github/workflows/continuous-fuzz.yml"
+  workflow_dispatch:
+    inputs:
+      duration_seconds:
+        description: Per-target fuzz duration
+        required: true
+        default: "60"
+        type: choice
+        options: [ "30", "60", "120", "300" ]
+  schedule:
+    - cron: "43 2 * * 2,5"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tessera-continuous-fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz-windows-msvc:
+    name: Fuzz ${{ matrix.target }} (MSVC fuzzer + ASan)
+    runs-on: windows-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: tessera_fuzz_pe
+            corpus: pe
+          - target: tessera_fuzz_json
+            corpus: json
+          - target: tessera_fuzz_pattern
+            corpus: pattern
+          - target: tessera_fuzz_profile_json
+            corpus: profile_json
+          - target: tessera_fuzz_python_bridge
+            corpus: python_bridge
+          - target: tessera_fuzz_scanner
+            corpus: scanner
+          - target: tessera_fuzz_rtti_discovery
+            corpus: rtti_discovery
+          - target: tessera_fuzz_native_hook
+            corpus: native_hook
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Setup MSVC x64
+        uses: ./.github/actions/setup-msvc
+        with:
+          arch: x64
+
+      - name: Configure MSVC fuzzer
+        shell: pwsh
+        run: |
+          cmake -S . -B build-fuzz -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_FUZZ=ON -DTESSERA_ENABLE_MSVC_FUZZER=ON -DTESSERA_ENABLE_ASAN=ON -DTESSERA_STATIC_RUNTIME=ON
+
+      - name: Build target
+        shell: pwsh
+        run: cmake --build build-fuzz --target ${{ matrix.target }} --parallel 2
+
+      - name: Run bounded corpus campaign
+        shell: pwsh
+        env:
+          ASAN_OPTIONS: halt_on_error=1
+        run: |
+          $duration = [int]("${{ inputs.duration_seconds || '60' }}")
+          $exe = ".\build-fuzz\verify\fuzz\${{ matrix.target }}.exe"
+          $corpus = ".\verify\fuzz\corpus\${{ matrix.corpus }}"
+          New-Item -ItemType Directory -Force artifacts\fuzz | Out-Null
+          & $exe $corpus "-runs=10000" "-max_total_time=$duration" "-timeout=10" "-print_final_stats=1" 2>&1 |
+            Tee-Object -FilePath "artifacts\fuzz\${{ matrix.target }}.summary.txt"
+          if ($LASTEXITCODE -ne 0) { throw "Fuzzing failed for ${{ matrix.target }}: $LASTEXITCODE" }
+
+      - name: Upload bounded fuzz summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-${{ matrix.target }}-summary
+          path: artifacts/fuzz/*.summary.txt
+          if-no-files-found: ignore

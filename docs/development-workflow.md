@@ -17,9 +17,9 @@
 | Documentation-only change | No automatic CI run unless workflow/config paths are changed |
 | Push to feature branch | No automatic CI unless it is part of a PR targeting `main` |
 | Manual `Tessera CI & SDK Release` dispatch | Full CI on selected branch; release publication remains tag-push-only |
-| Manual `Native Hook Coverage-Guided Fuzz` dispatch | Bounded 60/300/900-second x64 Clang libFuzzer + ASan/UBSan campaign |
+| Manual `Continuous Fuzzing` dispatch | Bounded 30/60/120/300-second MSVC fuzzer + ASan campaigns across all eight corpus targets |
 
-The CI path allowlist covers CMake configuration, `cmake/`, `include/`, `src/`, `verify/`, `examples/`, `scripts/`, dependency manifests, `.clang-tidy`, and GitHub workflow files. Prose-only documentation changes do not start CI. A commit containing documentation and an allowlisted input still starts CI.
+The CI path allowlist covers CMake configuration, `cmake/`, `include/`, `src/`, `verify/`, `examples/`, `scripts/`, dependency manifests, `.clang-tidy`, and GitHub workflow files. Small PowerShell CI helpers are grouped by responsibility: `detours.ps1` handles architecture-specific Detours build/verification, and `configure.ps1` handles no-RTTI/reduced configurations. Prose-only documentation changes do not start CI. A commit containing documentation and an allowlisted input still starts CI.
 
 ## Final validation
 
@@ -74,7 +74,7 @@ Optional configure/build/test presets are available without changing the default
 
 - `x64-analyze`: MSVC static analysis.
 - `x64-bench`: scanner, instruction-decoder, PE, JSON, and RTTI-discovery benchmarks; CTest runs all tests plus benchmark smoke checks.
-- `x64-fuzz-smoke`: standalone fuzz harnesses; CTest replays all checked-in corpora through the shared `LLVMFuzzerTestOneInput` entry points.
+- `x64-fuzz-smoke`: standalone fuzz harnesses; CTest replays all checked-in corpora through the shared `LLVMFuzzerTestOneInput` entry points. The no-RTTI CI configuration also sets `TESSERA_PATTERN_FORCE_SCALAR=ON` to validate the non-SIMD fallback independently of the normal runtime-dispatched builds.
 
 The benchmark executables are `tessera_bench`, `tessera_decoder_bench`, `tessera_pe_bench`, `tessera_json_bench`, and `tessera_rtti_discovery_bench`. The fuzz-smoke preset covers `pattern`, `pe`, `json`, `profile_json`, `python_bridge`, `scanner`, `rtti_discovery`, and (on Windows) `native_hook`.
 
@@ -95,3 +95,20 @@ The independent decoder differential job builds `verify/tests/decoder_oracle/dec
 - `include/tessera/**`: public SDK headers; `src/**`: private module implementations.
 - `verify/tests/**`: deterministic tests and decoder oracle; `verify/fuzz/**`: fuzz harnesses and seed corpora; `verify/bench/**`: opt-in benchmarks.
 - Reduced SDK variants install the package and compile a separate `find_package(Tessera CONFIG REQUIRED)` consumer; run the full CI matrix before merging.
+
+## Wave 3 validation commands
+
+The fallback test runner supports deterministic randomization and machine-readable results:
+
+```powershell
+ctest --preset x64-debug --output-on-failure
+# The CMake test graph also registers a shuffled suite with seed 20261121.
+.\scripts\run-final-validation.ps1 -RunFuzz -RunDecoderOracle
+```
+
+When Catch2 is unavailable, `test_main.cpp` accepts `--shuffle`, `--seed N`, `--filter substring`, and `--junit path`. When Catch2 is available, CTest uses Catch2's equivalent randomized-order, fixed-seed and JUnit reporter arguments.
+
+All five benchmark executables support `--json`; `verify/bench/validate_bench_json.py` checks their output in CTest when Python is available. LLVM line/branch coverage can be enabled with `TESSERA_ENABLE_COVERAGE=ON` using the Windows clang-cl toolchain. CI runs ASan+UBSan and TSan separately against the portable Windows-backend mock harness; CodeQL uses the supported Windows MSVC build, and all eight continuous fuzz campaigns use the MSVC fuzzer.
+
+Release tags (`v*`) use the SDK packaging job and publish the SDK ZIP with `SHA256SUMS.txt`. See [SECURITY.md](../SECURITY.md) for vulnerability reporting and the native-memory/inline-hook threat model.
+

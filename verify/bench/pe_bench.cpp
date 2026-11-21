@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <string_view>
 #include <vector>
 
 #include "tessera/module/pe_image.hpp"
@@ -59,7 +60,8 @@ void write_u64(std::vector<std::byte>& bytes, std::size_t offset, std::uint64_t 
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    const bool json = argc > 1 && std::string_view{argv[1]} == "--json";
     using namespace tessera;
 
     const auto pe_bytes = make_benchmark_pe64();
@@ -74,6 +76,15 @@ int main() {
         (void)image->exception_functions();
         (void)image->code_view();
     });
+
+    if (json) {
+        const double seconds = static_cast<double>(metrics.mean.count()) / 1.0e9;
+        const double mb_per_s = seconds > 0.0 ? (pe_bytes.size() / seconds) / 1.0e6 : 0.0;
+        std::cout << "{\"name\":\"pe32plus_raw_parse\",\"iterations\":" << metrics.iterations
+                  << ",\"ns_per_op\":" << metrics.mean.count()
+                  << ",\"mb_per_s\":" << mb_per_s << "}\n";
+        return 0;
+    }
 
     std::cout << "Benchmark: PE32+ raw parse (one section, 1 KiB image)\n"
               << "  Iterations : " << metrics.iterations << "\n"

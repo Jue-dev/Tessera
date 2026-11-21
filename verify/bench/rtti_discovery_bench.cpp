@@ -9,8 +9,10 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <string_view>
 
-int main() {
+int main(int argc, char** argv) {
+    const bool json = argc > 1 && std::string_view{argv[1]} == "--json";
     using namespace tessera;
     using namespace tessera::testing;
 
@@ -42,6 +44,15 @@ int main() {
             std::abort();
         }
     });
+
+    if (json) {
+        const double seconds = static_cast<double>(metrics.mean.count()) / 1.0e9;
+        const double mb_per_s = seconds > 0.0 ? (region_size / seconds) / 1.0e6 : 0.0;
+        std::cout << "{\"name\":\"rtti_discovery_64_types\",\"iterations\":" << metrics.iterations
+                  << ",\"ns_per_op\":" << metrics.mean.count()
+                  << ",\"mb_per_s\":" << mb_per_s << "}\n";
+        return 0;
+    }
 
     std::cout << "rtti discovery descriptors=" << type_count
               << " iterations=" << metrics.iterations

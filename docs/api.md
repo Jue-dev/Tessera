@@ -83,3 +83,19 @@ Python bridge discovery reports runtime/framework evidence separately from deplo
 - [JSON validation boundaries](json-validation-boundaries.md) explains the separate profile and target-profile wire-format ownership.
 - [Memory write recovery](memory-write-recovery.md) documents explicit retry ownership for pending page-protection restoration.
 - [Native decoder envelope](native-instruction-decoder-envelope.md) defines the supported bounded decoder metadata and relocation rejection rules.
+
+### Wave 3 scanner and xref additions
+
+- `Scanner::scan_batch(range, patterns, options)` reads each memory chunk once for the full pattern span and returns one `ScanResult` per input pattern in the same order. `max_results` is applied independently to each result. An optional `ScanWorkspace` retains the reusable chunk buffer for single and batch scans.
+- `Scanner::scan_streaming` invokes a caller callback as each match is found, does not retain the hit vector, and stops when the callback returns false. `ScanReadPolicy::Strict` reports inaccessible regions and partial reads; the default `BestEffort` policy continues across unreadable pages.
+- `xref::find_pointer_refs_batch` scans multiple pointer targets through the batch scanner.
+- `xref::find_conditional_branches` resolves near conditional branches (`0F 8x rel32`) to a target.
+- `xref::find_decoded_xrefs` performs a strict instruction-boundary linear sweep from `instruction_range.begin`; it classifies direct/conditional branches, RIP-relative data references and indirect x86/x64 CALL/JMP operands. The range must start at a known instruction boundary; undecodable or unreadable bytes fail closed. `xref::find_decoded_xrefs_batch` performs the same sweep once for a span of target addresses and returns one result per input target.
+- `xref::find_indirect_refs` verifies x86 absolute and x64 RIP-relative indirect CALL/JMP slots by decoding the instruction and dereferencing the pointer operand. `PeImage::relocations()` exposes bounds-checked base relocation entries, and `xref::find_relocated_pointer_refs` resolves HIGHLOW/DIR64 data pointers using the loaded module base.
+- `AddressCursor` exposes bounded instruction stepping, call/RIP-relative instruction discovery, operand-target resolution, and cycle/hop-limited thunk following. These operations use the internal shared decoder and return errors for unsupported or unreadable instructions.
+
+
+
+## Resolution diagnostics
+
+`ResolutionTrace` can be passed to the additive `AddressResolver::resolve_entry` overload to record the resolution stage and terminal status without changing the target-profile JSON schema.

@@ -1,5 +1,10 @@
 #pragma once
 
+#include "tessera/core/enum_flags.hpp"
+#include "tessera/core/result.hpp"
+#include "tessera/core/types.hpp"
+#include "tessera/process/process.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -9,11 +14,6 @@
 #include <string>
 #include <string_view>
 #include <vector>
-
-#include "tessera/core/enum_flags.hpp"
-#include "tessera/core/result.hpp"
-#include "tessera/core/types.hpp"
-#include "tessera/process/process.hpp"
 
 namespace tessera {
 
@@ -106,6 +106,11 @@ struct PeFunctionEntry {
     }
 };
 
+struct BaseRelocation {
+    Rva location{};
+    std::uint8_t type = 0;
+};
+
 struct CodeViewInfo {
     std::array<std::uint8_t, 16> guid{};
     std::uint32_t age = 0;
@@ -150,13 +155,10 @@ public:
     [[nodiscard]] Result<ImportEntry> find_import(std::string_view module_name,
                                                   std::string_view function_name) const;
 
-    [[nodiscard]] std::span<const PeFunctionEntry> exception_functions() const noexcept {
-        return exception_functions_;
-    }
+    [[nodiscard]] std::span<const PeFunctionEntry> exception_functions() const noexcept;
+    [[nodiscard]] std::vector<BaseRelocation> relocations() const;
 
-    [[nodiscard]] const std::optional<CodeViewInfo>& code_view() const noexcept {
-        return code_view_;
-    }
+    [[nodiscard]] const std::optional<CodeViewInfo>& code_view() const noexcept { return code_view_; }
 
 private:
     PeKind kind_ = PeKind::Pe32Plus;
@@ -170,6 +172,8 @@ private:
     std::vector<Section> sections_{};
     std::vector<ExportTarget> exports_{};
     std::vector<ImportEntry> imports_{};
+    // Exception entries and private relocation records share this existing
+    // storage so adding relocation metadata does not change PeImage object size.
     std::vector<PeFunctionEntry> exception_functions_{};
     std::optional<CodeViewInfo> code_view_{};
 };

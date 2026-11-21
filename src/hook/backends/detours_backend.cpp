@@ -1,24 +1,22 @@
+#include "platform/windows/thread_backend.hpp"
+#include "tessera/core/assert.hpp"
 #include "tessera/hook/hook.hpp"
+#include "tessera/memory/memory_reader.hpp"
+#include "tessera/process/process.hpp"
 
 #include <Windows.h>
-
 #include <limits>
 #include <new>
 #include <utility>
 
-#include "platform/windows/thread_backend.hpp"
-#include "tessera/core/assert.hpp"
-#include "tessera/memory/memory_reader.hpp"
-#include "tessera/process/process.hpp"
-
 #if defined(TESSERA_WITH_DETOURS_ENABLED)
-    #if __has_include(<detours/detours.h>)
-        #include <detours/detours.h>
-    #elif __has_include(<detours.h>)
-        #include <detours.h>
-    #else
-        #error "TESSERA_WITH_DETOURS is ON, but detours.h could not be found."
-    #endif
+#if __has_include(<detours/detours.h>)
+#include <detours/detours.h>
+#elif __has_include(<detours.h>)
+#include <detours.h>
+#else
+#error "TESSERA_WITH_DETOURS is ON, but detours.h could not be found."
+#endif
 #endif
 
 namespace tessera {
@@ -26,8 +24,7 @@ namespace tessera {
 namespace {
 
 [[nodiscard]] constexpr bool is_valid_thread_policy(ThreadPolicy policy) noexcept {
-    return policy == ThreadPolicy::SuspendOthersStrict ||
-           policy == ThreadPolicy::SuspendOthersBestEffort ||
+    return policy == ThreadPolicy::SuspendOthersStrict || policy == ThreadPolicy::SuspendOthersBestEffort ||
            policy == ThreadPolicy::None;
 }
 
@@ -41,13 +38,10 @@ public:
 #endif
     }
 
-    [[nodiscard]] Result<HookToken> attach([[maybe_unused]] Address target,
-                                           [[maybe_unused]] void* detour,
+    [[nodiscard]] Result<HookToken> attach([[maybe_unused]] Address target, [[maybe_unused]] void* detour,
                                            const HookOptions& options) override {
         if (!is_valid_thread_policy(options.threads)) {
-            return fail(ErrorCode::InvalidArgument,
-                        "DefaultHookBackend::attach",
-                        0,
+            return fail(ErrorCode::InvalidArgument, "DefaultHookBackend::attach", 0,
                         "Unknown thread coordination policy");
         }
 #if defined(TESSERA_WITH_DETOURS_ENABLED)
@@ -60,7 +54,8 @@ public:
                 return fail(ErrorCode::IoError, "ProcessWideHookLock", ::GetLastError());
             }
 
-            auto threads_res = platform::windows::ScopedThreadList::collect_other_threads(options.threads, true);
+            auto threads_res =
+                platform::windows::ScopedThreadList::collect_other_threads(options.threads, true);
             if (!threads_res) {
                 return std::unexpected(threads_res.error());
             }
@@ -110,9 +105,10 @@ public:
                     .observer = options.observer,
                 };
             }
-            last_err = err;
+            ::DetourTransactionAbort();
+            return fail(ErrorCode::Conflict, "DetourTransactionCommit", static_cast<std::uint32_t>(err));
         }
-        return fail(ErrorCode::Conflict, "DetourTransactionCommit", static_cast<std::uint32_t>(last_err));
+        return fail(ErrorCode::Conflict, "DetourTransactionBegin", static_cast<std::uint32_t>(last_err));
 #else
         return native_inline_hook_backend().attach(target, detour, options);
 #endif
@@ -120,9 +116,7 @@ public:
 
     [[nodiscard]] Status detach(HookToken& token) override {
         if (!is_valid_thread_policy(token.threads)) {
-            return fail(ErrorCode::InvalidArgument,
-                        "DefaultHookBackend::detach",
-                        0,
+            return fail(ErrorCode::InvalidArgument, "DefaultHookBackend::detach", 0,
                         "Unknown thread coordination policy in hook token");
         }
 #if defined(TESSERA_WITH_DETOURS_ENABLED)
@@ -135,7 +129,8 @@ public:
                 return fail(ErrorCode::IoError, "ProcessWideHookLock", ::GetLastError());
             }
 
-            auto threads_res = platform::windows::ScopedThreadList::collect_other_threads(token.threads, true);
+            auto threads_res =
+                platform::windows::ScopedThreadList::collect_other_threads(token.threads, true);
             if (!threads_res) {
                 return std::unexpected(threads_res.error());
             }
@@ -180,9 +175,10 @@ public:
                 token.trampoline = nullptr;
                 return ok();
             }
-            last_err = err;
+            ::DetourTransactionAbort();
+            return fail(ErrorCode::Conflict, "DetourTransactionCommit", static_cast<std::uint32_t>(err));
         }
-        return fail(ErrorCode::Conflict, "DetourTransactionCommit", static_cast<std::uint32_t>(last_err));
+        return fail(ErrorCode::Conflict, "DetourTransactionBegin", static_cast<std::uint32_t>(last_err));
 #else
         return native_inline_hook_backend().detach(token);
 #endif
@@ -199,20 +195,14 @@ HookBackend& default_hook_backend() noexcept {
 namespace detail {
 
 HookCore::HookCore(Address target, void* target_ptr, void* detour_ptr, HookBackend* backend) noexcept
-    : target_(target),
-      target_ptr_(target_ptr),
-      detour_ptr_(detour_ptr),
-      active_callable_(target_ptr),
-      backend_(backend != nullptr ? backend : &default_hook_backend()),
-      installed_(false) {}
+    : target_(target), target_ptr_(target_ptr), detour_ptr_(detour_ptr), active_callable_(target_ptr),
+      backend_(backend != nullptr ? backend : &default_hook_backend()), installed_(false) {}
 
 HookCore::HookCore(HookCore&& other) noexcept
-    : target_(other.target_),
-      target_ptr_(std::exchange(other.target_ptr_, nullptr)),
+    : target_(other.target_), target_ptr_(std::exchange(other.target_ptr_, nullptr)),
       detour_ptr_(std::exchange(other.detour_ptr_, nullptr)),
       active_callable_(other.active_callable_.exchange(nullptr, std::memory_order_acq_rel)),
-      token_(other.token_),
-      backend_(other.backend_),
+      token_(other.token_), backend_(other.backend_),
       installed_(other.installed_.exchange(false, std::memory_order_acq_rel)) {
     other.token_ = HookToken{};
 }
@@ -222,22 +212,22 @@ HookCore& HookCore::operator=(HookCore&& other) noexcept {
         if (installed_.load(std::memory_order_acquire)) {
             auto detach_status = remove();
             if (!detach_status) {
-                diagnostics::notify(token_.observer,
-                                    DiagnosticSeverity::Warning,
-                                    "Hook",
-                                    "Move assignment retained the destination because detaching its hook failed",
-                                    detach_status.error());
+                diagnostics::notify(
+                    token_.observer, DiagnosticSeverity::Warning, "Hook",
+                    "Move assignment retained the destination because detaching its hook failed",
+                    detach_status.error());
                 return *this;
             }
         }
         target_ = other.target_;
         target_ptr_ = std::exchange(other.target_ptr_, nullptr);
         detour_ptr_ = std::exchange(other.detour_ptr_, nullptr);
-        active_callable_.store(other.active_callable_.exchange(nullptr, std::memory_order_acq_rel), std::memory_order_release);
+        active_callable_.store(other.active_callable_.exchange(nullptr, std::memory_order_acq_rel),
+                               std::memory_order_release);
         token_ = other.token_;
         backend_ = other.backend_;
         installed_.store(other.installed_.exchange(false, std::memory_order_acq_rel),
-                        std::memory_order_release);
+                         std::memory_order_release);
         other.token_ = HookToken{};
     }
     return *this;
@@ -247,11 +237,8 @@ HookCore::~HookCore() noexcept {
     if (installed_.load(std::memory_order_acquire)) {
         auto st = remove();
         if (!st) {
-            diagnostics::notify(token_.observer,
-                                DiagnosticSeverity::Warning,
-                                "Hook",
-                                "Hook destructor failed to detach hook",
-                                st.error());
+            diagnostics::notify(token_.observer, DiagnosticSeverity::Warning, "Hook",
+                                "Hook destructor failed to detach hook", st.error());
         }
     }
 }
@@ -267,9 +254,7 @@ Result<HookCore> HookCore::create(Address target, void* detour, HookBackend* bac
         }
         const auto detour_value = reinterpret_cast<std::uintptr_t>(detour);
         if (target.value() == static_cast<std::uint64_t>(detour_value)) {
-            return fail(ErrorCode::InvalidArgument,
-                        "Hook::create",
-                        0,
+            return fail(ErrorCode::InvalidArgument, "Hook::create", 0,
                         "Target and detour function addresses must differ");
         }
         if constexpr (sizeof(void*) == 4) {
@@ -285,9 +270,7 @@ Result<HookCore> HookCore::create(Address target, void* detour, HookBackend* bac
             return std::unexpected(exec.error());
         }
         if (!*exec) {
-            return fail(ErrorCode::AccessDenied,
-                        "Hook::create",
-                        0,
+            return fail(ErrorCode::AccessDenied, "Hook::create", 0,
                         "Target address is not executable in the current process");
         }
 
@@ -297,28 +280,22 @@ Result<HookCore> HookCore::create(Address target, void* detour, HookBackend* bac
             return std::unexpected(detour_exec.error());
         }
         if (!*detour_exec) {
-            return fail(ErrorCode::AccessDenied,
-                        "Hook::create",
-                        0,
+            return fail(ErrorCode::AccessDenied, "Hook::create", 0,
                         "Detour address is not executable in the current process");
         }
 
-        void* const tgt_ptr =
-            reinterpret_cast<void*>(static_cast<std::uintptr_t>(target.value()));
+        void* const tgt_ptr = reinterpret_cast<void*>(static_cast<std::uintptr_t>(target.value()));
         return HookCore{target, tgt_ptr, detour, backend};
     } catch (const std::bad_alloc&) {
         return fail(ErrorCode::OutOfMemory, "Hook::create");
     } catch (...) {
-        return fail(ErrorCode::IoError, "Hook::create", 0,
-                    "Hook creation raised an unexpected exception");
+        return fail(ErrorCode::IoError, "Hook::create", 0, "Hook creation raised an unexpected exception");
     }
 }
 
 Status HookCore::install(const HookOptions& options) noexcept {
     if (CallableLease::is_active_on_current_thread(*this)) {
-        return fail(ErrorCode::Conflict,
-                    "Hook::install",
-                    0,
+        return fail(ErrorCode::Conflict, "Hook::install", 0,
                     "Hook lifecycle cannot change from inside a leased callable invocation");
     }
     std::unique_lock lock(lifecycle_mutex_);
@@ -326,16 +303,10 @@ Status HookCore::install(const HookOptions& options) noexcept {
         return ok();
     }
     if (!is_valid_thread_policy(options.threads)) {
-        return fail(ErrorCode::InvalidArgument,
-                    "Hook::install",
-                    0,
-                    "Unknown thread coordination policy");
+        return fail(ErrorCode::InvalidArgument, "Hook::install", 0, "Unknown thread coordination policy");
     }
     if (backend_ == nullptr || !backend_->available()) {
-        return fail(ErrorCode::BackendUnavailable,
-                    "Hook::install",
-                    0,
-                    "Hook backend is unavailable");
+        return fail(ErrorCode::BackendUnavailable, "Hook::install", 0, "Hook backend is unavailable");
     }
 
     // Backends must make attach failure-atomic: an exception or error result
@@ -352,25 +323,21 @@ Status HookCore::install(const HookOptions& options) noexcept {
     }();
 
     if (!attach_result) {
-        diagnostics::notify(options.observer,
-                            DiagnosticSeverity::Error,
-                            "Hook",
-                            "Hook attach failed",
+        diagnostics::notify(options.observer, DiagnosticSeverity::Error, "Hook", "Hook attach failed",
                             attach_result.error());
         return std::unexpected(attach_result.error());
     }
 
     token_ = *attach_result;
-    active_callable_.store(token_.trampoline != nullptr ? token_.trampoline : target_ptr_, std::memory_order_release);
+    active_callable_.store(token_.trampoline != nullptr ? token_.trampoline : target_ptr_,
+                           std::memory_order_release);
     installed_.store(true, std::memory_order_release);
     return ok();
 }
 
 Status HookCore::remove() noexcept {
     if (CallableLease::is_active_on_current_thread(*this)) {
-        return fail(ErrorCode::Conflict,
-                    "Hook::remove",
-                    0,
+        return fail(ErrorCode::Conflict, "Hook::remove", 0,
                     "A hook cannot be removed from inside its own leased callable invocation");
     }
     std::unique_lock lock(lifecycle_mutex_);

@@ -88,3 +88,25 @@ ctest --preset x64-fuzz-smoke --output-on-failure
 The five benchmark executables are `tessera_bench` (scanner), `tessera_decoder_bench`, `tessera_pe_bench`, `tessera_json_bench`, and `tessera_rtti_discovery_bench`. The eight fuzz harnesses are `tessera_fuzz_pattern`, `tessera_fuzz_pe`, `tessera_fuzz_json`, `tessera_fuzz_profile_json`, `tessera_fuzz_python_bridge`, `tessera_fuzz_scanner`, `tessera_fuzz_rtti_discovery`, and the Windows-only `tessera_fuzz_native_hook`. The standalone smoke script replays each checked-in corpus through the same `LLVMFuzzerTestOneInput` entry point; it complements, but does not replace, longer coverage-guided campaigns.
 
 The optional `decoder-differential` CI job installs the test-only `iced-x86==1.21.0` Python package and compares the in-house x86 decoder's instruction boundaries against that independent oracle. The dependency is confined to the validation job and is not part of the Tessera runtime or installed SDK.
+
+## Wave 3 development and validation
+
+- `Pattern` exposes derived leading/trailing wildcard metadata and a secondary exact-byte anchor without changing its object layout. Search uses both anchors as a cheap candidate filter before the full byte-mask comparison.
+- `Scanner::scan_batch` accepts a span of patterns, reads each process-memory chunk once, preserves input order, and applies an independent `max_results` quota to each pattern. Caller-owned `ScanWorkspace` reuses the chunk buffer across scans; `scan_streaming` delivers matches without retaining the hit vector and supports callback cancellation. `ScanReadPolicy::Strict` fails on inaccessible/partial reads while the default best-effort policy skips them. `xref::find_pointer_refs_batch` reuses it for multiple targets; conditional near branches and x86/x64 indirect CALL/JMP references have dedicated helpers. `find_decoded_xrefs` and `find_decoded_xrefs_batch` perform a strict linear sweep from a caller-supplied instruction boundary to reject opcode-looking bytes embedded in immediates; the batch API decodes the instruction stream once for multiple targets. PE32 `.reloc` HIGHLOW and PE32+ DIR64 entries are parsed with bounds checks and can be used by `xref::find_relocated_pointer_refs`.
+- `AddressCursor` adds bounded decoder-backed `step_instructions`, `find_next_call`, `find_next_rip_relative`, `resolve_operand_target`, and `resolve_thunk_chain` operations. Unsupported instructions, unreadable bytes, cycles, and hop-limit exhaustion are reported rather than guessed.
+- All five benchmark executables accept `--json` and emit machine-readable `name`, `iterations`, `ns_per_op`, and `mb_per_s` metrics. Human-readable output remains the default.
+- The fallback test shim accepts `--shuffle`, `--seed N`, `--filter substring`, and `--junit path`. CTest registers a deterministic shuffled pass with seed `20261121`.
+- Optional coverage is enabled with `-DTESSERA_ENABLE_COVERAGE=ON` on GCC/Clang. Dedicated CI workflows run Clang ASan+UBSan, TSan, CodeQL, coverage export, and scheduled bounded fuzz campaigns for the eight harnesses.
+- The tag-driven SDK release pipeline emits `SHA256SUMS.txt` alongside the Windows SDK bundle. See [SECURITY.md](SECURITY.md) for supported-use boundaries and private vulnerability reporting, and [CHANGELOG.md](CHANGELOG.md) for unreleased changes.
+
+Run the repository-wide validation script from a Windows PowerShell session with MSVC and Ninja available:
+
+```powershell
+.\scripts\run-final-validation.ps1 -RunFuzz -RunDecoderOracle
+```
+
+The sustained native-hook fuzz campaign requires the corresponding Windows Clang/ASan runtime; Microsoft Detours integration additionally requires a local Detours v4.0.1 checkout supplied with `-DetoursRoot`.
+
+
+
+`ResolutionTrace` can be passed to the additive `AddressResolver::resolve_entry` overload to record the resolution stage and terminal status without changing the target-profile JSON schema.

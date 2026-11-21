@@ -1,9 +1,12 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <chrono>
+#include <array>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <atomic>
+#include <thread>
 #include <vector>
 
 #include "tessera/diagnostics/diagnostics.hpp"
@@ -72,6 +75,47 @@ TEST_CASE("Logger levels and sink filtering are deterministic", "[logging]") {
     logger.clear_sinks();
     logger.error("no sink attached");
     REQUIRE(memory->records().empty());
+}
+
+TEST_CASE("Logger supports concurrent writes and sink registry updates", "[logging][concurrency]") {
+    using namespace tessera::logging;
+
+    auto sink = std::make_shared<MemorySink>();
+    Logger logger{"concurrent", LogLevel::Trace};
+    logger.add_sink(sink);
+    std::atomic<int> writes{0};
+
+    std::array<std::jthread, 4> writers;
+    for (std::size_t worker = 0; worker < writers.size(); ++worker) {
+        writers[worker] = std::jthread([&, worker] {
+            for (int i = 0; i < 100; ++i) {
+                logger.info("worker={} sequence={}", worker, i);
+                writes.fetch_add(1, std::memory_order_relaxed);
+            }
+        });
+    }
+    std::jthread updater([&] {
+        for (int i = 0; i < 100; ++i) {
+            logger.set_min_level((i % 2) == 0 ? LogLevel::Trace : LogLevel::Info);
+            sink->set_enabled((i % 3) != 0);
+            logger.clear_sinks();
+            logger.add_sink(sink);
+        }
+    });
+
+    for (auto& writer : writers) {
+        writer.join();
+    }
+    updater.join();
+    logger.set_min_level(LogLevel::Trace);
+    sink->set_enabled(true);
+    logger.add_sink(sink);
+    logger.info("final-record");
+
+    REQUIRE(writes.load(std::memory_order_relaxed) == 400);
+    const auto records = sink->records();
+    REQUIRE_FALSE(records.empty());
+    REQUIRE(records.back().message == "final-record");
 }
 
 TEST_CASE("Diagnostics format errors and notify observers", "[diagnostics]") {

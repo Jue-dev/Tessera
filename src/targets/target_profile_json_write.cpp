@@ -1,7 +1,9 @@
 #include "detail/target_profile_json_common.hpp"
 #include "tessera/filesystem/filesystem.hpp"
 #include "tessera/targets/target_profile_json.hpp"
+#include "tessera/utility/hex.hpp"
 
+#include "json/detail/field_access.hpp"
 #include <format>
 #include <new>
 

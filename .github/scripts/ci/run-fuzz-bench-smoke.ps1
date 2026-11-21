@@ -46,4 +46,38 @@ foreach ($target in $benchmarkTargets) {
     if ($LASTEXITCODE -ne 0) {
         throw "Benchmark smoke failed ($LASTEXITCODE): $target"
     }
+
+    $jsonOutput = & $target --json | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        throw "Benchmark JSON smoke failed ($LASTEXITCODE): $target"
+    }
+    try {
+        $json = $jsonOutput | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        throw "Benchmark emitted invalid JSON: $target"
+    }
+
+    # Scanner/JSON benchmarks publish a collection; focused benchmarks publish
+    # one record. Accept both documented JSON shapes, matching validate_bench_json.py.
+    if ($null -eq $json) {
+        throw "Benchmark JSON payload is empty: $target"
+    }
+    if ($null -ne $json.PSObject.Properties["benchmarks"]) {
+        $records = @($json.benchmarks)
+    }
+    else {
+        $records = @($json)
+    }
+    if ($records.Count -eq 0) {
+        throw "Benchmark JSON payload has no benchmark entries: $target"
+    }
+    foreach ($record in $records) {
+        if ([string]::IsNullOrWhiteSpace([string]$record.name)) {
+            throw "Benchmark JSON record has no name: $target"
+        }
+        if ([long]$record.iterations -le 0 -or [double]$record.ns_per_op -le 0 -or [double]$record.mb_per_s -lt 0) {
+            throw "Benchmark JSON record has invalid metrics: $target"
+        }
+    }
 }

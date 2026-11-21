@@ -103,6 +103,16 @@
       }
     },
     {
+      "name": "x64-bench-scalar",
+      "displayName": "x64 Scalar Benchmark Reference",
+      "inherits": "x64-bench",
+      "binaryDir": "${sourceDir}/artifacts/x64/Bench/Scalar/build",
+      "installDir": "${sourceDir}/artifacts/x64/Bench/Scalar/install",
+      "cacheVariables": {
+        "TESSERA_PATTERN_FORCE_SCALAR": "ON"
+      }
+    },
+    {
       "name": "x64-fuzz-smoke",
       "displayName": "x64 Fuzz Corpus Smoke",
       "inherits": "x64-release",

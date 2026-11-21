@@ -42,4 +42,4 @@ The rollback path reuses an existing ticket when the first write pass could not 
 - A failed rollback write remains a rollback error even if protection restoration is later recovered.
 - Persistent OS protection failures require caller escalation; retry does not imply the page was restored.
 
-The retry ticket is scoped to the exact slice passed to the memory backend. A caller must not widen, merge, or reconstruct the ticket range before retrying.
+The retry ticket is scoped to the exact slice passed to the memory backend. A caller must not widen, merge, or reconstruct the ticket range before retrying. Writes to disjoint regions may run concurrently when the backend permits it. Callers must externally serialize writes or temporary protection changes that overlap the same page: restoration tickets are operation-owned and do not coordinate concurrent protection scopes.

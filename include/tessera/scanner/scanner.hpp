@@ -1,17 +1,18 @@
 #pragma once
 
-#include <cstddef>
-#include <cstdint>
-#include <functional>
-#include <stop_token>
-#include <vector>
-
 #include "tessera/core/result.hpp"
 #include "tessera/core/types.hpp"
 #include "tessera/diagnostics/diagnostic_observer.hpp"
 #include "tessera/memory/memory_region.hpp"
 #include "tessera/pattern/pattern.hpp"
 #include "tessera/process/process.hpp"
+
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <span>
+#include <stop_token>
+#include <vector>
 
 namespace tessera {
 
@@ -21,6 +22,11 @@ struct ScanProgress {
     std::uint64_t bytes_scanned = 0;
     std::uint64_t total_bytes = 0;
     std::size_t hits_found = 0;
+};
+
+enum class ScanReadPolicy : std::uint8_t {
+    BestEffort,
+    Strict,
 };
 
 struct ScanOptions {
@@ -47,35 +53,71 @@ struct ScanResult {
     bool cancelled = false;
 };
 
-// Thread-safety: const member functions are re-entrant.
+// Caller-owned scratch storage. Reusing one workspace across scans retains
+// the chunk buffer allocation; a workspace must not be shared concurrently.
+class ScanWorkspace {
+public:
+    void reserve(std::size_t bytes) { buffer_.reserve(bytes); }
+    [[nodiscard]] std::size_t capacity() const noexcept { return buffer_.capacity(); }
+
+private:
+    std::vector<std::byte> buffer_{};
+    friend class Scanner;
+};
+
+// Thread-safety: const member functions are re-entrant when each concurrent
+// scan has independent optional workspace storage.
 class Scanner {
 public:
     explicit Scanner(Process process) noexcept : process_(std::move(process)) {}
 
     [[nodiscard]] const Process& process() const noexcept { return process_; }
 
-    [[nodiscard]] Result<ScanResult> scan(AddressRange range,
-                                          const Pattern& pattern,
+    [[nodiscard]] Result<ScanResult> scan(AddressRange range, const Pattern& pattern,
                                           const ScanOptions& options = {}) const;
+    [[nodiscard]] Result<ScanResult> scan(AddressRange range, const Pattern& pattern,
+                                          const ScanOptions& options, ScanReadPolicy read_policy) const;
+    [[nodiscard]] Result<ScanResult> scan(AddressRange range, const Pattern& pattern,
+                                          const ScanOptions& options, ScanWorkspace& workspace,
+                                          ScanReadPolicy read_policy = ScanReadPolicy::BestEffort) const;
+    [[nodiscard]] Result<ScanResult>
+    scan_streaming(AddressRange range, const Pattern& pattern, const ScanOptions& options,
+                   FunctionRef<bool(Address)> on_match, ScanWorkspace* workspace = nullptr,
+                   ScanReadPolicy read_policy = ScanReadPolicy::BestEffort) const;
 
-    [[nodiscard]] Result<Address> find_first(AddressRange range,
-                                             const Pattern& pattern,
+    // Scans several signatures over each memory chunk after a single remote read.
+    // The result vector preserves the input pattern order and each pattern has
+    // its own max_results quota.
+    [[nodiscard]] Result<std::vector<ScanResult>>
+    scan_batch(AddressRange range, std::span<const Pattern> patterns, const ScanOptions& options = {}) const;
+    [[nodiscard]] Result<std::vector<ScanResult>> scan_batch(AddressRange range,
+                                                             std::span<const Pattern> patterns,
+                                                             const ScanOptions& options,
+                                                             ScanWorkspace& workspace) const;
+
+    [[nodiscard]] Result<Address> find_first(AddressRange range, const Pattern& pattern,
                                              const ScanOptions& options = {}) const;
 
-    [[nodiscard]] Result<Address> find_unique(AddressRange range,
-                                              const Pattern& pattern,
+    [[nodiscard]] Result<Address> find_unique(AddressRange range, const Pattern& pattern,
                                               const ScanOptions& options = {}) const;
 
     // Defined in tessera/resolver/address_cursor.hpp
-    [[nodiscard]] AddressCursor find_first_cursor(AddressRange range,
-                                                  const Pattern& pattern,
+    [[nodiscard]] AddressCursor find_first_cursor(AddressRange range, const Pattern& pattern,
                                                   const ScanOptions& options = {}) const;
 
-    [[nodiscard]] AddressCursor find_unique_cursor(AddressRange range,
-                                                   const Pattern& pattern,
+    [[nodiscard]] AddressCursor find_unique_cursor(AddressRange range, const Pattern& pattern,
                                                    const ScanOptions& options = {}) const;
 
 private:
+    [[nodiscard]] Result<ScanResult> scan_impl(AddressRange range, const Pattern& pattern,
+                                               const ScanOptions& options, ScanReadPolicy read_policy,
+                                               ScanWorkspace* workspace,
+                                               FunctionRef<bool(Address)> on_match) const;
+    [[nodiscard]] Result<std::vector<ScanResult>> scan_batch_impl(AddressRange range,
+                                                                  std::span<const Pattern> patterns,
+                                                                  const ScanOptions& options,
+                                                                  ScanWorkspace* workspace) const;
+
     Process process_;
 };
 

@@ -21,7 +21,7 @@ TEST_CASE("Native inline backend rejects modified detach thread policy",
     HookBackend& backend = native_inline_hook_backend();
     auto attached = backend.attach(
         Address{static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(code + 64))},
-        &native_hook_detour,
+        reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(&native_hook_detour)),
         options);
     REQUIRE(attached.has_value());
 
@@ -78,7 +78,7 @@ TEST_CASE("Native inline backend rejects invalid thread policies without changin
     HookBackend& backend = native_inline_hook_backend();
     auto attached = backend.attach(
         Address{static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(code + 64))},
-        &native_hook_detour,
+        reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(&native_hook_detour)),
         options);
     REQUIRE(attached.has_value());
 

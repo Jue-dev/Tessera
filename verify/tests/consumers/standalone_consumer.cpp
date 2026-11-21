@@ -22,6 +22,7 @@
 #include "tessera/rtti/python_bridge.hpp"
 #include "tessera/rtti/rtti.hpp"
 #include "tessera/scanner/scanner.hpp"
+#include "tessera/scanner/xref.hpp"
 
 #ifndef TESSERA_CONSUMER_WITH_PROFILE
 #define TESSERA_CONSUMER_WITH_PROFILE 1
@@ -49,7 +50,23 @@ void consumer_noop() {}
 using MemoryReadFn = tessera::Status (tessera::MemoryReader::*)(tessera::Address, std::span<std::byte>) const noexcept;
 using ModuleSnapshotFn = tessera::Result<std::vector<tessera::Module>> (*)(const tessera::Process&);
 using ScanFn = tessera::Result<tessera::ScanResult> (tessera::Scanner::*)(tessera::AddressRange, const tessera::Pattern&, const tessera::ScanOptions&) const;
+using ScanBatchFn = tessera::Result<std::vector<tessera::ScanResult>> (tessera::Scanner::*)(
+    tessera::AddressRange, std::span<const tessera::Pattern>, const tessera::ScanOptions&) const;
+using XrefCallsFn = tessera::Result<std::vector<tessera::Address>> (*)(
+    const tessera::Process&, tessera::AddressRange, tessera::Address, const tessera::ScanOptions&);
+using XrefBatchFn = tessera::Result<std::vector<std::vector<tessera::Address>>> (*)(
+    const tessera::Process&, tessera::AddressRange, std::span<const tessera::Address>,
+    const tessera::ScanOptions&);
+using XrefConditionalFn = tessera::Result<std::vector<tessera::Address>> (*)(
+    const tessera::Process&, tessera::AddressRange, tessera::Address, const tessera::ScanOptions&);
+using XrefIndirectFn = tessera::Result<std::vector<tessera::Address>> (*)(
+    const tessera::Process&, tessera::AddressRange, tessera::Address, const tessera::ScanOptions&);
+using XrefRelocationFn = tessera::Result<std::vector<tessera::Address>> (*)(
+    const tessera::Process&, tessera::Address, const tessera::PeImage&, tessera::Address);
 using CursorOffsetFn = tessera::AddressCursor (tessera::AddressCursor::*)(std::int64_t) const noexcept;
+using CursorInstructionStepFn = tessera::AddressCursor (tessera::AddressCursor::*)(std::size_t) const noexcept;
+using CursorResolveOperandFn = tessera::AddressCursor (tessera::AddressCursor::*)() const noexcept;
+using CursorThunkChainFn = tessera::AddressCursor (tessera::AddressCursor::*)(std::size_t) const noexcept;
 using PatchNopFn = tessera::Result<tessera::Patch> (*)(tessera::ProcessAddress, std::size_t, tessera::PatchOptions);
 using HookCreateFn = tessera::Result<tessera::Hook<HookFn>> (*)(tessera::Address, HookFn, tessera::HookBackend*) noexcept;
 using NativeBackendFn = tessera::HookBackend& (*)() noexcept;
@@ -74,7 +91,18 @@ using PythonExportFn = tessera::Status (tessera::rtti::PythonBridgeCatalog::*)(t
 [[maybe_unused]] MemoryReadFn volatile g_memory_read = &tessera::MemoryReader::read_exact;
 [[maybe_unused]] ModuleSnapshotFn volatile g_module_snapshot = &tessera::ModuleCatalog::snapshot;
 [[maybe_unused]] ScanFn volatile g_scan = &tessera::Scanner::scan;
+[[maybe_unused]] ScanBatchFn volatile g_scan_batch = &tessera::Scanner::scan_batch;
+[[maybe_unused]] XrefCallsFn volatile g_xref_calls = &tessera::xref::find_calls;
+[[maybe_unused]] XrefBatchFn volatile g_xref_batch = &tessera::xref::find_pointer_refs_batch;
+[[maybe_unused]] XrefConditionalFn volatile g_xref_conditional = &tessera::xref::find_conditional_branches;
+[[maybe_unused]] XrefIndirectFn volatile g_xref_indirect = &tessera::xref::find_indirect_refs;
+[[maybe_unused]] XrefRelocationFn volatile g_xref_relocated = &tessera::xref::find_relocated_pointer_refs;
 [[maybe_unused]] CursorOffsetFn volatile g_cursor_offset = &tessera::AddressCursor::offset;
+[[maybe_unused]] CursorInstructionStepFn volatile g_cursor_step = &tessera::AddressCursor::step_instructions;
+[[maybe_unused]] CursorInstructionStepFn volatile g_cursor_find_call = &tessera::AddressCursor::find_next_call;
+[[maybe_unused]] CursorInstructionStepFn volatile g_cursor_find_rip = &tessera::AddressCursor::find_next_rip_relative;
+[[maybe_unused]] CursorResolveOperandFn volatile g_cursor_operand = &tessera::AddressCursor::resolve_operand_target;
+[[maybe_unused]] CursorThunkChainFn volatile g_cursor_thunks = &tessera::AddressCursor::resolve_thunk_chain;
 [[maybe_unused]] PatchNopFn volatile g_patch_nop = &tessera::Patch::nop;
 [[maybe_unused]] HookCreateFn volatile g_hook_create =
     static_cast<HookCreateFn>(&tessera::Hook<HookFn>::create);

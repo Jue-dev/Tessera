@@ -1,5 +1,12 @@
 #pragma once
 
+#include "tessera/core/result.hpp"
+#include "tessera/core/types.hpp"
+#include "tessera/module/module.hpp"
+#include "tessera/module/pe_image.hpp"
+#include "tessera/process/process.hpp"
+#include "tessera/targets/target_profile.hpp"
+
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
@@ -8,13 +15,6 @@
 #include <string>
 #include <string_view>
 #include <vector>
-
-#include "tessera/core/result.hpp"
-#include "tessera/core/types.hpp"
-#include "tessera/module/module.hpp"
-#include "tessera/module/pe_image.hpp"
-#include "tessera/process/process.hpp"
-#include "tessera/targets/target_profile.hpp"
 
 namespace tessera::targets {
 
@@ -69,15 +69,9 @@ public:
 private:
     friend class AddressResolver;
 
-    VerifiedAddress(Address address,
-                    Rva rva,
-                    std::string entry_id,
-                    std::string module_id,
+    VerifiedAddress(Address address, Rva rva, std::string entry_id, std::string module_id,
                     ResolutionStatus status) noexcept
-        : address_(address),
-          rva_(rva),
-          entry_id_(std::move(entry_id)),
-          module_id_(std::move(module_id)),
+        : address_(address), rva_(rva), entry_id_(std::move(entry_id)), module_id_(std::move(module_id)),
           status_(status) {}
 
     Address address_{};
@@ -94,13 +88,21 @@ struct ResolutionOutcome {
     std::optional<Rva> candidate_rva{};
     bool from_session_cache = false;
 
-    [[nodiscard]] const std::optional<VerifiedAddress>& verified() const noexcept {
-        return verified_;
-    }
+    [[nodiscard]] const std::optional<VerifiedAddress>& verified() const noexcept { return verified_; }
 
 private:
     friend class AddressResolver;
     std::optional<VerifiedAddress> verified_{};
+};
+
+struct ResolutionTraceStep {
+    std::string stage{};
+    ResolutionStatus status = ResolutionStatus::NotFound;
+    std::string detail{};
+};
+
+struct ResolutionTrace {
+    std::vector<ResolutionTraceStep> steps{};
 };
 
 // Describes a loaded module inside a target session (supports both OS modules and synthetic test modules).
@@ -118,15 +120,13 @@ public:
     explicit TargetFingerprinter(FingerprintPolicy policy = FingerprintPolicy::Strict) noexcept
         : policy_(policy) {}
 
-    [[nodiscard]] Result<ModuleFingerprint> fingerprint_file(
-        std::string module_id,
-        const std::filesystem::path& file_path);
+    [[nodiscard]] Result<ModuleFingerprint> fingerprint_file(std::string module_id,
+                                                             const std::filesystem::path& file_path);
 
-    [[nodiscard]] Result<ModuleFingerprint> fingerprint_memory_module(
-        const Process& process,
-        std::string module_id,
-        std::string file_name,
-        AddressRange module_range);
+    [[nodiscard]] Result<ModuleFingerprint> fingerprint_memory_module(const Process& process,
+                                                                      std::string module_id,
+                                                                      std::string file_name,
+                                                                      AddressRange module_range);
 
     void clear_cache() noexcept;
 
@@ -146,8 +146,7 @@ private:
 // Resolves and validates addresses against a TargetProfile with session caching and build persistence rules.
 class AddressResolver {
 public:
-    explicit AddressResolver(Process process,
-                             std::vector<TargetModuleContext> modules = {}) noexcept
+    explicit AddressResolver(Process process, std::vector<TargetModuleContext> modules = {}) noexcept
         : process_(std::move(process)), modules_(std::move(modules)) {}
 
     void set_modules(std::vector<TargetModuleContext> modules);
@@ -155,11 +154,13 @@ public:
 
     void invalidate_session_cache() noexcept;
 
-    [[nodiscard]] ResolutionOutcome resolve_entry(
-        TargetProfile& profile,
-        std::string_view entry_id,
-        PersistPolicy persist_policy = PersistPolicy::AskBeforePersist,
-        TargetProfileStore* store = nullptr);
+    [[nodiscard]] ResolutionOutcome
+    resolve_entry(TargetProfile& profile, std::string_view entry_id,
+                  PersistPolicy persist_policy = PersistPolicy::AskBeforePersist,
+                  TargetProfileStore* store = nullptr);
+    [[nodiscard]] ResolutionOutcome resolve_entry(TargetProfile& profile, std::string_view entry_id,
+                                                  PersistPolicy persist_policy, TargetProfileStore* store,
+                                                  ResolutionTrace* trace);
 
 private:
     struct SessionCacheItem {
@@ -173,14 +174,11 @@ private:
         ValidationReport report{};
     };
 
-    [[nodiscard]] const TargetModuleContext* find_loaded_module(
-        std::string_view module_id) const noexcept;
+    [[nodiscard]] const TargetModuleContext* find_loaded_module(std::string_view module_id) const noexcept;
 
-    [[nodiscard]] ValidationReport run_validation_checks(
-        const TargetModuleContext& mod_ctx,
-        const AddressEntry& entry,
-        Address candidate,
-        bool is_compatible_build) const;
+    [[nodiscard]] ValidationReport run_validation_checks(const TargetModuleContext& mod_ctx,
+                                                         const AddressEntry& entry, Address candidate,
+                                                         bool is_compatible_build) const;
 
     Process process_;
     std::vector<TargetModuleContext> modules_{};
@@ -204,9 +202,8 @@ public:
     DiscoverySession(Process process, const TargetModuleContext& mod_ctx) noexcept
         : process_(std::move(process)), mod_ctx_(mod_ctx) {}
 
-    [[nodiscard]] Result<AddressEntry> capture_and_verify(
-        TargetProfile& profile,
-        const DiscoveryCandidate& candidate) const;
+    [[nodiscard]] Result<AddressEntry> capture_and_verify(TargetProfile& profile,
+                                                          const DiscoveryCandidate& candidate) const;
 
 private:
     Process process_;

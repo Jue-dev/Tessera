@@ -29,6 +29,19 @@ function(tessera_add_test test_name)
     endif()
 
     add_test(NAME ${test_name} COMMAND ${test_name})
+    if(Catch2_FOUND)
+        add_test(
+            NAME ${test_name}_shuffled
+            COMMAND ${test_name} --order rand --rng-seed 20261121
+                    --reporter junit --out ${CMAKE_CURRENT_BINARY_DIR}/${test_name}-shuffled.xml
+        )
+    else()
+        add_test(
+            NAME ${test_name}_shuffled
+            COMMAND ${test_name} --shuffle --seed 20261121
+                    --junit ${CMAKE_CURRENT_BINARY_DIR}/${test_name}-shuffled.xml
+        )
+    endif()
 endfunction()
 
 # ------------------------------------------------------------------------------
@@ -119,7 +132,10 @@ tessera_add_test(tessera_test_pattern_scanner
         tessera::memory
         tessera::pattern
         tessera::scanner
+        tessera::disasm
+        tessera::module
 )
+target_include_directories(tessera_test_pattern_scanner PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 tessera_add_test(tessera_test_module_resolver
     SOURCES
@@ -133,15 +149,17 @@ tessera_add_test(tessera_test_module_resolver
         tessera::scanner
         tessera::module
         tessera::resolver
+        tessera::disasm
 )
-
+ 
 tessera_add_test(tessera_test_patch_hook
     SOURCES
         patch_hook/test_patch_hook_core.cpp
         patch_hook/test_native_hook_unwind.cpp
         patch_hook/test_native_hook_unwind_edges.cpp
         patch_hook/test_native_hook_unwind_lifecycle.cpp
-        patch_hook/test_native_hook_relocation.cpp
+        patch_hook/test_native_hook_lifecycle_registry.cpp
+        patch_hook/test_native_relocation.cpp
         patch_hook/test_native_hook_backend.cpp
         patch_hook/test_native_hook_lifecycle.cpp
         patch_hook/test_patch_transactions.cpp
@@ -153,6 +171,7 @@ tessera_add_test(tessera_test_patch_hook
         tessera::pattern
         tessera::patch
         tessera::hook
+        tessera::disasm
 )
 if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     target_sources(tessera_test_patch_hook PRIVATE patch_hook/test_patch_hook_x86.cpp)
@@ -205,12 +224,23 @@ tessera_add_test(tessera_test_logging_diagnostics
     LIBS tessera::core tessera::diagnostics tessera::logging tessera::profiling tessera::utility
 )
 
-tessera_add_test(tessera_test_profile_targets
-    SOURCES
-        profile_targets/test_profile_targets.cpp
-    LIBS
-        tessera::tessera
-)
+if(TESSERA_BUILD_PROFILE)
+    tessera_add_test(tessera_test_profile
+        SOURCES profile_targets/test_profile.cpp
+        LIBS tessera::tessera
+    )
+endif()
+
+if(TESSERA_BUILD_TARGETS)
+    tessera_add_test(tessera_test_target_runtime
+        SOURCES profile_targets/test_target_runtime.cpp
+        LIBS tessera::tessera
+    )
+    tessera_add_test(tessera_test_target_profile
+        SOURCES profile_targets/test_target_profile.cpp
+        LIBS tessera::tessera
+    )
+endif()
 
 tessera_add_test(tessera_test_rtti
     SOURCES
@@ -242,7 +272,7 @@ if(TESSERA_ENABLE_DECODER_ORACLE)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_executable(tessera_decoder_probe
         decoder_oracle/decoder_probe.cpp
-        ${PROJECT_SOURCE_DIR}/src/hook/backends/x86_instruction_decoder.cpp
+        ${PROJECT_SOURCE_DIR}/src/disasm/x86_instruction_decoder.cpp
     )
     target_include_directories(tessera_decoder_probe PRIVATE
         ${PROJECT_SOURCE_DIR}/src

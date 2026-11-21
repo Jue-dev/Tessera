@@ -148,6 +148,54 @@ TEST_CASE("RttiCatalog discovers polymorphic classes, inheritance, instances, an
     REQUIRE((*dissected)[2].f32_value == 3.5f);
 }
 
+TEST_CASE("RTTI discovery rejects a vftable whose first virtual target escapes the module",
+          "[rtti][malformed][vftable]") {
+    using namespace tessera;
+    using namespace tessera::rtti;
+
+    constexpr std::uint64_t base = 0x150000000ULL;
+    auto backend = std::make_shared<testing::FakeMemoryBackend>();
+    auto& image = backend->map_region(
+        Address{base}, 0x5000, MemoryProtection::ExecuteReadWrite);
+
+    // TypeDescriptor and its mangled name.
+    write_cstr(image.storage, 0x2100 + 16, ".?AVBrokenVftable@Game@@");
+
+    // A structurally valid x64 CompleteObjectLocator and ClassHierarchyDescriptor.
+    write_u32(image.storage, 0x23C0 + 0, 0);
+    write_u32(image.storage, 0x23C0 + 4, 0);
+    write_u32(image.storage, 0x23C0 + 8, 0);
+    write_u32(image.storage, 0x23C0 + 12, 0);
+    write_u32(image.storage, 0x2400 + 0, 1);
+    write_u32(image.storage, 0x2400 + 4, 0);
+    write_u32(image.storage, 0x2400 + 8, 0);
+    write_u32(image.storage, 0x2400 + 12, 0x2100);
+    write_u32(image.storage, 0x2400 + 16, 0x23C0);
+    write_u32(image.storage, 0x2400 + 20, 0x2400);
+
+    // The meta-slot resolves to the valid COL, but the first virtual function
+    // pointer deliberately escapes the module and must not yield a class.
+    write_u64(image.storage, 0x2500, base + 0x2400);
+    write_u64(image.storage, 0x2508, 0xDEAD0000ULL);
+
+    // A second candidate has a mismatched COL pSelf RVA and must be rejected
+    // before vftable inspection, even though its type name and meta-slot exist.
+    write_cstr(image.storage, 0x2180 + 16, ".?AVBadLocator@Game@@");
+    write_u32(image.storage, 0x2440 + 0, 1);
+    write_u32(image.storage, 0x2440 + 4, 0);
+    write_u32(image.storage, 0x2440 + 8, 0);
+    write_u32(image.storage, 0x2440 + 12, 0x2180);
+    write_u32(image.storage, 0x2440 + 16, 0x23C0);
+    write_u32(image.storage, 0x2440 + 20, 0x2400); // Deliberately wrong: should be 0x2440.
+    write_u64(image.storage, 0x2510, base + 0x2440);
+    write_u64(image.storage, 0x2518, base + 0x1100);
+
+    Process process = testing::FakeMemoryBackend::make_process(backend, Architecture::X64);
+    auto catalog = RttiCatalog::discover_all(process, AddressRange{Address{base}, 0x5000});
+    REQUIRE(catalog.has_value());
+    REQUIRE(catalog->classes().empty());
+}
+
 TEST_CASE("BinaryExplorer reconstructs non-virtual struct layout from function instructions",
           "[rtti][discovery]") {
     using namespace tessera;

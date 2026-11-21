@@ -33,6 +33,28 @@ if(TESSERA_ENABLE_MSVC_FUZZER)
     endif()
 endif()
 option(TESSERA_ENABLE_ANALYZE    "Enable MSVC /analyze"                OFF)
+option(TESSERA_ENABLE_COVERAGE    "Enable GCC/Clang line and branch coverage" OFF)
+option(TESSERA_PATTERN_FORCE_SCALAR "Disable pattern SIMD dispatch for scalar-fallback validation" OFF)
+
+if(TESSERA_ENABLE_COVERAGE)
+    if((MSVC AND NOT (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND
+                      CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")) OR
+       NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        message(FATAL_ERROR "TESSERA_ENABLE_COVERAGE requires GCC or Clang on a supported host.")
+    endif()
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        add_compile_options(--coverage -O0 -g)
+        add_link_options(--coverage)
+    else()
+        add_compile_options(-fprofile-instr-generate -fcoverage-mapping)
+        add_link_options(-fprofile-instr-generate -fcoverage-mapping)
+        if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+            add_compile_options(/Od /Zi)
+        else()
+            add_compile_options(-O0 -g)
+        endif()
+    endif()
+endif()
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
@@ -58,6 +80,10 @@ tessera_add_module(
         include/tessera/core/result.hpp
         include/tessera/core/types.hpp
         include/tessera/core/core.hpp
+    PUBLIC_DEFS
+        TESSERA_CMAKE_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+        TESSERA_CMAKE_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+        TESSERA_CMAKE_VERSION_PATCH=${PROJECT_VERSION_PATCH}
 )
 
 # ------------------------------------------------------------------------------
@@ -86,17 +112,39 @@ tessera_add_module(
 )
 
 # ------------------------------------------------------------------------------
+# Internal low-level x86/x64 instruction decoder shared by hook, scanner and resolver
+# ------------------------------------------------------------------------------
+tessera_add_module(
+    NAME disasm
+    SOURCES
+        src/disasm/x86_instruction_decoder.cpp
+)
+
+# ------------------------------------------------------------------------------
 # L1 (Process/Memory independent): pattern, utility, filesystem, json, logging, profiling
 # ------------------------------------------------------------------------------
+if(MSVC AND NOT CMAKE_SYSTEM_PROCESSOR MATCHES "ARM|arm")
+    if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+        set_source_files_properties(src/pattern/pattern_simd.cpp PROPERTIES COMPILE_OPTIONS "/arch:SSE2")
+    endif()
+    set_source_files_properties(src/pattern/pattern_simd_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+endif()
+
 tessera_add_module(
     NAME pattern
     SOURCES
         src/pattern/pattern.cpp
+        src/pattern/pattern_simd.cpp
+        src/pattern/pattern_simd_avx2.cpp
     PUBLIC_HEADERS
         include/tessera/pattern/pattern.hpp
     PUBLIC_DEPS
         tessera::core
 )
+
+if(TESSERA_PATTERN_FORCE_SCALAR)
+    target_compile_definitions(tessera_pattern PRIVATE TESSERA_PATTERN_FORCE_SCALAR=1)
+endif()
 
 tessera_add_module(
     NAME utility
@@ -202,24 +250,10 @@ tessera_add_module(
 # L2: scanner, module, resolver, patch, hook, profile
 # ------------------------------------------------------------------------------
 tessera_add_module(
-    NAME scanner
-    SOURCES
-        src/scanner/scanner.cpp
-    PUBLIC_HEADERS
-        include/tessera/scanner/scanner.hpp
-        include/tessera/scanner/xref.hpp
-    PUBLIC_DEPS
-        tessera::core
-        tessera::diagnostics
-        tessera::process
-        tessera::memory
-        tessera::pattern
-)
-
-tessera_add_module(
     NAME module
     SOURCES
         src/module/pe_image.cpp
+        src/module/pe_image_detail.cpp
         src/module/pe_image_memory.cpp
         src/module/pe_image_raw.cpp
         src/platform/windows/module_backend.cpp
@@ -235,6 +269,25 @@ tessera_add_module(
 )
 
 tessera_add_module(
+    NAME scanner
+    SOURCES
+        src/scanner/scanner.cpp
+    PUBLIC_HEADERS
+        include/tessera/scanner/scanner.hpp
+        include/tessera/scanner/xref.hpp
+    PUBLIC_DEPS
+        tessera::core
+        tessera::diagnostics
+        tessera::process
+        tessera::memory
+        tessera::pattern
+    PRIVATE_DEPS
+        tessera::disasm
+        tessera::module
+)
+
+
+tessera_add_module(
     NAME resolver
     SOURCES
         src/resolver/resolver.cpp
@@ -246,6 +299,8 @@ tessera_add_module(
         tessera::process
         tessera::memory
         tessera::scanner
+    PRIVATE_DEPS
+        tessera::disasm
 )
 
 tessera_add_module(
@@ -299,7 +354,16 @@ if(TESSERA_WITH_DETOURS)
             "but they were not found.")
     endif()
     list(APPEND TESSERA_HOOK_PRIVATE_DEFS "TESSERA_WITH_DETOURS_ENABLED=1")
-    list(APPEND TESSERA_HOOK_SYSTEM_LIBS "${DETOURS_LIBRARY}")
+    # Export a named package dependency instead of baking the build-machine
+    # Detours library path into TesseraTargets.cmake.
+    if(NOT TARGET Tessera::Detours)
+        add_library(Tessera::Detours UNKNOWN IMPORTED GLOBAL)
+        set_target_properties(Tessera::Detours PROPERTIES
+            IMPORTED_LOCATION "${DETOURS_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${DETOURS_INCLUDE_DIRS}"
+        )
+    endif()
+    list(APPEND TESSERA_HOOK_SYSTEM_LIBS Tessera::Detours)
 endif()
 
 tessera_add_module(
@@ -312,7 +376,6 @@ tessera_add_module(
         src/hook/backends/native_trampoline.cpp
         src/hook/backends/native_relocation.cpp
         src/hook/backends/native_unwind.cpp
-        src/hook/backends/x86_instruction_decoder.cpp
     PUBLIC_HEADERS
         include/tessera/hook/hook.hpp
     PUBLIC_DEPS
@@ -321,6 +384,7 @@ tessera_add_module(
     PRIVATE_DEPS
         tessera::process
         tessera::memory
+        tessera::disasm
     PRIVATE_DEFS
         ${TESSERA_HOOK_PRIVATE_DEFS}
     SYSTEM_LIBS
@@ -376,6 +440,7 @@ if(TESSERA_BUILD_TARGETS)
         SOURCES
             src/targets/target_profile_json_read.cpp
             src/targets/target_profile_json_write.cpp
+            src/targets/target_profile_json_common.cpp
         PUBLIC_HEADERS
             include/tessera/targets/target_profile_json.hpp
         PUBLIC_DEPS
@@ -390,6 +455,8 @@ if(TESSERA_BUILD_TARGETS)
         NAME target_runtime
         SOURCES
             src/targets/target_runtime.cpp
+            src/targets/target_fingerprinter.cpp
+            src/targets/discovery_session.cpp
         PUBLIC_HEADERS
             include/tessera/targets/target_runtime.hpp
         PUBLIC_DEPS
@@ -439,12 +506,14 @@ target_include_directories(tessera_static PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
+target_compile_definitions(tessera_static PUBLIC
+    TESSERA_CMAKE_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+    TESSERA_CMAKE_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+    TESSERA_CMAKE_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+)
 tessera_apply_target_options(tessera_static)
 if(ALL_TESSERA_SYS_LIBS)
     target_link_libraries(tessera_static PUBLIC ${ALL_TESSERA_SYS_LIBS})
-endif()
-if(TESSERA_WITH_DETOURS AND DETOURS_LIBRARY)
-    target_link_libraries(tessera_static PUBLIC "${DETOURS_LIBRARY}")
 endif()
 
 install(TARGETS tessera_static

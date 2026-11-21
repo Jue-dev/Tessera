@@ -42,6 +42,13 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
 
     (void)tessera::rtti::BinaryExplorer::scan_all_type_descriptors(process, range);
     (void)tessera::rtti::BinaryExplorer::scan_strings(process, range);
+
+    // Exercise the 32-bit absolute-VA RTTI layout parser against the same
+    // bounded bytes as well as the x64 RVA-based layout.
+    auto x86_process = tessera::testing::FakeMemoryBackend::make_process(
+        backend, tessera::Architecture::X86);
+    (void)tessera::rtti::BinaryExplorer::scan_all_type_descriptors(x86_process, range);
+    (void)tessera::rtti::BinaryExplorer::scan_strings(x86_process, range);
     return 0;
 }
 

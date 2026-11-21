@@ -5,8 +5,10 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <string_view>
 
-int main() {
+int main(int argc, char** argv) {
+    const bool json = argc > 1 && std::string_view{argv[1]} == "--json";
     std::string payload = R"({"schema":1,"records":[)";
     constexpr std::size_t record_count = 512;
     for (std::size_t i = 0; i < record_count; ++i) {
@@ -39,6 +41,19 @@ int main() {
             std::abort();
         }
     });
+
+    if (json) {
+        const double parse_seconds = static_cast<double>(parse_metrics.mean.count()) / 1.0e9;
+        const double write_seconds = static_cast<double>(write_metrics.mean.count()) / 1.0e9;
+        const double parse_mb_per_s = parse_seconds > 0.0 ? (payload.size() / parse_seconds) / 1.0e6 : 0.0;
+        const double write_mb_per_s = write_seconds > 0.0 ? (payload.size() / write_seconds) / 1.0e6 : 0.0;
+        std::cout << "{\"benchmarks\":["
+                  << "{\"name\":\"json_parse_512_records\",\"iterations\":" << parse_metrics.iterations
+                  << ",\"ns_per_op\":" << parse_metrics.mean.count() << ",\"mb_per_s\":" << parse_mb_per_s << "},"
+                  << "{\"name\":\"json_write_512_records\",\"iterations\":" << write_metrics.iterations
+                  << ",\"ns_per_op\":" << write_metrics.mean.count() << ",\"mb_per_s\":" << write_mb_per_s << "}] }\n";
+        return 0;
+    }
 
     std::cout << "json parse records=" << record_count
               << " iterations=" << parse_metrics.iterations

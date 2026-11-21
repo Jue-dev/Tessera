@@ -1,37 +1,63 @@
 #include "tessera/module/pe_image.hpp"
 
+#include "tessera/core/checked_math.hpp"
+#include "tessera/memory/memory_reader.hpp"
+
 #include <algorithm>
 #include <cstring>
 #include <format>
 #include <fstream>
+#include <iterator>
 #include <new>
-
-#include "tessera/core/checked_math.hpp"
-#include "tessera/memory/memory_reader.hpp"
 
 namespace tessera {
 
+namespace {
+constexpr std::uint32_t kRelocationMarkerBegin = 0xFFFFFFFFu;
+constexpr std::uint32_t kRelocationMarkerEnd = 0x52454C4Fu;
+constexpr std::uint32_t kRelocationMarkerUnwind = 0x4D41524Bu;
+
+[[nodiscard]] bool is_relocation_marker(const PeFunctionEntry& entry) noexcept {
+    return entry.begin_rva.value() == kRelocationMarkerBegin &&
+           entry.end_rva.value() == kRelocationMarkerEnd &&
+           entry.unwind_info_rva.value() == kRelocationMarkerUnwind;
+}
+} // namespace
+
+std::span<const PeFunctionEntry> PeImage::exception_functions() const noexcept {
+    const auto marker =
+        std::find_if(exception_functions_.begin(), exception_functions_.end(), is_relocation_marker);
+    const auto count = static_cast<std::size_t>(std::distance(exception_functions_.begin(), marker));
+    return std::span<const PeFunctionEntry>{exception_functions_.data(), count};
+}
+
+std::vector<BaseRelocation> PeImage::relocations() const {
+    std::vector<BaseRelocation> result;
+    const auto marker =
+        std::find_if(exception_functions_.begin(), exception_functions_.end(), is_relocation_marker);
+    if (marker == exception_functions_.end()) {
+        return result;
+    }
+    result.reserve(static_cast<std::size_t>(std::distance(std::next(marker), exception_functions_.end())));
+    for (auto it = std::next(marker); it != exception_functions_.end(); ++it) {
+        result.push_back(BaseRelocation{
+            .location = it->begin_rva,
+            .type = static_cast<std::uint8_t>(it->end_rva.value()),
+        });
+    }
+    return result;
+}
+
 std::string CodeViewInfo::guid_string() const {
-    const std::uint32_t d1 = static_cast<std::uint32_t>(guid[0]) |
-                             (static_cast<std::uint32_t>(guid[1]) << 8) |
-                             (static_cast<std::uint32_t>(guid[2]) << 16) |
-                             (static_cast<std::uint32_t>(guid[3]) << 24);
-    const std::uint16_t d2 = static_cast<std::uint16_t>(
-        static_cast<std::uint16_t>(guid[4]) | (static_cast<std::uint16_t>(guid[5]) << 8));
-    const std::uint16_t d3 = static_cast<std::uint16_t>(
-        static_cast<std::uint16_t>(guid[6]) | (static_cast<std::uint16_t>(guid[7]) << 8));
-    return std::format("{:08X}-{:04X}-{:04X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
-                       d1,
-                       d2,
-                       d3,
-                       guid[8],
-                       guid[9],
-                       guid[10],
-                       guid[11],
-                       guid[12],
-                       guid[13],
-                       guid[14],
-                       guid[15]);
+    const std::uint32_t d1 =
+        static_cast<std::uint32_t>(guid[0]) | (static_cast<std::uint32_t>(guid[1]) << 8) |
+        (static_cast<std::uint32_t>(guid[2]) << 16) | (static_cast<std::uint32_t>(guid[3]) << 24);
+    const std::uint16_t d2 = static_cast<std::uint16_t>(static_cast<std::uint16_t>(guid[4]) |
+                                                        (static_cast<std::uint16_t>(guid[5]) << 8));
+    const std::uint16_t d3 = static_cast<std::uint16_t>(static_cast<std::uint16_t>(guid[6]) |
+                                                        (static_cast<std::uint16_t>(guid[7]) << 8));
+    return std::format("{:08X}-{:04X}-{:04X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}", d1, d2, d3,
+                       guid[8], guid[9], guid[10], guid[11], guid[12], guid[13], guid[14], guid[15]);
 }
 
 Result<PeImage> PeImage::from_file(const std::filesystem::path& path) {
@@ -85,8 +111,7 @@ Result<ExportTarget> PeImage::find_export(std::uint16_t ordinal) const {
     return fail(ErrorCode::NotFound, "PeImage::find_export");
 }
 
-Result<ImportEntry> PeImage::find_import(std::string_view module_name,
-                                         std::string_view function_name) const {
+Result<ImportEntry> PeImage::find_import(std::string_view module_name, std::string_view function_name) const {
     if (function_name.empty()) {
         return fail(ErrorCode::InvalidArgument, "PeImage::find_import");
     }

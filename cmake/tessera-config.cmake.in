@@ -3,8 +3,20 @@
 include(CMakeFindDependencyMacro)
 
 if(@TESSERA_WITH_DETOURS@)
-    find_path(DETOURS_INCLUDE_DIRS "detours/detours.h")
+    find_path(DETOURS_INCLUDE_DIRS NAMES "detours/detours.h" "detours.h")
     find_library(DETOURS_LIBRARY NAMES detours)
+    if(NOT DETOURS_INCLUDE_DIRS OR NOT DETOURS_LIBRARY)
+        message(FATAL_ERROR
+            "This Tessera package was built with Microsoft Detours enabled, but Detours headers/library were not found. "
+            "Set DETOURS_INCLUDE_DIRS and DETOURS_LIBRARY when configuring the consumer.")
+    endif()
+    if(NOT TARGET Tessera::Detours)
+        add_library(Tessera::Detours UNKNOWN IMPORTED)
+        set_target_properties(Tessera::Detours PROPERTIES
+            IMPORTED_LOCATION "${DETOURS_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${DETOURS_INCLUDE_DIRS}"
+        )
+    endif()
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/TesseraTargets.cmake")
