@@ -36,6 +36,21 @@ TEST_CASE("Pattern parsing, nibble wildcards, consteval literal, and PatternValu
     STATIC_REQUIRE(lit.size() == 9);
     STATIC_REQUIRE(lit.anchor_index().has_value());
 
+    constexpr Pattern exact = "48 8B 05 90"_sig;
+    STATIC_REQUIRE(exact.is_exact());
+    STATIC_REQUIRE(exact.is_byte_mask_only());
+    STATIC_REQUIRE_FALSE(exact.is_nibble_masked());
+
+    constexpr Pattern byte_masked = "48 ?? 05"_sig;
+    STATIC_REQUIRE_FALSE(byte_masked.is_exact());
+    STATIC_REQUIRE(byte_masked.is_byte_mask_only());
+    STATIC_REQUIRE_FALSE(byte_masked.is_nibble_masked());
+
+    constexpr Pattern nibble_masked = "4? 8B ?5"_sig;
+    STATIC_REQUIRE_FALSE(nibble_masked.is_exact());
+    STATIC_REQUIRE_FALSE(nibble_masked.is_byte_mask_only());
+    STATIC_REQUIRE(nibble_masked.is_nibble_masked());
+
     constexpr Pattern trimmed = "?? ?? 48 8B 05 ?? ?? 90 ??"_sig;
     STATIC_REQUIRE(trimmed.leading_wildcards() == 2);
     STATIC_REQUIRE(trimmed.trailing_wildcards() == 1);
