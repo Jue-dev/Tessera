@@ -113,7 +113,8 @@ TEST_CASE("Concurrent logger, scanner, patch, hook and protection operations rem
         backend->map_region(Address{kWorkerBase + worker * kWorkerStride},
                              0x2000, MemoryProtection::ExecuteReadWrite);
     }
-    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
+    Process process = FakeMemoryBackend::make_process(
+        backend, sizeof(void*) == 8 ? Architecture::X64 : Architecture::X86);
 
     auto scan_pattern = Pattern::parse("AA BB CC DD");
     auto batch_pattern = Pattern::parse("BB CC DD");

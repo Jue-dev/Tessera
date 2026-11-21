@@ -41,7 +41,7 @@ jobs:
           g++-13 --version
           printf '#include <expected>\n#include <bit>\nint main(){std::expected<int,int> x=1; return std::byteswap(1u)==1u && x.value()==1 ? 0 : 1;}\n' | g++-13 -std=c++23 -x c++ -fsyntax-only -
 
-      - name: Build and run portable Windows-backend mock tests under sanitizer
+      - name: Build and run Windows mock and concurrency stress tests under sanitizer
         env:
           SANITIZER_FLAGS: ${{ matrix.flags }}
           ASAN_OPTIONS: ${{ matrix.env_asan }}
