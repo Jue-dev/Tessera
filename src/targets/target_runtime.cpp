@@ -409,8 +409,8 @@ ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
             return;
         }
         if (!trace->steps.empty()) {
-            trace->steps.back().status = ResolutionStatus::CandidateFound;
-            trace->steps.back().detail = "Stage completed";
+            trace->steps.back().status = ResolutionStatus::NotFound;
+            trace->steps.back().detail = "Stage completed without resolving an address";
         }
         trace->steps.push_back(ResolutionTraceStep{
             .stage = std::string(name),
