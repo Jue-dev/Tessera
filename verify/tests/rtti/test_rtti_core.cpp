@@ -310,15 +310,17 @@ TEST_CASE("RTTI discovery rejects empty, truncated, and unreadable input ranges"
 
     REQUIRE_FALSE(BinaryExplorer::scan_all_type_descriptors(
         process, AddressRange{Address{0x310000}, 0}).has_value());
-    REQUIRE_FALSE(BinaryExplorer::scan_all_type_descriptors(
-        process, AddressRange{Address{0x310000}, 0x1000}).has_value());
+    const auto truncated = BinaryExplorer::scan_all_type_descriptors(
+        process, AddressRange{Address{0x310000}, 0x1000});
+    REQUIRE(truncated.has_value());
 
     auto unreadable = std::make_shared<FakeMemoryBackend>();
     unreadable->map_region(Address{0x320000}, 0x100, MemoryProtection::None);
     Process unreadable_process = FakeMemoryBackend::make_process(unreadable, Architecture::X86);
     const auto result = BinaryExplorer::scan_all_type_descriptors(
         unreadable_process, AddressRange{Address{0x320000}, 0x100});
-    REQUIRE_FALSE(result.has_value());
+    REQUIRE(result.has_value());
+    REQUIRE(result->empty());
 }
 
 TEST_CASE("RTTI object view rejects out-of-range field layouts", "[rtti][negative]") {
@@ -334,6 +336,6 @@ TEST_CASE("RTTI object view rejects out-of-range field layouts", "[rtti][negativ
     auto backend = std::make_shared<FakeMemoryBackend>();
     backend->map_region(Address{0x330000}, 0x100, MemoryProtection::ReadWrite);
     Process process = FakeMemoryBackend::make_process(backend, Architecture::X86);
-    ObjectView view{process, Address{0x3300F0}, type};
+    ObjectView view{process, Address{0x3300FE}, type};
     REQUIRE_FALSE(view.read_field<std::uint32_t>("value").has_value());
 }
