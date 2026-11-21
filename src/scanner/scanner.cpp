@@ -22,7 +22,8 @@ Result<ScanStats> for_each_readable_chunk(const Process& process,
                                           std::size_t overlap,
                                           const ScanOptions& options,
                                           bool& out_cancelled,
-                                          ChunkCallback&& on_chunk) {
+                                          ChunkCallback&& on_chunk,
+                                          ScanReadPolicy read_policy = ScanReadPolicy::BestEffort) {
     out_cancelled = false;
     if (range.empty()) {
         return fail(ErrorCode::InvalidArgument, "Scanner::scan", 0, "Scan range is empty");
@@ -93,6 +94,10 @@ Result<ScanStats> for_each_readable_chunk(const Process& process,
                 total_run_bytes = *total;
             } else {
                 ++stats.regions_skipped;
+                if (read_policy == ScanReadPolicy::Strict) {
+                    return fail(ErrorCode::AccessDenied, "Scanner::scan",
+                                0, "Strict scan encountered a filtered or inaccessible memory region");
+                }
             }
             cur = r_end;
         }
@@ -127,6 +132,11 @@ Result<ScanStats> for_each_readable_chunk(const Process& process,
 
                 if (!full_ok) {
                     ++stats.read_errors;
+                    if (read_policy == ScanReadPolicy::Strict) {
+                        return fail(ErrorCode::PartialTransfer, "Scanner::scan",
+                                    got_res ? 0 : got_res.error().native,
+                                    "Strict scan encountered a partial or failed memory read");
+                    }
                 }
 
                 if (got > 0) {
@@ -171,6 +181,13 @@ Result<ScanStats> for_each_readable_chunk(const Process& process,
 Result<ScanResult> Scanner::scan(AddressRange range,
                                  const Pattern& pattern,
                                  const ScanOptions& options) const {
+    return scan(range, pattern, options, ScanReadPolicy::BestEffort);
+}
+
+Result<ScanResult> Scanner::scan(AddressRange range,
+                                 const Pattern& pattern,
+                                 const ScanOptions& options,
+                                 ScanReadPolicy read_policy) const {
     if (pattern.empty()) {
         return fail(ErrorCode::InvalidPattern, "Scanner::scan", 0, "Pattern is empty");
     }
@@ -221,7 +238,8 @@ Result<ScanResult> Scanner::scan(AddressRange range,
                     options.on_progress(prog);
                 }
                 return continue_scan;
-            });
+            },
+            read_policy);
 
         if (!stats_res) {
             return std::unexpected(stats_res.error());
