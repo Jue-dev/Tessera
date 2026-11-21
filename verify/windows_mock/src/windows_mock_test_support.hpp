@@ -18,7 +18,7 @@ inline void check(bool condition, const char* name) {
     }
 }
 
-void run_process_tests(const tessera::Result<tessera::Process>& process);
+void run_process_tests();
 void run_memory_module_tests(const tessera::Result<tessera::Process>& process);
 void run_thread_tests();
 void run_detours_hook_tests();
