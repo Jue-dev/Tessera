@@ -242,7 +242,7 @@ if(TESSERA_ENABLE_DECODER_ORACLE)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_executable(tessera_decoder_probe
         decoder_oracle/decoder_probe.cpp
-        ${PROJECT_SOURCE_DIR}/src/hook/backends/x86_instruction_decoder.cpp
+        ${PROJECT_SOURCE_DIR}/src/disasm/x86_instruction_decoder.cpp
     )
     target_include_directories(tessera_decoder_probe PRIVATE
         ${PROJECT_SOURCE_DIR}/src
