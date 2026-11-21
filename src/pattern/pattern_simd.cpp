@@ -17,7 +17,7 @@ namespace tessera::pattern::detail {
 bool cpu_supports_sse2() noexcept {
 #if defined(__x86_64__) || defined(_M_X64)
     return true;
-#elif defined(__GNUC__) || defined(__clang__)
+#elif (defined(__GNUC__) || defined(__clang__)) && TESSERA_PATTERN_X86
     __builtin_cpu_init();
     return __builtin_cpu_supports("sse2");
 #elif defined(_MSC_VER) && defined(_M_IX86)
@@ -30,7 +30,7 @@ bool cpu_supports_sse2() noexcept {
 }
 
 bool cpu_supports_avx2() noexcept {
-#if defined(__GNUC__) || defined(__clang__)
+#if (defined(__GNUC__) || defined(__clang__)) && TESSERA_PATTERN_X86
     __builtin_cpu_init();
     return __builtin_cpu_supports("avx2");
 #elif defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
