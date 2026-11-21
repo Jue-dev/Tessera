@@ -74,6 +74,7 @@ int release_mutex_calls = 0;
 LONG detour_update_error = NO_ERROR;
 LONG detour_attach_error = NO_ERROR;
 LONG detour_detach_error = NO_ERROR;
+LONG detour_commit_error = NO_ERROR;
 int detour_attach_calls = 0;
 int detour_detach_calls = 0;
 int detour_abort_calls = 0;
@@ -137,6 +138,7 @@ void reset() noexcept {
     detour_update_error = NO_ERROR;
     detour_attach_error = NO_ERROR;
     detour_detach_error = NO_ERROR;
+    detour_commit_error = NO_ERROR;
     detour_attach_calls = 0;
     detour_detach_calls = 0;
     detour_abort_calls = 0;
@@ -470,7 +472,7 @@ BOOL ReleaseMutex(HANDLE) noexcept {
 
 LONG DetourTransactionBegin() noexcept { return NO_ERROR; }
 LONG DetourTransactionAbort() noexcept { ++winmock::detour_abort_calls; return NO_ERROR; }
-LONG DetourTransactionCommit() noexcept { return NO_ERROR; }
+LONG DetourTransactionCommit() noexcept { return winmock::detour_commit_error; }
 LONG DetourUpdateThread(HANDLE) noexcept { return winmock::detour_update_error; }
 LONG DetourAttach(void**, void*) noexcept { ++winmock::detour_attach_calls; return winmock::detour_attach_error; }
 LONG DetourDetach(void**, void*) noexcept { ++winmock::detour_detach_calls; return winmock::detour_detach_error; }
