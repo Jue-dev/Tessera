@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include <cstdarg>
 #include <cstdint>
 #include <cwchar>
 #include <limits>
@@ -15,6 +16,10 @@ using HMODULE = void*;
 using LPVOID = void*;
 using LPCVOID = const void*;
 using LPCWCH = const wchar_t*;
+using HLOCAL = void*;
+using UINT = std::uint32_t;
+using LPSTR = char*;
+using LPCCH = const char*;
 using LPWSTR = wchar_t*;
 using WCHAR = wchar_t;
 struct SYSTEM_INFO { WORD wProcessorArchitecture; WORD wReserved; DWORD dwPageSize; LPVOID lpMinimumApplicationAddress; LPVOID lpMaximumApplicationAddress; std::uintptr_t dwActiveProcessorMask; DWORD dwNumberOfProcessors; DWORD dwProcessorType; DWORD dwAllocationGranularity; WORD wProcessorLevel; WORD wProcessorRevision; };
@@ -27,6 +32,13 @@ struct THREADENTRY32 { DWORD dwSize; DWORD cntUsage; DWORD th32ThreadID; DWORD t
 #define FALSE 0
 #define INVALID_HANDLE_VALUE reinterpret_cast<HANDLE>(static_cast<std::intptr_t>(-1))
 #define NO_ERROR 0u
+#define FORMAT_MESSAGE_ALLOCATE_BUFFER 0x00000100u
+#define FORMAT_MESSAGE_IGNORE_INSERTS 0x00000200u
+#define FORMAT_MESSAGE_FROM_SYSTEM 0x00001000u
+#define LANG_NEUTRAL 0x00u
+#define SUBLANG_DEFAULT 0x01u
+#define MAKELANGID(primary, sub) ((static_cast<WORD>(sub) << 10u) | static_cast<WORD>(primary))
+#define CP_UTF8 65001u
 #define ERROR_SUCCESS 0u
 #define STILL_ACTIVE 259u
 #define INFINITE 0xFFFFFFFFu
@@ -112,3 +124,7 @@ DWORD ResumeThread(HANDLE) noexcept;
 HANDLE CreateMutexW(void*, BOOL, LPCWCH) noexcept;
 DWORD WaitForSingleObject(HANDLE, DWORD) noexcept;
 BOOL ReleaseMutex(HANDLE) noexcept;
+
+DWORD FormatMessageW(DWORD, LPCVOID, DWORD, DWORD, LPWSTR, DWORD, va_list*) noexcept;
+HLOCAL LocalFree(HLOCAL) noexcept;
+int WideCharToMultiByte(UINT, DWORD, LPCWCH, int, LPSTR, int, LPCCH, BOOL*) noexcept;

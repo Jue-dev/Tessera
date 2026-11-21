@@ -476,3 +476,13 @@ LONG DetourTransactionCommit() noexcept { return winmock::detour_commit_error; }
 LONG DetourUpdateThread(HANDLE) noexcept { return winmock::detour_update_error; }
 LONG DetourAttach(void**, void*) noexcept { ++winmock::detour_attach_calls; return winmock::detour_attach_error; }
 LONG DetourDetach(void**, void*) noexcept { ++winmock::detour_detach_calls; return winmock::detour_detach_error; }
+
+DWORD FormatMessageW(DWORD, LPCVOID, DWORD, DWORD, LPWSTR, DWORD, va_list*) noexcept {
+    return 0;
+}
+HLOCAL LocalFree(HLOCAL memory) noexcept {
+    return memory;
+}
+int WideCharToMultiByte(UINT, DWORD, LPCWCH, int, LPSTR, int, LPCCH, BOOL*) noexcept {
+    return 0;
+}
