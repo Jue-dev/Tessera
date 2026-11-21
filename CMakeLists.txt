@@ -220,6 +220,8 @@ tessera_add_module(
     NAME module
     SOURCES
         src/module/pe_image.cpp
+        src/module/pe_image_memory.cpp
+        src/module/pe_image_raw.cpp
         src/platform/windows/module_backend.cpp
     PUBLIC_HEADERS
         include/tessera/module/pe_image.hpp
