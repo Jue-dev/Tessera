@@ -65,6 +65,7 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         shell: bash
         run: |
+          set -o pipefail
           duration="${{ inputs.duration_seconds || '60' }}"
           corpus="verify/fuzz/corpus/${{ matrix.corpus }}"
           mkdir -p artifacts/fuzz
