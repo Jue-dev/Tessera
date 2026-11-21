@@ -68,3 +68,11 @@ are empty.
 
 Before revisiting these decisions, inspect the current CMake target graph and
 all link dependencies, then run the supported x86/x64 build and test matrix.
+
+## Wave 3 follow-up — private implementation weight
+
+- The target-profile JSON codec's non-template conversion/serialization helpers now live in `src/targets/target_profile_json_common.cpp`; the detail header contains declarations only. This keeps the public target-profile API unchanged while reducing repeated parsing/serialization bodies in each consumer translation unit.
+- PE image source adapters retain their small internal class contracts in `pe_image_detail.hpp`, while raw-file and mapped-memory read implementations plus ASCII-RVA extraction are out-of-line in `pe_image_detail.cpp`. The raw-file and mapped-memory parse loops remain separate because their admissibility and RVA-to-file policies intentionally differ.
+- `target_runtime.cpp` remains one strategy dispatcher: RVA/export/pattern/relative/pointer-chain/field/RTTI/string/Python resolution shares validation, persistence and session-cache invariants. Splitting it by strategy would fragment those invariants without a stable ownership boundary.
+- `native_inline_backend.cpp` remains cohesive around one hook transaction/lifetime state machine. Trampoline allocation, relocation and rollback share ownership and failure cleanup; splitting those bodies without a separate owner would increase cross-file state coupling.
+
