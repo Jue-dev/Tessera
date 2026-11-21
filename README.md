@@ -107,3 +107,6 @@ Run the repository-wide validation script from a Windows PowerShell session with
 
 The sustained native-hook fuzz campaign requires the corresponding Windows Clang/ASan runtime; Microsoft Detours integration additionally requires a local Detours v4.0.1 checkout supplied with `-DetoursRoot`.
 
+
+
+`ResolutionTrace` can be passed to the additive `AddressResolver::resolve_entry` overload to record the resolution stage and terminal status without changing the target-profile JSON schema.
