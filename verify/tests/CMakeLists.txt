@@ -77,19 +77,11 @@ tessera_add_test(tessera_test_standalone_consumers
     SOURCES
         consumers/standalone_consumer.cpp
     LIBS
-        tessera::core
-        tessera::diagnostics
-        tessera::pattern
-        tessera::utility
-        tessera::filesystem
-        tessera::json
-        tessera::logging
-        tessera::profiling
-        tessera::profile
-        tessera::profile_json
-        tessera::target_profiles
-        tessera::target_profiles_json
-        tessera::reflection
+        tessera::tessera
+)
+target_compile_definitions(tessera_test_standalone_consumers PRIVATE
+    TESSERA_CONSUMER_WITH_PROFILE=$<BOOL:${TESSERA_BUILD_PROFILE}>
+    TESSERA_CONSUMER_WITH_TARGETS=$<BOOL:${TESSERA_BUILD_TARGETS}>
 )
 
 # ------------------------------------------------------------------------------
