@@ -64,6 +64,7 @@ CONCURRENCY_COMMON=(
 CONCURRENCY_SOURCES=(
   src/core/core.cpp
   src/diagnostics/diagnostics.cpp
+  src/utility/utility.cpp
   src/logging/logging.cpp
   src/pattern/pattern.cpp
   src/pattern/pattern_simd.cpp
