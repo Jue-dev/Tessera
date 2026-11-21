@@ -17,10 +17,11 @@ placeholders:
   `profiling::run_benchmark`: zero-iteration/empty-callback handling,
   per-iteration timing, total/min/max accumulation, and mean calculation.
   It is executable library behavior, not an empty translation unit.
-- `src/hook/backends/x86_instruction_decoder.hpp` contains the private
-  bounded decoder implementation (approximately 21 KiB in the inspected
-  revision). It is included by the native inline backend and currently has no
-  public API role.
+- The private bounded x86/x64 decoder was originally under
+  `src/hook/backends/` and used by the native inline backend only. Wave 3
+  relocates it to `src/disasm/` because scanner/xref and resolver now need the
+  same conservative instruction-boundary and operand metadata. It remains an
+  internal implementation with no public API role.
 - `src/rtti/python_bridge.cpp` contains Python-runtime detection and bridge
   scanning logic, while `src/rtti/discovery.cpp` contains RTTI discovery and
   type reconstruction. They share the RTTI domain and some memory/scanning
@@ -49,11 +50,11 @@ placeholders:
    capability boundary (for example, a dedicated optional Python integration
    component), not merely by file size. Such a change must first define target
    dependencies, feature-disable behavior, and public-header compatibility.
-5. **Do not move the private x86 decoder solely to reduce header size without
-   measuring compile-time impact and validating linkage.** Its implementation
-   is private to the native hook backend today; a separate translation unit is
-   a viable follow-up, but should be handled as its own behavior-preserving
-   refactor with x86/x64 tests and benchmark/build evidence.
+5. **Keep the x86 decoder internal and below its consumers.** It was initially
+   hook-private; once scanner/xref and resolver required the same bounded
+   decoding semantics, Wave 3 moved it into the private `disasm` build component.
+   The move is behavior-preserving, does not add an installed target or public
+   header, and must retain x86/x64 decoder-oracle and native-hook validation.
 
 ## Consequences
 
