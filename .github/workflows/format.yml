@@ -30,10 +30,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Install pinned clang-format 19 (supports repository C++23 format config)
+      - name: Install pinned clang-format 18
         run: |
           sudo apt-get update
-          sudo apt-get install --yes clang-format-19
+          sudo apt-get install --yes clang-format-18
 
       - name: Check changed C/C++ files
         env:
@@ -50,4 +50,4 @@ jobs:
           fi
           printf 'Checking %s changed C/C++ files with repository .clang-format\n' "${#files[@]}"
           printf '%s\n' "${files[@]}"
-          clang-format-19 --dry-run --Werror "${files[@]}"
+          clang-format-18 --dry-run --Werror "${files[@]}"
