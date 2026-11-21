@@ -614,6 +614,7 @@ Result<XrefScanResult> find_decoded_xrefs(
             Address resolved_target{};
             XrefKind kind = XrefKind::DirectCall;
             if (decoded.has_relative_operand &&
+                (decoded.relative_size == 1u || decoded.relative_size == 4u) &&
                 decoded.relative_offset + decoded.relative_size <= decoded.length) {
                 std::int64_t displacement = 0;
                 if (decoded.relative_size == 1) {
