@@ -72,6 +72,10 @@ tessera_add_module(
         include/tessera/core/result.hpp
         include/tessera/core/types.hpp
         include/tessera/core/core.hpp
+    PUBLIC_DEFS
+        TESSERA_CMAKE_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+        TESSERA_CMAKE_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+        TESSERA_CMAKE_VERSION_PATCH=${PROJECT_VERSION_PATCH}
 )
 
 # ------------------------------------------------------------------------------
