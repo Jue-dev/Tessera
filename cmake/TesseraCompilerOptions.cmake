@@ -17,11 +17,13 @@ function(tessera_verify_cpp23_toolchain)
     # run the standard-library checks in the driver's default language mode.
     # Keep /Zc:__cplusplus enabled because the MSVC STL uses the active standard
     # version when exposing C++23 library facilities.
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND
+       CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+        # clang-cl uses the MSVC STL, which gates C++23 facilities on
+        # _MSVC_LANG; use the MSVC language-mode switch for the probe.
+        set(CMAKE_REQUIRED_FLAGS "/std:c++latest /Zc:__cplusplus")
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         set(CMAKE_REQUIRED_FLAGS "-std=c++23")
-        if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-            string(APPEND CMAKE_REQUIRED_FLAGS " /Zc:__cplusplus")
-        endif()
     elseif(MSVC)
         set(CMAKE_REQUIRED_FLAGS "/std:c++latest /Zc:__cplusplus")
     else()
