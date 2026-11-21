@@ -231,6 +231,7 @@ void Pattern::search(std::span<const std::byte> data,
     const std::size_t limit = (std::min)(start_limit, data.size() - size_ + 1);
     const auto pat_bytes = bytes();
     const std::byte* raw = data.data();
+    const bool exact = is_exact();
 
     if (has_anchor_) {
         const auto secondary = secondary_anchor_index();
@@ -252,7 +253,7 @@ void Pattern::search(std::span<const std::byte> data,
                 data[candidate + *secondary] == pat_bytes[*secondary];
             const bool full_match =
                 secondary_matches &&
-                (is_exact()
+                (exact
                      ? std::memcmp(data.data() + candidate, pat_bytes.data(), size_) == 0
                      : matches(data.subspan(candidate, size_)));
             if (full_match) {
