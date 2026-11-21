@@ -116,9 +116,14 @@ TEST_CASE("Targets verification engine: exact build, stale, compatible build, ne
     resolver.invalidate_session_cache();
     profile.builds[0].addresses[0].fallback.reset();
     backend->poke_value<std::uint8_t>(Address{0x140001000ULL}, 0xCCu);
-    auto out_stale = resolver.resolve_entry(profile, "player.update_fn");
+    ResolutionTrace stale_trace;
+    auto out_stale = resolver.resolve_entry(
+        profile, "player.update_fn", PersistPolicy::AskBeforePersist, nullptr, &stale_trace);
     REQUIRE(out_stale.status == ResolutionStatus::Stale);
     REQUIRE_FALSE(out_stale.verified().has_value());
+    REQUIRE_FALSE(stale_trace.steps.empty());
+    REQUIRE(stale_trace.steps.back().stage == "Exact-build primary recipe");
+    REQUIRE(stale_trace.steps.back().detail.find("failed required validation") != std::string::npos);
 
     // 3. New compatible build (different SHA256, code moved to RVA 0x1500) -> VerifiedCompatibleBuild
     //    and AutoPersistVerified appends a new TargetBuild while preserving win64-v1!
