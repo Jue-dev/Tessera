@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdarg>
+#include <ctime>
 #include <cstdint>
 #include <cwchar>
 #include <limits>
@@ -16,7 +17,14 @@ using HMODULE = void*;
 using LPVOID = void*;
 using LPCVOID = const void*;
 using LPCWCH = const wchar_t*;
+#if defined(_WIN32)
 using LPCWSTR = const wchar_t*;
+#else
+using LPCWSTR = const char*;
+inline int localtime_s(std::tm* result, const std::time_t* time_value) noexcept {
+    return localtime_r(time_value, result) == nullptr ? 1 : 0;
+}
+#endif
 using HLOCAL = void*;
 using UINT = std::uint32_t;
 using LPSTR = char*;
@@ -48,6 +56,7 @@ struct THREADENTRY32 { DWORD dwSize; DWORD cntUsage; DWORD th32ThreadID; DWORD t
 #define FILE_SHARE_READ 0x00000001u
 #define FILE_ATTRIBUTE_NORMAL 0x00000080u
 #define FILE_END 2u
+#define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004u
 #define STD_OUTPUT_HANDLE static_cast<DWORD>(-11)
 #define ERROR_SUCCESS 0u
 #define STILL_ACTIVE 259u
@@ -145,3 +154,6 @@ void OutputDebugStringW(LPCWSTR) noexcept;
 HANDLE CreateFileW(LPCWSTR, DWORD, DWORD, void*, DWORD, DWORD, HANDLE) noexcept;
 BOOL SetFilePointerEx(HANDLE, LARGE_INTEGER, LARGE_INTEGER*, DWORD) noexcept;
 BOOL FlushFileBuffers(HANDLE) noexcept;
+
+BOOL GetConsoleMode(HANDLE, DWORD*) noexcept;
+BOOL SetConsoleMode(HANDLE, DWORD) noexcept;

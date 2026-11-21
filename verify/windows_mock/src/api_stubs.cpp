@@ -499,3 +499,9 @@ HANDLE CreateFileW(LPCWSTR, DWORD, DWORD, void*, DWORD, DWORD, HANDLE) noexcept 
 }
 BOOL SetFilePointerEx(HANDLE, LARGE_INTEGER, LARGE_INTEGER*, DWORD) noexcept { return TRUE; }
 BOOL FlushFileBuffers(HANDLE) noexcept { return TRUE; }
+
+BOOL GetConsoleMode(HANDLE, DWORD* mode) noexcept {
+    if (mode != nullptr) { *mode = 0; }
+    return FALSE;
+}
+BOOL SetConsoleMode(HANDLE, DWORD) noexcept { return TRUE; }
