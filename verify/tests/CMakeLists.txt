@@ -175,6 +175,8 @@ tessera_add_test(tessera_test_patch_hook
         tessera::patch
         tessera::hook
         tessera::module
+        tessera::scanner
+        tessera::filesystem
         tessera::disasm
 )
 if(CMAKE_SIZEOF_VOID_P EQUAL 4)
