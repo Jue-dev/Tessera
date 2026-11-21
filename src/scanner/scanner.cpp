@@ -480,7 +480,6 @@ Result<XrefScanResult> find_decoded_xrefs(
         const IMemoryBackend& backend = memory_backend(process);
         std::uint64_t cursor = instruction_range.begin().value();
         std::uint64_t region_end = 0;
-        std::uint64_t current_region_base = 0;
         while (cursor < range_end->value()) {
             if (options.stop.stop_requested()) {
                 result.cancelled = true;
@@ -503,13 +502,12 @@ Result<XrefScanResult> find_decoded_xrefs(
                                 0, "Memory-region query returned an invalid range");
                 }
                 region_end = *next_region;
-                current_region_base = region->base.value();
                 ++result.stats.regions_scanned;
             }
 
             const std::uint64_t remaining = range_end->value() - cursor;
             const std::size_t available = static_cast<std::size_t>(
-                (std::min)(std::uint64_t{15}, remaining));
+                (std::min)((std::min)(std::uint64_t{15}, remaining), region_end - cursor));
             std::array<std::byte, 15> raw{};
             auto read = backend.read(Address{cursor}, std::span<std::byte>{raw}.first(available));
             if (!read || *read != available) {
@@ -568,6 +566,23 @@ Result<XrefScanResult> find_decoded_xrefs(
                 }
             }
 
+            if (!matched && process.pointer_size() == 4u &&
+                decoded.opcode == 0xFFu && decoded.length == 6u &&
+                (decoded.modrm_reg == 2u || decoded.modrm_reg == 4u)) {
+                std::uint32_t slot32 = 0;
+                std::memcpy(&slot32, raw.data() + 2, sizeof(slot32));
+                std::array<std::byte, sizeof(std::uint64_t)> pointer_bytes{};
+                auto pointer_read = backend.read(
+                    Address{slot32}, std::span<std::byte>{pointer_bytes}.first(sizeof(std::uint32_t)));
+                if (pointer_read && *pointer_read == sizeof(std::uint32_t)) {
+                    std::uint32_t pointer_value = 0;
+                    std::memcpy(&pointer_value, pointer_bytes.data(), sizeof(pointer_value));
+                    resolved_target = Address{pointer_value};
+                    matched = resolved_target == target;
+                    kind = decoded.modrm_reg == 2u ? XrefKind::IndirectCall : XrefKind::IndirectJump;
+                }
+            }
+
             if (!matched && decoded.has_rip_relative_operand &&
                 decoded.rip_displacement_offset + sizeof(std::int32_t) <= decoded.length) {
                 std::int32_t displacement = 0;
@@ -589,7 +604,7 @@ Result<XrefScanResult> find_decoded_xrefs(
                         std::array<std::byte, sizeof(std::uint64_t)> pointer_bytes{};
                         const std::size_t pointer_size = process.pointer_size();
                         auto pointer_read = backend.read(
-                            *slot, std::span<std::byte>{pointer_bytes}.first(pointer_size));
+                            Address{*slot}, std::span<std::byte>{pointer_bytes}.first(pointer_size));
                         if (pointer_read && *pointer_read == pointer_size) {
                             std::uint64_t pointer_value = 0;
                             if (pointer_size == 8u) {
@@ -633,7 +648,6 @@ Result<XrefScanResult> find_decoded_xrefs(
                 });
             }
         }
-        (void)current_region_base;
         return result;
     } catch (const std::bad_alloc&) {
         return fail(ErrorCode::OutOfMemory, "xref::find_decoded_xrefs");
