@@ -1,5 +1,7 @@
 #include "pe_image_detail.hpp"
 
+#include <cstring>
+
 namespace tessera {
 
 Result<PeImage> PeImage::from_memory(const Process& process, Address base) {
