@@ -12,11 +12,9 @@ function(tessera_verify_cpp23_toolchain)
     endif()
 
     # CheckCXXSourceCompiles does not inherit target compile_features.
-    # clang-cl reports compiler ID "Clang" but has the MSVC frontend. Probe it
-    # with Clang's explicit language-mode option so CMake does not accidentally
-    # run the standard-library checks in the driver's default language mode.
-    # Keep /Zc:__cplusplus enabled because the MSVC STL uses the active standard
-    # version when exposing C++23 library facilities.
+    # Native MSVC and GNU/Clang receive an explicit language-mode probe.
+    # clang-cl's MSVC STL probe is skipped below because CMake's try-compile
+    # does not consistently expose its C++23 feature macros.
     if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND
        CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
         # clang-cl uses the MSVC STL, which gates C++23 facilities on
