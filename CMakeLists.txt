@@ -115,10 +115,19 @@ tessera_add_module(
 # ------------------------------------------------------------------------------
 # L1 (Process/Memory independent): pattern, utility, filesystem, json, logging, profiling
 # ------------------------------------------------------------------------------
+if(MSVC AND NOT CMAKE_SYSTEM_PROCESSOR MATCHES "ARM|arm")
+    if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+        set_source_files_properties(src/pattern/pattern_simd.cpp PROPERTIES COMPILE_OPTIONS "/arch:SSE2")
+    endif()
+    set_source_files_properties(src/pattern/pattern_simd_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+endif()
+
 tessera_add_module(
     NAME pattern
     SOURCES
         src/pattern/pattern.cpp
+        src/pattern/pattern_simd.cpp
+        src/pattern/pattern_simd_avx2.cpp
     PUBLIC_HEADERS
         include/tessera/pattern/pattern.hpp
     PUBLIC_DEPS
