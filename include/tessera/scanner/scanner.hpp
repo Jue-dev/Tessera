@@ -53,7 +53,20 @@ struct ScanResult {
     bool cancelled = false;
 };
 
-// Thread-safety: const member functions are re-entrant.
+// Caller-owned scratch storage. Reusing one workspace across scans retains
+// the chunk buffer allocation; a workspace must not be shared concurrently.
+class ScanWorkspace {
+public:
+    void reserve(std::size_t bytes) { buffer_.reserve(bytes); }
+    [[nodiscard]] std::size_t capacity() const noexcept { return buffer_.capacity(); }
+
+private:
+    std::vector<std::byte> buffer_{};
+    friend class Scanner;
+};
+
+// Thread-safety: const member functions are re-entrant when each concurrent
+// scan has independent optional workspace storage.
 class Scanner {
 public:
     explicit Scanner(Process process) noexcept : process_(std::move(process)) {}
@@ -67,6 +80,18 @@ public:
                                           const Pattern& pattern,
                                           const ScanOptions& options,
                                           ScanReadPolicy read_policy) const;
+    [[nodiscard]] Result<ScanResult> scan(AddressRange range,
+                                          const Pattern& pattern,
+                                          const ScanOptions& options,
+                                          ScanWorkspace& workspace,
+                                          ScanReadPolicy read_policy = ScanReadPolicy::BestEffort) const;
+    [[nodiscard]] Result<ScanResult> scan_streaming(
+        AddressRange range,
+        const Pattern& pattern,
+        const ScanOptions& options,
+        FunctionRef<bool(Address)> on_match,
+        ScanWorkspace* workspace = nullptr,
+        ScanReadPolicy read_policy = ScanReadPolicy::BestEffort) const;
 
     // Scans several signatures over each memory chunk after a single remote read.
     // The result vector preserves the input pattern order and each pattern has
@@ -94,6 +119,14 @@ public:
                                                    const ScanOptions& options = {}) const;
 
 private:
+    [[nodiscard]] Result<ScanResult> scan_impl(
+        AddressRange range,
+        const Pattern& pattern,
+        const ScanOptions& options,
+        ScanReadPolicy read_policy,
+        ScanWorkspace* workspace,
+        FunctionRef<bool(Address)> on_match) const;
+
     Process process_;
 };
 
