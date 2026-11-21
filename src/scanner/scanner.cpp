@@ -669,7 +669,7 @@ Result<XrefBatchScanResult> find_decoded_xrefs_batch(
                     std::uint32_t pointer_value = 0;
                     std::memcpy(&pointer_value, pointer_bytes.data(), sizeof(pointer_value));
                     resolved_target = Address{pointer_value};
-                    matched = resolved_target == target;
+                    matched = true;
                     kind = decoded.modrm_reg == 2u ? XrefKind::IndirectCall : XrefKind::IndirectJump;
                 }
             }
@@ -706,11 +706,11 @@ Result<XrefBatchScanResult> find_decoded_xrefs_batch(
                                 pointer_value = pointer32;
                             }
                             resolved_target = Address{pointer_value};
-                            matched = resolved_target == target;
+                            matched = true;
                             kind = indirect_call ? XrefKind::IndirectCall : XrefKind::IndirectJump;
                         }
                     } else {
-                        matched = resolved_target == target;
+                        matched = true;
                         kind = XrefKind::RipRelativeData;
                     }
                 }
