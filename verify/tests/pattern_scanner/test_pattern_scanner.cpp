@@ -474,6 +474,49 @@ TEST_CASE("Decoded xrefs reject CALL opcode bytes embedded inside instruction im
     REQUIRE(decoded_batch->results[2].references.front().instruction == Address{base + 0x100});
 }
 
+TEST_CASE("Decoded x86 indirect xrefs only dereference absolute ModRM operands",
+          "[xref][decoder][x86]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    constexpr std::uint64_t code_base = 0x100000;
+    constexpr std::uint32_t pointer_slot = 0x102000;
+    constexpr std::uint32_t target_value = 0x103000;
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    std::array<std::byte, 0x1000> code{};
+    code.fill(std::byte{0x90});
+
+    // CALL dword ptr [disp32] — absolute addressing (FF 15 disp32).
+    code[0] = std::byte{0xFF};
+    code[1] = std::byte{0x15};
+    std::memcpy(code.data() + 2, &pointer_slot, sizeof(pointer_slot));
+
+    // CALL dword ptr [EBP+disp32] — base-relative, not an absolute pointer slot.
+    code[0x10] = std::byte{0xFF};
+    code[0x11] = std::byte{0x95};
+    std::memcpy(code.data() + 0x12, &pointer_slot, sizeof(pointer_slot));
+
+    std::array<std::byte, 0x1000> data{};
+    std::memcpy(data.data(), &target_value, sizeof(target_value));
+    backend->map_region(Address{code_base}, code.size(), MemoryProtection::ExecuteRead);
+    backend->map_region(Address{pointer_slot}, data.size(), MemoryProtection::ReadWrite);
+    backend->poke_bytes(Address{code_base}, code);
+    backend->poke_bytes(Address{pointer_slot}, data);
+
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X86);
+    ScanOptions options{};
+    options.filter.executable_only = true;
+    auto decoded = xref::find_decoded_xrefs(
+        process, AddressRange{Address{code_base}, code.size()},
+        Address{target_value}, options);
+
+    REQUIRE(decoded.has_value());
+    REQUIRE(decoded->references.size() == 1);
+    REQUIRE(decoded->references.front().instruction == Address{code_base});
+    REQUIRE(decoded->references.front().target == Address{target_value});
+    REQUIRE(decoded->references.front().kind == xref::XrefKind::IndirectCall);
+}
+
 TEST_CASE("Scanner preserves overlapping hits, alignment quotas, and strict no-access policy",
           "[scanner][overlap][policy]") {
     using namespace tessera;
