@@ -34,6 +34,7 @@ if(TESSERA_ENABLE_MSVC_FUZZER)
 endif()
 option(TESSERA_ENABLE_ANALYZE    "Enable MSVC /analyze"                OFF)
 option(TESSERA_ENABLE_COVERAGE    "Enable GCC/Clang line and branch coverage" OFF)
+option(TESSERA_PATTERN_FORCE_SCALAR "Disable pattern SIMD dispatch for scalar-fallback validation" OFF)
 
 if(TESSERA_ENABLE_COVERAGE)
     if(MSVC OR NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -46,6 +47,10 @@ if(TESSERA_ENABLE_COVERAGE)
         add_compile_options(-fprofile-instr-generate -fcoverage-mapping -O0 -g)
         add_link_options(-fprofile-instr-generate -fcoverage-mapping)
     endif()
+endif()
+
+if(TESSERA_PATTERN_FORCE_SCALAR)
+    add_compile_definitions(TESSERA_PATTERN_FORCE_SCALAR=1)
 endif()
 
 include(GNUInstallDirs)
