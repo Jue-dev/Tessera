@@ -421,7 +421,7 @@ TEST_CASE("Native x86 relocator preserves near JMP, CALL, and Jcc trampoline beh
           "[hook][native][x86][relocation]") {
     using namespace tessera;
 
-    const auto run_case = [](std::span<const std::byte> target_code, const char* case_name) {
+    const auto run_case = [](std::span<const std::byte> target_code) {
         ExecutableRegion region{};
         REQUIRE(region.address != nullptr);
         auto* code = region.bytes();
@@ -451,13 +451,13 @@ TEST_CASE("Native x86 relocator preserves near JMP, CALL, and Jcc trampoline beh
         std::byte{0xE8}, std::byte{0x06}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
         std::byte{0xB8}, std::byte{0x2A}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
         std::byte{0xC3}, std::byte{0xC3}};
-    run_case(near_call, "near CALL rel32");
+    run_case(near_call);
 
     const std::array<std::byte, 11> near_jmp{
         std::byte{0xE9}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
         std::byte{0xB8}, std::byte{0x2A}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
         std::byte{0xC3}};
-    run_case(near_jmp, "near JMP rel32");
+    run_case(near_jmp);
 
     const std::array<std::byte, 16> near_jcc{
         std::byte{0x31}, std::byte{0xC0},
@@ -466,7 +466,7 @@ TEST_CASE("Native x86 relocator preserves near JMP, CALL, and Jcc trampoline beh
         std::byte{0x90}, std::byte{0x90},
         std::byte{0xB8}, std::byte{0x2A}, std::byte{0x00},
         std::byte{0x00}, std::byte{0x00}, std::byte{0xC3}};
-    run_case(near_jcc, "near Jcc rel32");
+    run_case(near_jcc);
 }
 
 TEST_CASE("Native x86 hook rejects short terminal prologues without modifying target bytes",
