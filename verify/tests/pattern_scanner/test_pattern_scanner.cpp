@@ -124,6 +124,15 @@ TEST_CASE("Scanner chunk overlap, contiguous region merging, bad page skip, and 
     REQUIRE(res->hits[0] == Address{0x200FFD});
     REQUIRE(res->hits[1] == Address{0x201800});
 
+    const std::array<Pattern, 2> batch_patterns{sig, "8D 0D AA"_sig};
+    auto batch = scanner.scan_batch(scan_range, batch_patterns, opts);
+    REQUIRE(batch.has_value());
+    REQUIRE(batch->size() == 2);
+    REQUIRE((*batch)[0].hits.size() == 2);
+    REQUIRE((*batch)[1].hits.size() == 2);
+    REQUIRE((*batch)[0].hits.front() == Address{0x200FFD});
+    REQUIRE((*batch)[1].hits.front() == Address{0x200FFE});
+
     // find_first succeeds; find_unique returns Ambiguous when > 1 match exists
     REQUIRE(scanner.find_first(scan_range, sig, opts).value() == Address{0x200FFD});
     auto uniq = scanner.find_unique(scan_range, sig, opts);
