@@ -69,7 +69,7 @@ TEST_CASE("DiskPatchTransaction validates expected bytes, backs up, updates chec
  auto raw=filesystem::read_file_bytes(temp);REQUIRE(raw);
  auto pe=PeImage::from_raw_bytes(*raw);REQUIRE(pe);
  auto text=pe->find_section(".text");REQUIRE(text);REQUIRE(text->raw_size>0);
- const std::uint64_t offset=text->raw_offset;
+ const std::size_t offset=static_cast<std::size_t>(text->raw_offset);
  const std::byte original=(*raw)[static_cast<std::size_t>(offset)];
  const std::byte replacement{static_cast<unsigned char>(std::to_integer<unsigned char>(original)^0x5au)};
  DiskPatchTransaction patch{temp};
