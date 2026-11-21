@@ -37,7 +37,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
             (void)(*backend)->rva_to_file_offset(tessera::Rva{0});
             (void)(*backend)->rva_to_va(tessera::Rva{0});
             (void)(*backend)->file_offset_to_rva(raw.size());
-            (void)(*backend)->read((*backend)->base(), raw);
+            std::vector<std::byte> probe(raw.size());
+            (void)(*backend)->read((*backend)->base(), probe);
         }
     } catch (const std::bad_alloc&) {
         // Allocation failure is a normal, fail-closed fuzz outcome.
