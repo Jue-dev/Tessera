@@ -104,6 +104,13 @@ TEST_CASE("Targets verification engine: exact build, stale, compatible build, ne
     REQUIRE(out_cached.from_session_cache);
     REQUIRE(out_cached.verified().has_value());
 
+    ResolutionTrace cache_trace;
+    auto traced_cache = resolver.resolve_entry(
+        profile, "player.update_fn", PersistPolicy::AskBeforePersist, nullptr, &cache_trace);
+    REQUIRE(traced_cache.from_session_cache);
+    REQUIRE(cache_trace.steps.back().stage == "Verified session cache");
+    REQUIRE(cache_trace.steps.back().detail == "Resolved from verified session cache");
+
     resolver.invalidate_session_cache();
     ResolutionTrace exact_trace;
     auto out_traced = resolver.resolve_entry(
