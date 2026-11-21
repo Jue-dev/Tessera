@@ -14,6 +14,7 @@
 #include "tessera/pattern/pattern.hpp"
 #include "tessera/scanner/scanner.hpp"
 #include "tessera/scanner/xref.hpp"
+#include "pattern/pattern_simd.hpp"
 
 namespace {
 
@@ -145,6 +146,58 @@ TEST_CASE("Pattern SIMD dispatch matches scalar results for overlapping signatur
     REQUIRE(actual == expected);
     for (const std::size_t offset : offsets) {
         REQUIRE(std::find(actual.begin(), actual.end(), offset) != actual.end());
+    }
+}
+
+TEST_CASE("SSE2 and AVX2 dual-anchor masks match scalar candidate filtering",
+          "[pattern][simd][parity]") {
+    using namespace tessera::pattern::detail;
+
+    std::array<std::byte, 128> data{};
+    for (std::size_t i = 0; i < data.size(); ++i) {
+        data[i] = static_cast<std::byte>((i * 53u + 17u) & 0xFFu);
+    }
+    constexpr std::size_t primary = 2;
+    constexpr std::size_t secondary = 7;
+    constexpr std::byte primary_value{0x48};
+    constexpr std::byte secondary_value{0x8B};
+    constexpr std::array<std::size_t, 5> block_offsets{0, 15, 31, 32, 64};
+
+    for (const std::size_t offset : block_offsets) {
+        for (std::size_t lane = 0; lane < 32; ++lane) {
+            if (((lane + offset) % 5u) == 0u) {
+                data[offset + lane + primary] = primary_value;
+            }
+            if (((lane + offset) % 7u) == 0u) {
+                data[offset + lane + secondary] = secondary_value;
+            }
+        }
+
+        std::uint32_t expected_sse = 0;
+        for (std::size_t lane = 0; lane < 16; ++lane) {
+            if (data[offset + lane + primary] == primary_value &&
+                data[offset + lane + secondary] == secondary_value) {
+                expected_sse |= (std::uint32_t{1} << lane);
+            }
+        }
+        std::uint32_t expected_avx = 0;
+        for (std::size_t lane = 0; lane < 32; ++lane) {
+            if (data[offset + lane + primary] == primary_value &&
+                data[offset + lane + secondary] == secondary_value) {
+                expected_avx |= (std::uint32_t{1} << lane);
+            }
+        }
+
+        if (cpu_supports_sse2()) {
+            REQUIRE(dual_anchor_mask_sse2(
+                        data.data(), offset, primary, primary_value, secondary, secondary_value) ==
+                    expected_sse);
+        }
+        if (cpu_supports_avx2()) {
+            REQUIRE(dual_anchor_mask_avx2(
+                        data.data(), offset, primary, primary_value, secondary, secondary_value) ==
+                    expected_avx);
+        }
     }
 }
 
