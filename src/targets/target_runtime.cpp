@@ -737,9 +737,9 @@ ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
         .report = outcome.report,
     });
 
-    begin_stage("Verified compatible-build persistence");
     // 6. Auto-persist new TargetBuild if policy is AutoPersistVerified
     if (persist_policy == PersistPolicy::AutoPersistVerified && exact_build == nullptr) {
+        begin_stage("Verified compatible-build persistence");
         TargetBuild new_build{};
         new_build.build_id = std::format(
             "auto-{}-{}",
