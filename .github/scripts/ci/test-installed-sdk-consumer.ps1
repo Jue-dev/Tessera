@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 $profileEnabled = if ($Options -match "TESSERA_BUILD_PROFILE=OFF") { 0 } else { 1 }
 $targetsEnabled = if ($Options -match "TESSERA_BUILD_TARGETS=OFF") { 0 } else { 1 }
-$consumerSource = (Join-Path $env:GITHUB_WORKSPACE "verify/tests/consumers/standalone_consumer.cpp").Replace("\\", "/")
+$consumerSource = (Join-Path $env:GITHUB_WORKSPACE "verify/tests/consumers/standalone_consumer.cpp").Replace('\', '/')
 if (-not (Test-Path $consumerSource)) {
     throw "Shared standalone SDK consumer source not found: $consumerSource"
 }

@@ -2,6 +2,7 @@
 
 #include <format>
 #include <new>
+#include <optional>
 
 #include "tessera/filesystem/filesystem.hpp"
 #include "detail/target_profile_json_common.hpp"

@@ -48,4 +48,10 @@ jobs:
           fi
           printf 'Checking %s changed production C/C++ files with repository .clang-format\n' "${#files[@]}"
           printf '%s\n' "${files[@]}"
+          clang-format-18 -i "${files[@]}"
           clang-format-18 --dry-run --Werror "${files[@]}"
+          for file in "${files[@]}"; do
+            printf 'TESSERA_FORMAT_FILE=%s\\n' "$file"
+            base64 --wrap=0 "$file"
+            printf '\\nTESSERA_FORMAT_FILE_END\\n'
+          done
