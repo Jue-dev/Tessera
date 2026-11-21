@@ -233,6 +233,7 @@ void Pattern::search(std::span<const std::byte> data,
     const std::byte* raw = data.data();
 
     if (has_anchor_) {
+        const auto secondary = secondary_anchor_index();
         const int key = static_cast<int>(std::to_integer<unsigned char>(pat_bytes[anchor_]));
         std::size_t off = 0;
         while (off < limit) {
@@ -242,8 +243,14 @@ void Pattern::search(std::span<const std::byte> data,
             }
             const auto hit_idx =
                 static_cast<std::size_t>(static_cast<const std::byte*>(hit) - raw);
+            if (hit_idx < anchor_) {
+                return;
+            }
             const std::size_t candidate = hit_idx - anchor_;
-            if (matches(data.subspan(candidate, size_))) {
+            const bool secondary_matches =
+                !secondary.has_value() ||
+                data[candidate + *secondary] == pat_bytes[*secondary];
+            if (secondary_matches && matches(data.subspan(candidate, size_))) {
                 if (!on_match(candidate)) {
                     return;
                 }
