@@ -410,6 +410,54 @@ TEST_CASE("Decoded xrefs reject CALL opcode bytes embedded inside instruction im
     REQUIRE(decoded_batch->results[2].references.front().instruction == Address{base + 0x100});
 }
 
+TEST_CASE("Scanner preserves overlapping hits, alignment quotas, and strict no-access policy",
+          "[scanner][overlap][policy]") {
+    using namespace tessera;
+    using namespace tessera::literals;
+    using namespace tessera::testing;
+
+    constexpr std::uint64_t base = 0x760000;
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    backend->map_region(Address{base}, 0x1000, MemoryProtection::NoAccess);
+    backend->map_region(Address{base + 0x1000}, 0x1000, MemoryProtection::ExecuteRead);
+    const std::array<std::byte, 4> overlapping{
+        std::byte{0xAA}, std::byte{0xAA}, std::byte{0xAA}, std::byte{0xAA}};
+    backend->poke_bytes(Address{base + 0x1100}, overlapping);
+
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
+    Scanner scanner{process};
+    const AddressRange range{Address{base}, 0x2000};
+    constexpr Pattern pattern = "AA AA"_sig;
+
+    ScanOptions best_effort{};
+    best_effort.chunk_size = 0x1000;
+    auto all = scanner.scan(range, pattern, best_effort);
+    REQUIRE(all.has_value());
+    REQUIRE(all->hits.size() == 3);
+    REQUIRE(all->hits[0] == Address{base + 0x1100});
+    REQUIRE(all->hits[1] == Address{base + 0x1101});
+    REQUIRE(all->hits[2] == Address{base + 0x1102});
+    REQUIRE(all->stats.regions_skipped == 1);
+
+    best_effort.alignment = 2;
+    auto aligned = scanner.scan(range, pattern, best_effort);
+    REQUIRE(aligned.has_value());
+    REQUIRE(aligned->hits.size() == 2);
+    REQUIRE(aligned->hits[0] == Address{base + 0x1100});
+    REQUIRE(aligned->hits[1] == Address{base + 0x1102});
+
+    best_effort.alignment = 1;
+    best_effort.max_results = 2;
+    auto limited = scanner.scan(range, pattern, best_effort);
+    REQUIRE(limited.has_value());
+    REQUIRE(limited->hits.size() == 2);
+    REQUIRE(limited->truncated);
+
+    auto strict = scanner.scan(range, pattern, best_effort, ScanReadPolicy::Strict);
+    REQUIRE_FALSE(strict.has_value());
+    REQUIRE(strict.error().code == ErrorCode::AccessDenied);
+}
+
 TEST_CASE("Scanner reports query failures and rejects chunk overlap overflow", "[scanner][safety]") {
     using namespace tessera;
     using namespace tessera::literals;
