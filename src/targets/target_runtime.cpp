@@ -11,8 +11,6 @@
 #include "tessera/rtti/python_bridge.hpp"
 #include "tessera/rtti/rtti.hpp"
 #include "tessera/scanner/scanner.hpp"
-#include "tessera/utility/bytes.hpp"
-#include "tessera/utility/string.hpp"
 
 namespace tessera::targets {
 
