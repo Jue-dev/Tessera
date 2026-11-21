@@ -104,6 +104,60 @@ TEST_CASE("Hook registry serializes concurrent duplicate installs and releases o
     REQUIRE(backend.detach_calls.load(std::memory_order_relaxed) == 1);
 }
 
+TEST_CASE("Patch auto-restore lifetimes remain isolated across concurrent regions",
+          "[patch][concurrency][lifecycle]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    constexpr std::uint64_t base = 0x6E0000;
+    constexpr std::size_t worker_count = 4;
+    const std::array<std::byte, 4> original{
+        std::byte{0x48}, std::byte{0x89}, std::byte{0x5C}, std::byte{0x24}};
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    std::array<Address, worker_count> addresses{};
+    for (std::size_t i = 0; i < worker_count; ++i) {
+        const Address region_base{base + i * 0x1000};
+        backend->map_region(region_base, 0x1000, MemoryProtection::ExecuteReadWrite);
+        addresses[i] = Address{region_base.value() + 0x100};
+        backend->poke_bytes(addresses[i], original);
+    }
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
+    std::atomic<unsigned> failures{0};
+    std::array<std::jthread, worker_count> workers{};
+
+    for (std::size_t worker = 0; worker < worker_count; ++worker) {
+        workers[worker] = std::jthread([&, worker] {
+            for (int iteration = 0; iteration < 40; ++iteration) {
+                PatchOptions options{};
+                options.auto_restore = true;
+                {
+                    auto patch = Patch::nop(ProcessAddress{process, addresses[worker]}, 4, options);
+                    if (!patch || !patch->apply()) {
+                        failures.fetch_add(1, std::memory_order_relaxed);
+                        continue;
+                    }
+                    if (backend->peek_byte(addresses[worker]) != std::byte{0x90}) {
+                        failures.fetch_add(1, std::memory_order_relaxed);
+                    }
+                }
+                if (backend->peek_byte(addresses[worker]) != original[0]) {
+                    failures.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+        });
+    }
+    for (auto& worker : workers) {
+        worker.join();
+    }
+
+    REQUIRE(failures.load(std::memory_order_relaxed) == 0);
+    for (const Address address : addresses) {
+        for (std::size_t byte = 0; byte < original.size(); ++byte) {
+            REQUIRE(backend->peek_byte(Address{address.value() + byte}) == original[byte]);
+        }
+    }
+}
+
 TEST_CASE("Native hook address range helpers remain correct at uintptr limits",
           "[hook][native][address-range]") {
     using tessera::detail::address_range_contains;
