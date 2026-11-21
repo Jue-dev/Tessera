@@ -72,4 +72,26 @@ TEST_CASE("Target profile JSON rejects malformed schema and round-trips", "[targ
     auto incompatible_version = *encoded;
     incompatible_version.set("formatVersion", std::uint64_t{0});
     REQUIRE_FALSE(deserialize_target_profile_from_json(incompatible_version).has_value());
+
+    auto invalid_architecture = *encoded;
+    auto* builds = invalid_architecture.find("builds");
+    REQUIRE(builds != nullptr);
+    (*builds->as_array())[0].set("architecture", "arm64");
+    REQUIRE_FALSE(deserialize_target_profile_from_json(invalid_architecture).has_value());
+
+    auto conflicting_entry = *encoded;
+    auto* conflict_builds = conflicting_entry.find("builds");
+    REQUIRE(conflict_builds != nullptr);
+    auto* addresses = (*conflict_builds->as_array())[0].find("addresses");
+    REQUIRE(addresses != nullptr);
+    addresses->as_array()->push_back((*addresses->as_array())[0]);
+    REQUIRE_FALSE(deserialize_target_profile_from_json(conflicting_entry).has_value());
+
+    auto incomplete_module = *encoded;
+    auto* module_builds = incomplete_module.find("builds");
+    REQUIRE(module_builds != nullptr);
+    auto* modules = (*module_builds->as_array())[0].find("modules");
+    REQUIRE(modules != nullptr);
+    modules->as_array()->push_back(json::JsonValue::make_object());
+    REQUIRE_FALSE(deserialize_target_profile_from_json(incomplete_module).has_value());
 }
