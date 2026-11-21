@@ -412,6 +412,61 @@ Result<std::vector<Address>> find_pointer_refs(const Process& process,
     return std::move(res->hits);
 }
 
+Result<std::vector<std::vector<Address>>> find_pointer_refs_batch(
+    const Process& process,
+    AddressRange range,
+    std::span<const Address> targets,
+    const ScanOptions& options) {
+    if (targets.empty()) {
+        return fail(ErrorCode::InvalidArgument, "xref::find_pointer_refs_batch",
+                    0, "Target batch is empty");
+    }
+    const std::uint8_t pointer_size = process.pointer_size();
+    std::vector<Pattern> patterns;
+    try {
+        patterns.reserve(targets.size());
+        for (const Address target : targets) {
+            if (target.is_null()) {
+                return fail(ErrorCode::NullAddress, "xref::find_pointer_refs_batch");
+            }
+            if (pointer_size == 4 && target.value() > 0xFFFFFFFFULL) {
+                return fail(ErrorCode::OutOfRange, "xref::find_pointer_refs_batch",
+                            0, "Target address exceeds x86 pointer range");
+            }
+            auto pattern = pointer_size == 8
+                               ? Pattern::from_value<std::uint64_t>(target.value())
+                               : Pattern::from_value<std::uint32_t>(
+                                     static_cast<std::uint32_t>(target.value()));
+            if (!pattern) {
+                return std::unexpected(pattern.error());
+            }
+            patterns.push_back(*pattern);
+        }
+
+        ScanOptions batch_options = options;
+        if (batch_options.alignment <= 1) {
+            batch_options.alignment = pointer_size;
+        }
+        Scanner scanner{process};
+        auto scanned = scanner.scan_batch(range, patterns, batch_options);
+        if (!scanned) {
+            return std::unexpected(scanned.error());
+        }
+        if (std::any_of(scanned->begin(), scanned->end(),
+                        [](const ScanResult& result) { return result.cancelled; })) {
+            return fail(ErrorCode::Cancelled, "xref::find_pointer_refs_batch");
+        }
+        std::vector<std::vector<Address>> results;
+        results.reserve(scanned->size());
+        for (auto& result : *scanned) {
+            results.push_back(std::move(result.hits));
+        }
+        return results;
+    } catch (const std::bad_alloc&) {
+        return fail(ErrorCode::OutOfMemory, "xref::find_pointer_refs_batch");
+    }
+}
+
 Result<std::vector<Address>> find_rel32_refs(const Process& process,
                                              AddressRange range,
                                              Address target,
