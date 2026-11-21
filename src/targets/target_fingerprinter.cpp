@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <system_error>
+#include <utility>
 
 #include "tessera/filesystem/filesystem.hpp"
 #include "tessera/memory/memory_reader.hpp"
