@@ -23,6 +23,20 @@
 
 namespace {
 
+template <std::size_t Index>
+void concurrency_hook_target() noexcept {
+    [[maybe_unused]] volatile std::size_t marker = Index;
+}
+
+void concurrency_hook_detour() noexcept {}
+
+using HookTarget = void (*)();
+constexpr std::array<HookTarget, 8> kHookTargets{
+    &concurrency_hook_target<0>, &concurrency_hook_target<1>,
+    &concurrency_hook_target<2>, &concurrency_hook_target<3>,
+    &concurrency_hook_target<4>, &concurrency_hook_target<5>,
+    &concurrency_hook_target<6>, &concurrency_hook_target<7>};
+
 class ConcurrentHookBackend final : public tessera::HookBackend {
 public:
     [[nodiscard]] bool available() const noexcept override { return true; }
@@ -131,7 +145,8 @@ TEST_CASE("Concurrent logger, scanner, patch, hook and protection operations rem
     logger->add_sink(primary_sink);
 
     ConcurrentHookBackend hook_backend;
-    int detour_storage = 0;
+    const auto detour = reinterpret_cast<void*>(
+        reinterpret_cast<std::uintptr_t>(&concurrency_hook_detour));
     std::atomic<std::uint32_t> failure_mask{0};
     std::vector<std::thread> workers;
     workers.reserve(kWorkers);
@@ -139,8 +154,9 @@ TEST_CASE("Concurrent logger, scanner, patch, hook and protection operations rem
     for (std::size_t worker = 0; worker < kWorkers; ++worker) {
         workers.emplace_back([&, worker] {
             const std::uint64_t region_base = kWorkerBase + worker * kWorkerStride;
-            auto hook_result = detail::HookCore::create(
-                Address{0x40000000ULL + worker * 0x1000ULL}, &detour_storage, &hook_backend);
+            const auto target = Address{static_cast<std::uint64_t>(
+                reinterpret_cast<std::uintptr_t>(kHookTargets[worker]))};
+            auto hook_result = detail::HookCore::create(target, detour, &hook_backend);
             if (!hook_result) {
                 failure_mask.fetch_or(128u, std::memory_order_relaxed);
                 return;
