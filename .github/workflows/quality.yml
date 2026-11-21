@@ -165,7 +165,7 @@ jobs:
         import yaml
 
         workflows = Path(".github/workflows")
-        expected = {"ci.yml", "quality.yml", "fuzz.yml", "release.yml", "diagnostic.yml"}
+        expected = {"ci.yml", "quality.yml", "fuzz.yml", "release.yml"}
         actual = {p.name for p in workflows.glob("*.yml")}
         assert actual == expected, f"Unexpected workflow set: {sorted(actual)}"
 
