@@ -258,10 +258,19 @@ private:
 const IMemoryBackend& memory_backend(const Process& process) noexcept {
     const auto& st = process.state();
     TESSERA_ASSERT(st != nullptr);
-    if (!st->backend) {
-        st->backend = std::make_shared<WindowsMemoryBackend>(static_cast<HANDLE>(st->handle));
+    auto backend = st->backend.load(std::memory_order_acquire);
+    if (!backend) {
+        auto created = std::make_shared<WindowsMemoryBackend>(static_cast<HANDLE>(st->handle));
+        std::shared_ptr<IMemoryBackend> expected;
+        if (st->backend.compare_exchange_strong(expected, created,
+                                                std::memory_order_release,
+                                                std::memory_order_acquire)) {
+            backend = std::move(created);
+        } else {
+            backend = std::move(expected);
+        }
     }
-    return *st->backend;
+    return *backend;
 }
 
 } // namespace tessera
