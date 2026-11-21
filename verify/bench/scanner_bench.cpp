@@ -86,6 +86,31 @@ int main(int argc, char** argv) {
         }
     });
 
+    ScanWorkspace reusable_workspace;
+    reusable_workspace.reserve(scan_options.chunk_size + pat.size() - 1);
+    auto workspace_metrics = profiling::run_benchmark(10, [&]() {
+        auto result = scanner.scan(scan_range, pat, scan_options, reusable_workspace);
+        if (!result || result->hits.size() != 1 ||
+            result->hits.front() != Address{kScanBase + pos}) {
+            std::abort();
+        }
+    });
+
+    auto streaming_metrics = profiling::run_benchmark(10, [&]() {
+        std::optional<Address> found;
+        auto result = scanner.scan_streaming(
+            scan_range, pat, scan_options,
+            [&](Address address) {
+                found = address;
+                return false;
+            },
+            &reusable_workspace);
+        if (!result || !result->cancelled || !result->hits.empty() ||
+            found != Address{kScanBase + pos}) {
+            std::abort();
+        }
+    });
+
     const std::array<Pattern, 4> batch_patterns{
         pat, exact_pat, nibble_pat, "90 90 90 90"_sig};
     ScanOptions batch_options{};
@@ -221,6 +246,10 @@ int main(int argc, char** argv) {
                   << ",\"ns_per_op\":" << leading_metrics.mean.count() << ",\"mb_per_s\":" << throughput(leading_metrics.mean, buffer.size()) << "},"
                   << "{\"name\":\"pattern_dense_nibble_4mib\",\"iterations\":" << nibble_metrics.iterations
                   << ",\"ns_per_op\":" << nibble_metrics.mean.count() << ",\"mb_per_s\":" << throughput(nibble_metrics.mean, buffer.size()) << "},"
+                  << "{\"name\":\"scanner_workspace_reused_4mib\",\"iterations\":" << workspace_metrics.iterations
+                  << ",\"ns_per_op\":" << workspace_metrics.mean.count() << ",\"mb_per_s\":" << throughput(workspace_metrics.mean, buffer.size()) << "},"
+                  << "{\"name\":\"scanner_streaming_first_match_4mib\",\"iterations\":" << streaming_metrics.iterations
+                  << ",\"ns_per_op\":" << streaming_metrics.mean.count() << ",\"mb_per_s\":" << throughput(streaming_metrics.mean, buffer.size()) << "},"
                   << "{\"name\":\"scanner_50_patterns_separate_4mib\",\"iterations\":" << fifty_separate_metrics.iterations
                   << ",\"ns_per_op\":" << fifty_separate_metrics.mean.count() << ",\"mb_per_s\":" << throughput(fifty_separate_metrics.mean, buffer.size() * fifty_patterns.size()) << "},"
                   << "{\"name\":\"scanner_50_patterns_batch_4mib\",\"iterations\":" << fifty_batch_metrics.iterations
@@ -250,11 +279,13 @@ int main(int argc, char** argv) {
     print_metric(3, "Common x64 prolog Pattern::search (4 MiB)", prolog_metrics, buffer.size());
     print_metric(4, "Leading wildcard Pattern::search (4 MiB)", leading_metrics, buffer.size());
     print_metric(5, "Dense nibble mask Pattern::search (4 MiB)", nibble_metrics, buffer.size());
-    print_metric(6, "50 patterns scanned separately (4 MiB each)", fifty_separate_metrics,
+    print_metric(6, "Reusable ScanWorkspace (4 MiB)", workspace_metrics, buffer.size());
+    print_metric(7, "Streaming first-match callback (4 MiB)", streaming_metrics, buffer.size());
+    print_metric(8, "50 patterns scanned separately (4 MiB each)", fifty_separate_metrics,
                  buffer.size() * fifty_patterns.size());
-    print_metric(7, "50 patterns scanned in one batch (4 MiB)", fifty_batch_metrics, buffer.size());
-    print_metric(8, "Raw byte-pattern CALL xref (16 KiB)", raw_xref_metrics, xref_code.size());
-    print_metric(9, "Decoder-verified CALL xref (16 KiB)", decoded_xref_metrics, xref_code.size());
+    print_metric(9, "50 patterns scanned in one batch (4 MiB)", fifty_batch_metrics, buffer.size());
+    print_metric(10, "Raw byte-pattern CALL xref (16 KiB)", raw_xref_metrics, xref_code.size());
+    print_metric(11, "Decoder-verified CALL xref (16 KiB)", decoded_xref_metrics, xref_code.size());
 
     return 0;
     }
