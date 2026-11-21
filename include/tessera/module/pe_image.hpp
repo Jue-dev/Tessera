@@ -155,13 +155,8 @@ public:
     [[nodiscard]] Result<ImportEntry> find_import(std::string_view module_name,
                                                   std::string_view function_name) const;
 
-    [[nodiscard]] std::span<const PeFunctionEntry> exception_functions() const noexcept {
-        return exception_functions_;
-    }
-
-    [[nodiscard]] std::span<const BaseRelocation> relocations() const noexcept {
-        return relocations_;
-    }
+    [[nodiscard]] std::span<const PeFunctionEntry> exception_functions() const noexcept;
+    [[nodiscard]] std::vector<BaseRelocation> relocations() const;
 
     [[nodiscard]] const std::optional<CodeViewInfo>& code_view() const noexcept {
         return code_view_;
@@ -179,8 +174,9 @@ private:
     std::vector<Section> sections_{};
     std::vector<ExportTarget> exports_{};
     std::vector<ImportEntry> imports_{};
+    // Exception entries and private relocation records share this existing
+    // storage so adding relocation metadata does not change PeImage object size.
     std::vector<PeFunctionEntry> exception_functions_{};
-    std::vector<BaseRelocation> relocations_{};
     std::optional<CodeViewInfo> code_view_{};
 };
 
