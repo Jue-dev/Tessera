@@ -1,5 +1,7 @@
 #include "tessera/module/pe_image.hpp"
 
+#include "fuzz_corpus_runner.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -25,7 +27,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
 }
 
 #if !defined(TESSERA_LIBFUZZER)
-int main() {
+int main(int argc, char** argv) {
+    if (argc > 1) {
+        return tessera::fuzz::run_corpus(argc, argv, &LLVMFuzzerTestOneInput);
+    }
     const std::uint8_t sample[64]{};
     return LLVMFuzzerTestOneInput(sample, sizeof(sample));
 }
