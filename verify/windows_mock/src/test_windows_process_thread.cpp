@@ -23,7 +23,7 @@
 
 namespace winmock_tests {
 
-void run_process_tests(const tessera::Result<tessera::Process>& process) {
+void run_process_tests() {
     using namespace tessera;
     using namespace tessera::platform::windows;
     // The diagnostic log is intentionally bounded, but failure ordinals must
