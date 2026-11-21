@@ -41,7 +41,7 @@ TEST_CASE("VTableHook shadows a caller-bounded vftable and restores the original
  VirtualSample object;REQUIRE(object.first()==11);
  auto created=tessera::VTableHook::create(&object,2);REQUIRE(created);
  auto hook=std::move(*created);auto original=hook.hook(0,&replacement_first);REQUIRE(original);
- REQUIRE(*original(&object)==11);REQUIRE(hook.install());REQUIRE(hook.installed());
+ REQUIRE((*original)(&object)==11);REQUIRE(hook.install());REQUIRE(hook.installed());
  REQUIRE(object.first()==99);REQUIRE(hook.restore());REQUIRE(object.first()==11);REQUIRE_FALSE(hook.installed());
 }
 
