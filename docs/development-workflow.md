@@ -58,3 +58,40 @@ Logs and summary are written under `artifacts/final-validation/logs`; fuzz corpu
 - The release job is guarded to version-tag pushes.
 - The focused fuzz campaign remains manual because it is intentionally time-bounded and should be run at meaningful checkpoints.
 - Update path filters when adding new build inputs or top-level source folders.
+
+
+## Build presets and optional validation
+
+Use the checked-in presets from a Visual Studio Developer PowerShell/Command Prompt with the matching architecture environment:
+
+```powershell
+cmake --preset x64-debug
+cmake --build --preset x64-debug
+ctest --preset x64-debug --output-on-failure
+```
+
+Optional configure/build presets are available without changing the default SDK build:
+
+- `x64-analyze`: MSVC static analysis.
+- `x64-bench`: scanner, instruction-decoder, and PE benchmarks.
+- `x64-fuzz-smoke`: standalone fuzz harnesses; use `scripts/run-fuzz-smoke.ps1` to replay all checked-in corpora.
+
+The current benchmark executables are `tessera_bench`, `tessera_decoder_bench`, and `tessera_pe_bench`. The fuzz-smoke preset covers `pattern`, `pe`, `json`, `profile_json`, `python_bridge`, `scanner`, `rtti_discovery`, and (on Windows) `native_hook`.
+
+The independent decoder differential job builds `verify/tests/decoder_oracle/decoder_probe.cpp` and compares instruction boundaries with pinned test-only `iced-x86==1.21.0` using `verify/tests/decoder_oracle/compare_iced.py`. It is enabled by `TESSERA_ENABLE_DECODER_ORACLE=ON` and is not a runtime or SDK dependency. The decoder's supported subset and explicit rejection boundaries are documented in [the native decoder envelope](native-instruction-decoder-envelope.md).
+
+## Technical notes
+
+- [JSON validation and ownership boundaries](json-validation-boundaries.md): profile/target JSON domain ownership and the shared private field readers.
+- [Memory write protection recovery](memory-write-recovery.md): pending protection-restore ownership across `MemoryWriter` and `Patch`.
+- [Native x86/x64 decoder envelope](native-instruction-decoder-envelope.md): bounded decode metadata and stricter relocation constraints.
+
+## Architecture constraints and repository map
+
+- Preserve public API signatures under `include/tessera/**`; implementation-only helpers belong under `src/**`.
+- Keep `core` and `profiling` as compiled targets and keep Python bridge implementation in the `rtti` target.
+- Native inline-hook changes must preserve the safety, unwind, thread-suspension, and lifecycle contract in [ADR 0002](adr/0002-native-inline-hook-safety-contract.md).
+- Component dependencies and source-splitting constraints are recorded in [ADR 0003](adr/0003-core-profiling-and-rtti-boundaries.md).
+- `include/tessera/**`: public SDK headers; `src/**`: private module implementations.
+- `verify/tests/**`: deterministic tests and decoder oracle; `verify/fuzz/**`: fuzz harnesses and seed corpora; `verify/bench/**`: opt-in benchmarks.
+- Reduced SDK variants install the package and compile a separate `find_package(Tessera CONFIG REQUIRED)` consumer; run the full CI matrix before merging.

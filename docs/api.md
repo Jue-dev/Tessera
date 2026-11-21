@@ -76,3 +76,10 @@ Python bridge discovery reports runtime/framework evidence separately from deplo
 - Native inline-hook attach/detach, unwind, thread-coordination, and callback-lifetime obligations are defined in [ADR 0002](adr/0002-native-inline-hook-safety-contract.md) and the [native inline-hook guide](native-inline-hooks.md).
 - The compiled `core` and `profiling` components and Python bridge ownership by `rtti` are documented in [ADR 0003](adr/0003-core-profiling-and-rtti-boundaries.md).
 - The independent x86 decoder oracle is test-only (`iced-x86==1.21.0`) and is not part of the public SDK dependency graph. See the [developer workflow](development.md).
+
+
+## Related implementation and safety notes
+
+- [JSON validation boundaries](json-validation-boundaries.md) explains the separate profile and target-profile wire-format ownership.
+- [Memory write recovery](memory-write-recovery.md) documents explicit retry ownership for pending page-protection restoration.
+- [Native decoder envelope](native-instruction-decoder-envelope.md) defines the supported bounded decoder metadata and relocation rejection rules.

@@ -60,4 +60,4 @@ The relocator applies stricter rules than the decoder:
 
 ## Known validation gap
 
-The repository does not yet compare instruction boundaries against an independent decoder oracle such as Zydis, Capstone, or LLVM MC. The tables and integration tests are regression evidence for the implemented subset, not an independent completeness proof. Adding an oracle remains an open Issue #24 item; any dependency must be pinned and kept out of the public SDK/runtime ABI.
+The repository now includes an independent, test-only decoder differential oracle: `verify/tests/decoder_oracle/decoder_probe.cpp` is compared against pinned `iced-x86==1.21.0` by `verify/tests/decoder_oracle/compare_iced.py` in the `Independent Decoder Differential (iced-x86)` CI job. The dependency is not part of the public SDK/runtime ABI. This provides independent boundary comparisons for the oracle's test corpus, but it is not an exhaustive proof that every x86/x64 encoding is supported or semantically validated.

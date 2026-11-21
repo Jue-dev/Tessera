@@ -67,4 +67,4 @@ Gerçek LLVM libFuzzer koşumları, corpus hazırlığı ve sanitizer seçenekle
 - [Mimari Genel Bakış](docs/architecture.md)
 - [Derleme ve CMake Seçenekleri](docs/build.md)
 - [API Kullanım Kılavuzu](docs/api.md)
-- [Geliştirici İş Akışı ve Mimari Kararlar](docs/development.md)
+- [Geliştirici İş Akışı ve Mimari Kararlar](docs/development-workflow.md)
