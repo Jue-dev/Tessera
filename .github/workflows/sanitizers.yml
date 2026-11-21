@@ -39,7 +39,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes clang libc++-18-dev libc++abi-18-dev
           clang++ --version
-                    printf '#include <expected>\n#include <functional>\n#include <bit>\nint main(){std::expected<int,int> x=1; std::move_only_function<int()> f=[] { return 1; }; return std::byteswap(1u)==1u && x.value()==1 && f()==1 ? 0 : 1;}\n' | clang++ -stdlib=libc++ -std=c++23 -x c++ -fsyntax-only -
+                    printf '#include <expected>\n#include <bit>\nint main(){std::expected<int,int> x=1; return std::byteswap(1u)==1u && x.value()==1 ? 0 : 1;}\n' | clang++ -stdlib=libc++ -std=c++23 -x c++ -fsyntax-only -
 
       - name: Build and run portable Windows-backend mock tests under sanitizer
         env:
