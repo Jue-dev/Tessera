@@ -2,9 +2,11 @@
 #include "tessera/scanner/xref.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <limits>
 #include <new>
+#include <utility>
 
 #include "tessera/core/checked_math.hpp"
 #include "tessera/memory/memory_backend.hpp"
