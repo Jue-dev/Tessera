@@ -76,6 +76,45 @@ public:
         return has_anchor_ ? std::optional<std::size_t>{anchor_} : std::nullopt;
     }
 
+    // Derived metadata keeps Pattern's object layout and existing ABI unchanged.
+    [[nodiscard]] constexpr std::size_t leading_wildcards() const noexcept {
+        std::size_t n = 0;
+        while (n < size_ && inline_mask_[n] == std::byte{0}) {
+            ++n;
+        }
+        return n;
+    }
+
+    [[nodiscard]] constexpr std::size_t trailing_wildcards() const noexcept {
+        std::size_t n = 0;
+        while (n < size_ && inline_mask_[size_ - n - 1] == std::byte{0}) {
+            ++n;
+        }
+        return n;
+    }
+
+    [[nodiscard]] constexpr std::optional<std::size_t> secondary_anchor_index() const noexcept {
+        if (!has_anchor_) {
+            return std::nullopt;
+        }
+        std::optional<std::size_t> best{};
+        int best_score = 99;
+        for (std::size_t i = 0; i < size_; ++i) {
+            if (i == anchor_ || inline_mask_[i] != std::byte{0xFF}) {
+                continue;
+            }
+            const int score = byte_commonness(inline_bytes_[i]);
+            if (score < best_score) {
+                best = i;
+                best_score = score;
+                if (score == 0) {
+                    break;
+                }
+            }
+        }
+        return best;
+    }
+
     [[nodiscard]] constexpr bool matches(std::span<const std::byte> at) const noexcept {
         if (size_ == 0 || at.size() < size_) {
             return false;
