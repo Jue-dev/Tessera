@@ -1,3 +1,0 @@
-.?AVInvalid!Type@@
-.?A?
-.?AVMissingTerminator
