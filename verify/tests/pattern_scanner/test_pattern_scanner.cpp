@@ -497,6 +497,12 @@ TEST_CASE("Scanner supports concurrent read-only scans with independent workspac
                 if (result->hits[worker] != Address{base + offsets[worker]}) {
                     failures.fetch_add(1, std::memory_order_relaxed);
                 }
+                const std::array<Pattern, 2> batch_patterns{pattern, "AA BB CC"_sig};
+                auto batch = scanner.scan_batch(range, batch_patterns, options, workspace);
+                if (!batch || batch->size() != 2 || (*batch)[0].hits.size() != offsets.size() ||
+                    !(*batch)[1].hits.empty()) {
+                    failures.fetch_add(1, std::memory_order_relaxed);
+                }
             }
         });
     }
