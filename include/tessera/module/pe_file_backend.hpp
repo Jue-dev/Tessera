@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <memory>
 #include <span>
+#include <utility>
 #include <vector>
 
 #include "tessera/memory/memory_backend.hpp"

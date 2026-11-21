@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.28)
 project(Tessera VERSION 0.1.0 LANGUAGES C CXX)
 
 option(TESSERA_BUILD_TESTS       "Build tests"                         ON)
+option(TESSERA_BUILD_CLI         "Build the optional Tessera command-line tools" OFF)
 option(TESSERA_BUILD_EXAMPLES    "Build examples"                      ON)
 option(TESSERA_BUILD_BENCH       "Build benchmarks"                    OFF)
 option(TESSERA_BUILD_FUZZ        "Build parser fuzz harnesses"         OFF)
@@ -232,12 +233,16 @@ tessera_add_module(
     SOURCES
         src/platform/windows/memory_backend.cpp
         src/memory/memory.cpp
+        src/memory/read_scatter.cpp
+        src/memory/memory_snapshot.cpp
     PUBLIC_HEADERS
         include/tessera/memory/memory_region.hpp
         include/tessera/memory/memory_backend.hpp
         include/tessera/memory/protection_scope.hpp
         include/tessera/memory/memory_reader.hpp
         include/tessera/memory/memory_writer.hpp
+        include/tessera/memory/read_scatter.hpp
+        include/tessera/memory/memory_snapshot.hpp
         include/tessera/memory/process_address.hpp
         include/tessera/memory/memory.hpp
     PUBLIC_DEPS
@@ -256,9 +261,11 @@ tessera_add_module(
         src/module/pe_image_detail.cpp
         src/module/pe_image_memory.cpp
         src/module/pe_image_raw.cpp
+        src/module/pe_file_backend.cpp
         src/platform/windows/module_backend.cpp
     PUBLIC_HEADERS
         include/tessera/module/pe_image.hpp
+        include/tessera/module/pe_file_backend.hpp
         include/tessera/module/module.hpp
     PUBLIC_DEPS
         tessera::core
@@ -335,14 +342,17 @@ tessera_add_module(
     NAME patch
     SOURCES
         src/patch/patch.cpp
+        src/patch/disk_patch.cpp
     PUBLIC_HEADERS
         include/tessera/patch/patch.hpp
+        include/tessera/patch/disk_patch.hpp
     PUBLIC_DEPS
         tessera::core
         tessera::diagnostics
         tessera::process
         tessera::memory
         tessera::pattern
+        tessera::module
 )
 
 set(TESSERA_HOOK_PRIVATE_DEFS "")
@@ -378,14 +388,18 @@ tessera_add_module(
         src/hook/backends/native_trampoline.cpp
         src/hook/backends/native_relocation.cpp
         src/hook/backends/native_unwind.cpp
+        src/hook/iat_hook.cpp
     PUBLIC_HEADERS
         include/tessera/hook/hook.hpp
+        include/tessera/hook/vtable_hook.hpp
+        include/tessera/hook/iat_hook.hpp
     PUBLIC_DEPS
         tessera::core
         tessera::diagnostics
     PRIVATE_DEPS
         tessera::process
         tessera::memory
+        tessera::module
         tessera::disasm
     PRIVATE_DEFS
         ${TESSERA_HOOK_PRIVATE_DEFS}
@@ -567,4 +581,8 @@ endif()
 
 if(TESSERA_BUILD_EXAMPLES)
     add_subdirectory(examples)
+endif()
+
+if(TESSERA_BUILD_CLI)
+    add_subdirectory(tools/cli)
 endif()

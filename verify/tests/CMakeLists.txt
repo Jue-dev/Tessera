@@ -111,6 +111,7 @@ tessera_add_test(tessera_test_core
 tessera_add_test(tessera_test_process_memory
     SOURCES
         process_memory/test_process_memory.cpp
+        process_memory/test_memory_analysis.cpp
     LIBS
         tessera::core
         tessera::diagnostics
@@ -163,6 +164,8 @@ tessera_add_test(tessera_test_patch_hook
         patch_hook/test_native_hook_backend.cpp
         patch_hook/test_native_hook_lifecycle.cpp
         patch_hook/test_patch_transactions.cpp
+        patch_hook/test_disk_patch.cpp
+        patch_hook/test_vtable_iat_hook.cpp
     LIBS
         tessera::core
         tessera::diagnostics
@@ -171,11 +174,15 @@ tessera_add_test(tessera_test_patch_hook
         tessera::pattern
         tessera::patch
         tessera::hook
+        tessera::module
         tessera::disasm
 )
 if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     target_sources(tessera_test_patch_hook PRIVATE patch_hook/test_patch_hook_x86.cpp)
 endif()
+target_compile_definitions(tessera_test_patch_hook PRIVATE
+    TESSERA_TEST_FIXTURE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/fixtures\"
+)
 target_include_directories(tessera_test_patch_hook PRIVATE
     ${PROJECT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/support

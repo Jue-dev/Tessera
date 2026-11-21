@@ -1,5 +1,7 @@
 #include "tessera/memory/memory_snapshot.hpp"
 #include <new>
+#include <limits>
+#include <utility>
 #include "tessera/memory/memory_reader.hpp"
 namespace tessera {
 Result<MemorySnapshot> MemorySnapshot::capture(const Process&p,AddressRange r){if(r.empty()||r.size()>static_cast<uint64_t>((std::numeric_limits<size_t>::max)()))return fail(ErrorCode::InvalidArgument,"MemorySnapshot::capture");MemoryReader reader{p};auto b=reader.read_bytes(r.begin(),static_cast<size_t>(r.size()));if(!b)return std::unexpected(b.error());return MemorySnapshot{r.begin(),std::move(*b)};}
