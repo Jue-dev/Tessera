@@ -86,7 +86,8 @@ Python bridge discovery reports runtime/framework evidence separately from deplo
 
 ### Wave 3 scanner and xref additions
 
-- `Scanner::scan_batch(range, patterns, options)` reads each memory chunk once for the full pattern span and returns one `ScanResult` per input pattern in the same order. `max_results` is applied independently to each result.
+- `Scanner::scan_batch(range, patterns, options)` reads each memory chunk once for the full pattern span and returns one `ScanResult` per input pattern in the same order. `max_results` is applied independently to each result. An optional `ScanWorkspace` retains the reusable chunk buffer for single and batch scans.
+- `Scanner::scan_streaming` invokes a caller callback as each match is found, does not retain the hit vector, and stops when the callback returns false. `ScanReadPolicy::Strict` reports inaccessible regions and partial reads; the default `BestEffort` policy continues across unreadable pages.
 - `xref::find_pointer_refs_batch` scans multiple pointer targets through the batch scanner.
 - `xref::find_conditional_branches` resolves near conditional branches (`0F 8x rel32`) to a target.
 - `xref::find_indirect_refs` verifies x86 absolute and x64 RIP-relative indirect CALL/JMP slots by decoding the instruction and dereferencing the pointer operand. `PeImage::relocations()` exposes bounds-checked base relocation entries, and `xref::find_relocated_pointer_refs` resolves HIGHLOW/DIR64 data pointers using the loaded module base.
