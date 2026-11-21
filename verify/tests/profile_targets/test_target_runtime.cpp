@@ -103,6 +103,15 @@ TEST_CASE("Targets verification engine: exact build, stale, compatible build, ne
     REQUIRE(out_cached.from_session_cache);
     REQUIRE(out_cached.verified().has_value());
 
+    resolver.invalidate_session_cache();
+    ResolutionTrace exact_trace;
+    auto out_traced = resolver.resolve_entry(
+        profile, "player.update_fn", PersistPolicy::AskBeforePersist, nullptr, &exact_trace);
+    REQUIRE(out_traced.status == ResolutionStatus::VerifiedExactBuild);
+    REQUIRE_FALSE(exact_trace.steps.empty());
+    REQUIRE(exact_trace.steps.back().stage == "Exact-build primary recipe");
+    REQUIRE(exact_trace.steps.back().status == ResolutionStatus::VerifiedExactBuild);
+
     // 2. Corrupt bytes at RVA 0x1000 on exact build (without fallback) -> Stale (no VerifiedAddress!)
     resolver.invalidate_session_cache();
     profile.builds[0].addresses[0].fallback.reset();
