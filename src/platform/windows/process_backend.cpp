@@ -203,7 +203,7 @@ Result<Process> Process::from_backend(ProcessInfo info,
         st->ownership = Ownership::Borrowed;
         st->info = info;
         st->observer = observer;
-        st->backend = std::move(backend);
+        st->backend.store(std::move(backend), std::memory_order_release);
         return Process{std::move(st)};
     } catch (const std::bad_alloc&) {
         return fail(ErrorCode::OutOfMemory, "Process::from_backend");
@@ -222,7 +222,7 @@ DiagnosticObserver* Process::observer() const noexcept {
 
 Result<bool> Process::is_alive() const noexcept {
     TESSERA_ASSERT(state_ != nullptr);
-    if (state_->backend != nullptr && state_->handle == nullptr) {
+    if (state_->backend.load(std::memory_order_acquire) != nullptr && state_->handle == nullptr) {
         return true;
     }
     if (state_->info.is_local && state_->handle == ::GetCurrentProcess()) {
