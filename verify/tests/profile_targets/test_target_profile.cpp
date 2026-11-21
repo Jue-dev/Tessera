@@ -92,6 +92,6 @@ TEST_CASE("Target profile JSON rejects malformed schema and round-trips", "[targ
     REQUIRE(module_builds != nullptr);
     auto* modules = (*module_builds->as_array())[0].find("modules");
     REQUIRE(modules != nullptr);
-    modules->as_array()->push_back(json::JsonValue::make_object());
+    modules->as_array()->clear();
     REQUIRE_FALSE(deserialize_target_profile_from_json(incomplete_module).has_value());
 }
