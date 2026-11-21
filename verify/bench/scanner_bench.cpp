@@ -150,9 +150,9 @@ int main(int argc, char** argv) {
     }
 
     auto fifty_separate_metrics = profiling::run_benchmark(3, [&]() {
-        for (const auto& candidate : fifty_patterns) {
-            auto result = scanner.scan(scan_range, candidate, batch_options);
-            if (!result) {
+        for (std::size_t index = 0; index < fifty_patterns.size(); ++index) {
+            auto result = scanner.scan(scan_range, fifty_patterns[index], batch_options);
+            if (!result || result->hits.size() != (index == 0 ? 1u : 0u)) {
                 std::abort();
             }
         }
