@@ -237,6 +237,7 @@ Result<ScanResult> Scanner::scan_impl(
     diagnostics::notify(obs, DiagnosticSeverity::Info, "Scanner", "Scan started");
 
     ScanResult result{};
+    std::size_t matches_seen = 0;
     const std::size_t align = options.alignment > 0 ? options.alignment : 1;
 
     try {
@@ -259,13 +260,16 @@ Result<ScanResult> Scanner::scan_impl(
                         return true;
                     }
                     const Address hit{hit_addr};
-                    result.hits.emplace_back(hit);
+                    ++matches_seen;
+                    if (!on_match) {
+                        result.hits.emplace_back(hit);
+                    }
                     if (on_match && !on_match(hit)) {
                         result.cancelled = true;
                         continue_scan = false;
                         return false;
                     }
-                    if (options.max_results > 0 && result.hits.size() >= options.max_results) {
+                    if (options.max_results > 0 && matches_seen >= options.max_results) {
                         result.truncated = true;
                         continue_scan = false;
                         return false;
@@ -277,7 +281,7 @@ Result<ScanResult> Scanner::scan_impl(
                     const ScanProgress prog{
                         .bytes_scanned = scanned_so_far,
                         .total_bytes = total_bytes,
-                        .hits_found = result.hits.size(),
+                        .hits_found = matches_seen,
                     };
                     options.on_progress(prog);
                 }
