@@ -323,12 +323,6 @@ TEST_CASE("Native x86 relocator expands short JMP and Jcc while preserving tramp
         HookOptions options{};
         options.threads = ThreadPolicy::None;
         const auto install_status = hook->install(options);
-        if (!install_status) {
-            INFO("x86 near-relative fixture: " << case_name);
-            INFO("install error: " << error_code_name(install_status.error().code)
-                                    << " / " << install_status.error().operation
-                                    << " / " << install_status.error().detail);
-        }
         REQUIRE(install_status.has_value());
         g_short_branch_original = hook->original();
         REQUIRE(reinterpret_cast<CdeclFn>(code + target_offset)(5) == 142);
@@ -442,7 +436,8 @@ TEST_CASE("Native x86 relocator preserves near JMP, CALL, and Jcc trampoline beh
         REQUIRE(hook.has_value());
         HookOptions options{};
         options.threads = ThreadPolicy::None;
-        REQUIRE(hook->install(options).has_value());
+        const auto install_status = hook->install(options);
+        REQUIRE(install_status.has_value());
         g_short_branch_original = hook->original();
         REQUIRE(reinterpret_cast<CdeclFn>(code + target_offset)(5) == 142);
         REQUIRE(hook->original()(5) == 42);
