@@ -173,13 +173,13 @@ int main(int argc, char** argv) {
     std::array<std::uint8_t, kFuzzRegionSize> random_input{};
     if (!corpus_mode) {
         for (std::size_t sample = 0; sample < kRandomSampleCount; ++sample) {
-        const std::size_t length =
-            1u + (static_cast<std::size_t>(next_random()) % random_input.size());
-        for (std::size_t index = 0; index < length; ++index) {
-            random_input[index] = static_cast<std::uint8_t>(next_random() & 0xFFu);
+            const std::size_t length =
+                1u + (static_cast<std::size_t>(next_random()) % random_input.size());
+            for (std::size_t index = 0; index < length; ++index) {
+                random_input[index] = static_cast<std::uint8_t>(next_random() & 0xFFu);
+            }
+            (void)LLVMFuzzerTestOneInput(random_input.data(), length);
         }
-        (void)LLVMFuzzerTestOneInput(random_input.data(), length);
-    }
     }
 
     const auto elapsed = std::chrono::steady_clock::now() - stress_started;
