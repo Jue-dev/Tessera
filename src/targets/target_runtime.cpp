@@ -233,7 +233,7 @@ ValidationReport AddressResolver::run_validation_checks(const TargetModuleContex
         chk.required = rule.required;
 
         switch (rule.kind) {
-            case ValidationRuleKind::ModuleRange: {
+        case ValidationRuleKind::ModuleRange: {
                 if (mod_ctx.range.contains(candidate)) {
                     chk.status = CheckStatus::Passed;
                 } else {
@@ -241,8 +241,8 @@ ValidationReport AddressResolver::run_validation_checks(const TargetModuleContex
                     chk.reason = "Candidate address lies outside module address range";
                 }
                 break;
-            }
-            case ValidationRuleKind::Section: {
+        }
+        case ValidationRuleKind::Section: {
                 auto sec = find_section_in_ctx(mod_ctx, rule.value);
                 if (sec && sec->range().contains(candidate)) {
                     chk.status = CheckStatus::Passed;
@@ -252,8 +252,8 @@ ValidationReport AddressResolver::run_validation_checks(const TargetModuleContex
                     chk.reason = std::format("Candidate does not lie within section '{}'", rule.value);
                 }
                 break;
-            }
-            case ValidationRuleKind::MemoryReadable: {
+        }
+        case ValidationRuleKind::MemoryReadable: {
                 const std::uint64_t sz = (std::max)(entry.value.size, 1u);
                 auto ok_r = reader.is_readable(AddressRange{candidate, sz});
                 if (ok_r && *ok_r) {
@@ -263,8 +263,8 @@ ValidationReport AddressResolver::run_validation_checks(const TargetModuleContex
                     chk.reason = "Candidate memory range is not readable";
                 }
                 break;
-            }
-            case ValidationRuleKind::MemoryWritable: {
+        }
+        case ValidationRuleKind::MemoryWritable: {
                 const std::uint64_t sz = (std::max)(entry.value.size, 1u);
                 auto ok_w = reader.is_writable(AddressRange{candidate, sz});
                 if (ok_w && *ok_w) {
@@ -275,8 +275,8 @@ ValidationReport AddressResolver::run_validation_checks(const TargetModuleContex
                     chk.reason = "Candidate memory range is not writable";
                 }
                 break;
-            }
-            case ValidationRuleKind::MemoryExecutable: {
+        }
+        case ValidationRuleKind::MemoryExecutable: {
                 auto ok_x = reader.is_executable(AddressRange{candidate, 1});
                 if (ok_x && *ok_x) {
                     chk.status = CheckStatus::Passed;
@@ -286,8 +286,8 @@ ValidationReport AddressResolver::run_validation_checks(const TargetModuleContex
                     chk.reason = "Candidate memory is not executable";
                 }
                 break;
-            }
-            case ValidationRuleKind::ExpectedBytes: {
+        }
+        case ValidationRuleKind::ExpectedBytes: {
                 auto pat = Pattern::parse(rule.value);
                 if (!pat) {
                     chk.status = CheckStatus::Failed;
@@ -307,8 +307,8 @@ ValidationReport AddressResolver::run_validation_checks(const TargetModuleContex
                     chk.reason = "Bytes at candidate address do not match expected_bytes";
                 }
                 break;
-            }
-            case ValidationRuleKind::SecondarySignature: {
+        }
+        case ValidationRuleKind::SecondarySignature: {
                 auto pat = Pattern::parse(rule.value);
                 auto sec_addr = candidate.offset(rule.relative_offset);
                 if (!pat || !sec_addr) {
@@ -325,8 +325,8 @@ ValidationReport AddressResolver::run_validation_checks(const TargetModuleContex
                     chk.reason = "Secondary signature check failed";
                 }
                 break;
-            }
-            case ValidationRuleKind::PointerSanity: {
+        }
+        case ValidationRuleKind::PointerSanity: {
                 auto ptr_val = reader.read_pointer(candidate);
                 const std::uint64_t align_mask = (process_.pointer_size() == 8) ? 7ULL : 3ULL;
                 if (ptr_val && !ptr_val->is_null() && ((ptr_val->value() & align_mask) == 0) &&
@@ -345,8 +345,8 @@ ValidationReport AddressResolver::run_validation_checks(const TargetModuleContex
                     chk.reason = "Pointer value failed null/alignment/range sanity check";
                 }
                 break;
-            }
-            case ValidationRuleKind::ValueRange: {
+        }
+        case ValidationRuleKind::ValueRange: {
                 auto val32 = reader.read<std::int32_t>(candidate);
                 if (val32 && *val32 >= rule.min_value && *val32 <= rule.max_value) {
                     chk.status = CheckStatus::Passed;
@@ -356,8 +356,8 @@ ValidationReport AddressResolver::run_validation_checks(const TargetModuleContex
                     chk.reason = "Value at candidate address is outside allowed range";
                 }
                 break;
-            }
-            case ValidationRuleKind::InstructionShape: {
+        }
+        case ValidationRuleKind::InstructionShape: {
                 auto pat = Pattern::parse(rule.value);
                 if (pat) {
                     auto bytes = reader.read_bytes(candidate, pat->size());
@@ -373,7 +373,7 @@ ValidationReport AddressResolver::run_validation_checks(const TargetModuleContex
                     chk.reason = "Invalid instruction_shape pattern";
                 }
                 break;
-            }
+        }
         }
 
         if (chk.required && chk.status != CheckStatus::Passed) {
