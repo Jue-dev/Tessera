@@ -233,6 +233,86 @@ Result<ScanResult> Scanner::scan(AddressRange range,
     }
 }
 
+Result<std::vector<ScanResult>> Scanner::scan_batch(
+    AddressRange range,
+    std::span<const Pattern> patterns,
+    const ScanOptions& options) const {
+    if (range.empty()) {
+        return fail(ErrorCode::InvalidArgument, "Scanner::scan_batch", 0, "AddressRange is empty");
+    }
+    if (patterns.empty()) {
+        return fail(ErrorCode::InvalidArgument, "Scanner::scan_batch", 0, "Pattern batch is empty");
+    }
+
+    std::size_t max_pattern_len = 0;
+    for (const auto& pattern : patterns) {
+        if (pattern.empty()) {
+            return fail(ErrorCode::InvalidPattern, "Scanner::scan_batch", 0,
+                        "Pattern batch contains an empty pattern");
+        }
+        max_pattern_len = (std::max)(max_pattern_len, pattern.size());
+    }
+
+    try {
+        std::vector<ScanResult> results(patterns.size());
+        const std::size_t align = options.alignment > 0 ? options.alignment : 1;
+        bool cancelled = false;
+        auto stats_res = for_each_readable_chunk(
+            process_,
+            range,
+            max_pattern_len - 1,
+            options,
+            cancelled,
+            [&](std::span<const std::byte> data,
+                std::size_t start_limit,
+                Address chunk_base,
+                std::uint64_t scanned_so_far,
+                std::uint64_t total_bytes) -> bool {
+                std::size_t aggregate_hits = 0;
+                bool active = false;
+                for (std::size_t i = 0; i < patterns.size(); ++i) {
+                    auto& result = results[i];
+                    if (options.max_results > 0 && result.hits.size() >= options.max_results) {
+                        continue;
+                    }
+                    active = true;
+                    patterns[i].search(data, start_limit, [&](std::size_t match_off) -> bool {
+                        const std::uint64_t hit_addr = chunk_base.value() + match_off;
+                        if (align > 1 && (hit_addr % align) != 0) {
+                            return true;
+                        }
+                        result.hits.emplace_back(hit_addr);
+                        if (options.max_results > 0 && result.hits.size() >= options.max_results) {
+                            result.truncated = true;
+                            return false;
+                        }
+                        return true;
+                    });
+                    aggregate_hits += result.hits.size();
+                }
+                if (options.on_progress) {
+                    const ScanProgress progress{
+                        .bytes_scanned = scanned_so_far,
+                        .total_bytes = total_bytes,
+                        .hits_found = aggregate_hits,
+                    };
+                    options.on_progress(progress);
+                }
+                return active;
+            });
+        if (!stats_res) {
+            return std::unexpected(stats_res.error());
+        }
+        for (auto& result : results) {
+            result.stats = *stats_res;
+            result.cancelled = cancelled;
+        }
+        return results;
+    } catch (const std::bad_alloc&) {
+        return fail(ErrorCode::OutOfMemory, "Scanner::scan_batch");
+    }
+}
+
 Result<Address> Scanner::find_first(AddressRange range,
                                     const Pattern& pattern,
                                     const ScanOptions& options) const {
