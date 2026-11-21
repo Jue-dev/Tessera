@@ -16,6 +16,34 @@ class PeImage;
 
 namespace tessera::xref {
 
+enum class XrefKind : std::uint8_t {
+    DirectCall,
+    DirectJump,
+    ConditionalBranch,
+    RipRelativeData,
+    IndirectCall,
+    IndirectJump,
+};
+
+struct XrefMatch {
+    Address instruction{};
+    Address target{};
+    XrefKind kind = XrefKind::DirectCall;
+};
+
+struct XrefScanResult {
+    std::vector<XrefMatch> references{};
+    ScanStats stats{};
+    bool truncated = false;
+    bool cancelled = false;
+};
+
+[[nodiscard]] Result<XrefScanResult> find_decoded_xrefs(
+    const Process& process,
+    AddressRange instruction_range,
+    Address target,
+    const ScanOptions& options = {});
+
 [[nodiscard]] Result<std::vector<Address>> find_pointer_refs(
     const Process& process,
     AddressRange range,
