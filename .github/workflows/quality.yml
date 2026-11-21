@@ -1,7 +1,7 @@
 name: Tessera Quality
 on:
  pull_request: {branches: ["main"]}
- push: {branches: ["main"]}
+ push: {branches: ["main", "wave-4"]}
  workflow_dispatch:
  schedule:
   - {cron: "17 6 * * 1"}
