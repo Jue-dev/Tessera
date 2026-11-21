@@ -102,6 +102,99 @@ int main(int argc, char** argv) {
         }
     });
 
+    constexpr auto prolog_pat = "48 89 5C 24 ?? 57 48 83 EC ??"_sig;
+    auto prolog_metrics = profiling::run_benchmark(10, [&]() {
+        bool found = false;
+        prolog_pat.search(buffer, buffer.size(), [&](std::size_t) {
+            found = true;
+            return true;
+        });
+        if (found) {
+            std::abort();
+        }
+    });
+
+    constexpr auto leading_pat = "?? ?? 48 8B 05 12 34 56 78 48 85 C0"_sig;
+    auto leading_metrics = profiling::run_benchmark(25, [&]() {
+        std::optional<std::size_t> found;
+        leading_pat.search(buffer, buffer.size(), [&](std::size_t idx) {
+            found = idx;
+            return false;
+        });
+        if (!found || *found != pos - 2) {
+            std::abort();
+        }
+    });
+
+    std::vector<Pattern> fifty_patterns;
+    fifty_patterns.reserve(50);
+    fifty_patterns.push_back(exact_pat);
+    for (std::uint16_t value = 0; value < 49; ++value) {
+        const std::array<std::byte, 3> bytes{
+            static_cast<std::byte>(0xA0u + value), std::byte{0xFE}, std::byte{0xED}};
+        auto candidate = Pattern::from_bytes(bytes);
+        if (!candidate) {
+            std::abort();
+        }
+        fifty_patterns.push_back(*candidate);
+    }
+
+    auto fifty_separate_metrics = profiling::run_benchmark(3, [&]() {
+        for (const auto& candidate : fifty_patterns) {
+            auto result = scanner.scan(scan_range, candidate, batch_options);
+            if (!result) {
+                std::abort();
+            }
+        }
+    });
+
+    auto fifty_batch_metrics = profiling::run_benchmark(10, [&]() {
+        auto result = scanner.scan_batch(scan_range, fifty_patterns, batch_options);
+        if (!result || result->size() != fifty_patterns.size() ||
+            (*result)[0].hits.size() != 1) {
+            std::abort();
+        }
+        for (std::size_t i = 1; i < result->size(); ++i) {
+            if (!(*result)[i].hits.empty()) {
+                std::abort();
+            }
+        }
+    });
+
+    constexpr std::uint64_t kXrefBase = 0x31000000ULL;
+    constexpr std::uint64_t kXrefTarget = kXrefBase + 0x3000ULL;
+    auto xref_backend = std::make_shared<testing::FakeMemoryBackend>();
+    std::vector<std::byte> xref_code(0x4000, std::byte{0x90});
+    constexpr std::size_t call_offset = 0x100;
+    xref_code[call_offset] = std::byte{0xE8};
+    const std::int32_t call_rel = static_cast<std::int32_t>(
+        kXrefTarget - (kXrefBase + call_offset + 5));
+    std::memcpy(xref_code.data() + call_offset + 1, &call_rel, sizeof(call_rel));
+    xref_backend->map_region(Address{kXrefBase}, xref_code.size(), MemoryProtection::ExecuteRead);
+    xref_backend->poke_bytes(Address{kXrefBase}, xref_code);
+    Process xref_process = testing::FakeMemoryBackend::make_process(
+        xref_backend, Architecture::X64);
+    const AddressRange xref_range{Address{kXrefBase}, xref_code.size()};
+    const Address xref_target{kXrefTarget};
+    ScanOptions xref_options{};
+    xref_options.filter.executable_only = true;
+
+    auto raw_xref_metrics = profiling::run_benchmark(20, [&]() {
+        auto result = xref::find_calls(xref_process, xref_range, xref_target, xref_options);
+        if (!result || result->size() != 1 ||
+            result->front() != Address{kXrefBase + call_offset}) {
+            std::abort();
+        }
+    });
+
+    auto decoded_xref_metrics = profiling::run_benchmark(5, [&]() {
+        auto result = xref::find_decoded_xrefs(xref_process, xref_range, xref_target, xref_options);
+        if (!result || result->references.size() != 1 ||
+            result->references.front().instruction != Address{kXrefBase + call_offset}) {
+            std::abort();
+        }
+    });
+
     // 2. RttiCatalog + BinaryExplorer + PythonBridgeScanner over 64 KiB synthetic module
     constexpr std::uint64_t kModBase = 0x140000000ULL;
     auto backend = std::make_shared<testing::FakeMemoryBackend>();
