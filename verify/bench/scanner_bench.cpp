@@ -7,12 +7,14 @@
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 #include "FakeMemoryBackend.hpp"
 
 
-int main() {
+int main(int argc, char** argv) {
+    const bool json = argc > 1 && std::string_view{argv[1]} == "--json";
     using namespace tessera;
     using namespace tessera::literals;
 
@@ -36,6 +38,19 @@ int main() {
             std::abort();
         }
     });
+
+    if (json) {
+        const double pattern_seconds = static_cast<double>(pat_metrics.mean.count()) / 1.0e9;
+        const double discovery_seconds = static_cast<double>(disc_metrics.mean.count()) / 1.0e9;
+        const double pattern_mb_s = pattern_seconds > 0.0 ? (buffer.size() / pattern_seconds) / 1.0e6 : 0.0;
+        const double discovery_mb_s = discovery_seconds > 0.0 ? (std::size_t{0x10000} / discovery_seconds) / 1.0e6 : 0.0;
+        std::cout << "{\"benchmarks\":["
+                  << "{\"name\":\"pattern_search_4mib\",\"iterations\":" << pat_metrics.iterations
+                  << ",\"ns_per_op\":" << pat_metrics.mean.count() << ",\"mb_per_s\":" << pattern_mb_s << "},"
+                  << "{\"name\":\"rtti_python_discovery_64k\",\"iterations\":" << disc_metrics.iterations
+                  << ",\"ns_per_op\":" << disc_metrics.mean.count() << ",\"mb_per_s\":" << discovery_mb_s << "}] }\n";
+        return 0;
+    }
 
     std::cout << "Benchmark 1: Pattern::search (4 MiB)\n"
               << "  Iterations : " << pat_metrics.iterations << "\n"
