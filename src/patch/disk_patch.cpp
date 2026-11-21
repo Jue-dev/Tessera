@@ -8,6 +8,7 @@
 #include <limits>
 #include <new>
 #include <system_error>
+#include <utility>
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN

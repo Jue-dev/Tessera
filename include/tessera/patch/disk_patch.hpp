@@ -7,6 +7,7 @@
 #include <span>
 #include <string>
 #include <vector>
+#include <utility>
 
 #include "tessera/core/result.hpp"
 #include "tessera/module/pe_image.hpp"
