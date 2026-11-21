@@ -23,7 +23,7 @@
 
 namespace winmock_tests {
 
-void run_memory_module_tests(const Result<Process>& process) {
+void run_memory_module_tests(const tessera::Result<tessera::Process>& process) {
     using namespace tessera;
     using namespace tessera::platform::windows;
     MemoryReader memory_reader{*process};
