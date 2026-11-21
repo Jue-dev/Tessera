@@ -142,24 +142,24 @@ jobs:
    - shell: pwsh
      run: .\.github\scripts\ci-sdk.ps1 -Task consumer -Options '${{ matrix.options }}' -SdkPrefix "$env:GITHUB_WORKSPACE\install-reduced"
 
-  cli-smoke:
-    name: Optional offline CLI and JSON smoke
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup-msvc
-        with:
-          arch: x64
-      - name: Generate PE fixtures
-        shell: pwsh
-        run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
-      - name: Configure optional CLI
-        shell: pwsh
-        run: cmake -S . -B build-cli -G Ninja -DCMAKE_BUILD_TYPE=Release -DTESSERA_BUILD_TESTS=ON -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_CLI=ON
-      - name: Build optional CLI and tests
-        run: cmake --build build-cli --parallel 2
-      - name: Run CLI command and JSON smoke suite
-        shell: pwsh
-        run: ctest --test-dir build-cli -R tessera_cli_smoke --output-on-failure
+ cli-smoke:
+   name: Optional offline CLI and JSON smoke
+   runs-on: windows-latest
+   steps:
+     - uses: actions/checkout@v5
+       with:
+         persist-credentials: false
+     - uses: ./.github/actions/setup-msvc
+       with:
+         arch: x64
+     - name: Generate PE fixtures
+       shell: pwsh
+       run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
+     - name: Configure optional CLI
+       shell: pwsh
+       run: cmake -S . -B build-cli -G Ninja -DCMAKE_BUILD_TYPE=Release -DTESSERA_BUILD_TESTS=ON -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_CLI=ON
+     - name: Build optional CLI and tests
+       run: cmake --build build-cli --parallel 2
+     - name: Run CLI command and JSON smoke suite
+       shell: pwsh
+       run: ctest --test-dir build-cli -R tessera_cli_smoke --output-on-failure
