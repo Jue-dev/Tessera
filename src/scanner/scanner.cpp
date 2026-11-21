@@ -659,6 +659,7 @@ Result<XrefBatchScanResult> find_decoded_xrefs_batch(
 
             if (!matched && process.pointer_size() == 4u &&
                 decoded.opcode == 0xFFu && decoded.length == 6u &&
+                (raw[1] == std::byte{0x15} || raw[1] == std::byte{0x25}) &&
                 (decoded.modrm_reg == 2u || decoded.modrm_reg == 4u)) {
                 std::uint32_t slot32 = 0;
                 std::memcpy(&slot32, raw.data() + 2, sizeof(slot32));
