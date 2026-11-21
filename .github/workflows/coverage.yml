@@ -54,7 +54,11 @@ jobs:
             llvm-cov export -format=lcov "$binary" -instr-profile=artifacts/coverage/merged.profdata > "artifacts/coverage/$name.info"
           done
           if ((${#binaries[@]} > 0)); then
-            llvm-cov report "${binaries[0]}" -instr-profile=artifacts/coverage/merged.profdata > artifacts/coverage/summary.txt
+            report_args=("${binaries[0]}" -instr-profile=artifacts/coverage/merged.profdata -show-branch-summary)
+            for binary in "${binaries[@]:1}"; do
+              report_args+=(-object "$binary")
+            done
+            llvm-cov report "${report_args[@]}" > artifacts/coverage/summary.txt
             cat artifacts/coverage/summary.txt
           fi
 
