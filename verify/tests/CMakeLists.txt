@@ -29,6 +29,19 @@ function(tessera_add_test test_name)
     endif()
 
     add_test(NAME ${test_name} COMMAND ${test_name})
+    if(Catch2_FOUND)
+        add_test(
+            NAME ${test_name}_shuffled
+            COMMAND ${test_name} --order rand --rng-seed 20261121
+                    --reporter junit --out ${CMAKE_CURRENT_BINARY_DIR}/${test_name}-shuffled.xml
+        )
+    else()
+        add_test(
+            NAME ${test_name}_shuffled
+            COMMAND ${test_name} --shuffle --seed 20261121
+                    --junit ${CMAKE_CURRENT_BINARY_DIR}/${test_name}-shuffled.xml
+        )
+    endif()
 endfunction()
 
 # ------------------------------------------------------------------------------
