@@ -110,9 +110,10 @@ public:
                     .observer = options.observer,
                 };
             }
-            last_err = err;
+            ::DetourTransactionAbort();
+            return fail(ErrorCode::Conflict, "DetourTransactionCommit", static_cast<std::uint32_t>(err));
         }
-        return fail(ErrorCode::Conflict, "DetourTransactionCommit", static_cast<std::uint32_t>(last_err));
+        return fail(ErrorCode::Conflict, "DetourTransactionBegin", static_cast<std::uint32_t>(last_err));
 #else
         return native_inline_hook_backend().attach(target, detour, options);
 #endif
@@ -180,9 +181,10 @@ public:
                 token.trampoline = nullptr;
                 return ok();
             }
-            last_err = err;
+            ::DetourTransactionAbort();
+            return fail(ErrorCode::Conflict, "DetourTransactionCommit", static_cast<std::uint32_t>(err));
         }
-        return fail(ErrorCode::Conflict, "DetourTransactionCommit", static_cast<std::uint32_t>(last_err));
+        return fail(ErrorCode::Conflict, "DetourTransactionBegin", static_cast<std::uint32_t>(last_err));
 #else
         return native_inline_hook_backend().detach(token);
 #endif
