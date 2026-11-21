@@ -456,13 +456,13 @@ TEST_CASE("Native x86 relocator preserves near JMP, CALL, and Jcc trampoline beh
         std::byte{0xC3}};
     run_case(near_jmp);
 
-    const std::array<std::byte, 13> near_jcc{
+    const std::array<std::byte, 16> near_jcc{
         std::byte{0x31}, std::byte{0xC0},
         std::byte{0x0F}, std::byte{0x84}, std::byte{0x02}, std::byte{0x00},
         std::byte{0x00}, std::byte{0x00},
         std::byte{0x90}, std::byte{0x90},
-        std::byte{0xB8}, std::byte{0x2A}, std::byte{0x00}};
-    // Complete the MOV immediate and RET in the executable page after the copied prefix.
+        std::byte{0xB8}, std::byte{0x2A}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0xC3}};
     run_case(near_jcc);
 }
 
