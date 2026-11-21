@@ -1,0 +1,73 @@
+name: Tessera Fuzz
+on:
+ pull_request:
+  branches: ["main"]
+  paths: ["CMakeLists.txt","cmake/**","include/**","src/**","verify/fuzz/**","verify/tests/**","src/hook/**","src/platform/windows/**","include/tessera/hook/**",".github/actions/setup-msvc/**",".github/workflows/fuzz.yml",".github/scripts/fuzz-native-hook.ps1"]
+ workflow_dispatch:
+  inputs:
+   duration_seconds: {description: "Per-target duration", required: true, default: "60", type: choice, options: ["30","60","120","300"]}
+   campaign_seconds: {description: "Native-hook duration", required: true, default: "300", type: choice, options: ["300","600","900"]}
+ schedule:
+  - {cron: "43 2 * * 2,5"}
+  - {cron: "41 4 * * 1"}
+concurrency:
+ group: tessera-fuzz-\${{ github.event_name }}-\${{ github.ref }}
+ cancel-in-progress: \${{ github.event_name == 'pull_request' }}
+permissions: {contents: read}
+jobs:
+ native-hook:
+  runs-on: windows-latest
+  timeout-minutes: 25
+  strategy: {fail-fast: false, matrix: {arch: [x64,x86]}}
+  steps:
+   - uses: actions/checkout@v5
+   - name: Install LLVM for x64
+     if: matrix.arch == 'x64'
+     uses: yezhizhen/install-llvm-action@8000af8f91093e2002004ceab3abd0f56e4cbde0
+     with: {version: "22.1.8", force-url: https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-win64.exe, directory: \${{ runner.temp }}/llvm22}
+   - uses: ./.github/actions/setup-msvc
+     with: {arch: \${{ matrix.arch }}}
+   - shell: pwsh
+     run: .\.github\scripts\fuzz-native-hook.ps1 -Stage setup -Arch \${{ matrix.arch }}
+   - shell: pwsh
+     run: .\.github\scripts\fuzz-native-hook.ps1 -Stage build -Arch \${{ matrix.arch }}
+   - shell: pwsh
+     env: {CAMPAIGN_SECONDS: \${{ inputs.campaign_seconds || '300' }}}
+     run: .\.github\scripts\fuzz-native-hook.ps1 -Stage run -Arch \${{ matrix.arch }}
+   - uses: actions/upload-artifact@v7
+     if: always()
+     with: {name: native-hook-fuzz-\${{ matrix.arch }}-\${{ github.run_number }}, path: artifacts/native-hook-fuzz/\${{ matrix.arch }}/, if-no-files-found: warn}
+ continuous-fuzz:
+  runs-on: windows-latest
+  timeout-minutes: 25
+  strategy:
+   fail-fast: false
+   matrix:
+    include:
+     - {target: tessera_fuzz_pe, corpus: pe}
+     - {target: tessera_fuzz_json, corpus: json}
+     - {target: tessera_fuzz_pattern, corpus: pattern}
+     - {target: tessera_fuzz_profile_json, corpus: profile_json}
+     - {target: tessera_fuzz_python_bridge, corpus: python_bridge}
+     - {target: tessera_fuzz_scanner, corpus: scanner}
+     - {target: tessera_fuzz_rtti_discovery, corpus: rtti_discovery}
+     - {target: tessera_fuzz_native_hook, corpus: native_hook}
+  steps:
+   - uses: actions/checkout@v5
+   - uses: ./.github/actions/setup-msvc
+     with: {arch: x64}
+   - shell: pwsh
+     run: cmake -S . -B build-fuzz -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_FUZZ=ON -DTESSERA_ENABLE_MSVC_FUZZER=ON -DTESSERA_ENABLE_ASAN=ON -DTESSERA_STATIC_RUNTIME=ON
+   - shell: pwsh
+     run: cmake --build build-fuzz --target \${{ matrix.target }} --parallel 2
+   - name: Run bounded corpus campaign
+     shell: pwsh
+     env: {ASAN_OPTIONS: halt_on_error=1}
+     run: |
+      $d=[int]("\${{ inputs.duration_seconds || '60' }}");$e=".\build-fuzz\verify\fuzz\${{ matrix.target }}.exe";$c=".\verify\fuzz\corpus\${{ matrix.corpus }}"
+      New-Item -ItemType Directory -Force artifacts\fuzz|Out-Null
+      & $e $c "-runs=10000" "-max_total_time=$d" "-timeout=10" "-print_final_stats=1" 2>&1|Tee-Object "artifacts\fuzz\${{ matrix.target }}.summary.txt"
+      if($LASTEXITCODE -ne 0){throw "Fuzz campaign failed"}
+   - uses: actions/upload-artifact@v7
+     if: always()
+     with: {name: fuzz-\${{ matrix.target }}-summary, path: artifacts/fuzz/*.summary.txt, if-no-files-found: ignore}
