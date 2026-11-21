@@ -44,4 +44,16 @@ namespace tessera::xref {
     Address target,
     const ScanOptions& options = {});
 
+[[nodiscard]] Result<std::vector<Address>> find_conditional_branches(
+    const Process& process,
+    AddressRange range,
+    Address target,
+    const ScanOptions& options = {});
+
+[[nodiscard]] Result<std::vector<Address>> find_indirect_refs(
+    const Process& process,
+    AddressRange range,
+    Address target,
+    const ScanOptions& options = {});
+
 } // namespace tessera::xref
