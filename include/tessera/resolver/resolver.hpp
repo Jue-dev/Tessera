@@ -27,6 +27,17 @@ namespace detail {
 [[nodiscard]] Result<ProcessAddress> abs32_impl(const ProcessAddress& pa,
                                                 std::size_t operand_offset) noexcept;
 
+[[nodiscard]] Result<ProcessAddress> step_instructions_impl(
+    const ProcessAddress& pa, std::size_t count) noexcept;
+[[nodiscard]] Result<ProcessAddress> find_next_call_impl(
+    const ProcessAddress& pa, std::size_t max_bytes) noexcept;
+[[nodiscard]] Result<ProcessAddress> find_next_rip_relative_impl(
+    const ProcessAddress& pa, std::size_t max_bytes) noexcept;
+[[nodiscard]] Result<ProcessAddress> resolve_operand_target_impl(
+    const ProcessAddress& pa) noexcept;
+[[nodiscard]] Result<ProcessAddress> resolve_thunk_chain_impl(
+    const ProcessAddress& pa, std::size_t max_hops) noexcept;
+
 struct DerefFn {
     [[nodiscard]] Result<ProcessAddress> operator()(const ProcessAddress& pa) const noexcept {
         return deref_impl(pa);
