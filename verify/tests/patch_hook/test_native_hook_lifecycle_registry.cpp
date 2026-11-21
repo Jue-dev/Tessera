@@ -2,15 +2,15 @@
 #include "hook/backends/native_trampoline.hpp"
 
 namespace {
-int g_native_trampoline_allocation_calls = 0;
+[[maybe_unused]] int g_native_trampoline_allocation_calls = 0;
 
-LPVOID WINAPI fail_native_trampoline_allocation(
+[[maybe_unused]] LPVOID WINAPI fail_native_trampoline_allocation(
     LPVOID, SIZE_T, DWORD, DWORD) noexcept {
     ++g_native_trampoline_allocation_calls;
     return nullptr;
 }
 
-void WINAPI one_step_native_trampoline_system_info(LPSYSTEM_INFO info) noexcept {
+[[maybe_unused]] void WINAPI one_step_native_trampoline_system_info(LPSYSTEM_INFO info) noexcept {
     info->dwAllocationGranularity = 0x70000000u;
 }
 } // namespace
