@@ -1,16 +1,16 @@
 #include "tessera/targets/target_runtime.hpp"
 
-#include <algorithm>
-#include <format>
-#include <new>
-#include <utility>
-
 #include "tessera/pattern/pattern.hpp"
 #include "tessera/resolver/resolver.hpp"
 #include "tessera/rtti/discovery.hpp"
 #include "tessera/rtti/python_bridge.hpp"
 #include "tessera/rtti/rtti.hpp"
 #include "tessera/scanner/scanner.hpp"
+
+#include <algorithm>
+#include <format>
+#include <new>
+#include <utility>
 
 namespace tessera::targets {
 
@@ -23,8 +23,7 @@ void AddressResolver::invalidate_session_cache() noexcept {
     session_cache_.clear();
 }
 
-const TargetModuleContext* AddressResolver::find_loaded_module(
-    std::string_view module_id) const noexcept {
+const TargetModuleContext* AddressResolver::find_loaded_module(std::string_view module_id) const noexcept {
     for (const auto& m : modules_) {
         if (m.module_id == module_id) {
             return &m;
@@ -50,169 +49,158 @@ namespace {
     return std::nullopt;
 }
 
-[[nodiscard]] Result<std::vector<Address>> execute_recipe(const Process& process,
-                                                          const TargetModuleContext& mod_ctx,
-                                                          const ResolutionRecipe& recipe) {
+[[nodiscard]] Result<std::vector<Address>>
+execute_recipe(const Process& process, const TargetModuleContext& mod_ctx, const ResolutionRecipe& recipe) {
     std::vector<Address> candidates;
     switch (recipe.strategy) {
-        case ResolutionStrategy::Rva: {
-            auto va = mod_ctx.range.at_rva(recipe.rva);
-            if (!va) {
-                return std::unexpected(va.error());
-            }
-            candidates.push_back(*va);
-            return candidates;
+    case ResolutionStrategy::Rva: {
+        auto va = mod_ctx.range.at_rva(recipe.rva);
+        if (!va) {
+            return std::unexpected(va.error());
         }
-        case ResolutionStrategy::Export: {
-            if (!mod_ctx.pe_image.has_value()) {
-                return fail(ErrorCode::NotFound, "execute_recipe(export)", 0, "No PE image available");
-            }
-            auto exp = !recipe.export_name.empty()
-                           ? mod_ctx.pe_image->find_export(recipe.export_name)
-                           : mod_ctx.pe_image->find_export(recipe.export_ordinal);
-            if (!exp) {
-                return std::unexpected(exp.error());
-            }
-            if (exp->is_forwarded()) {
-                return fail(ErrorCode::InvalidPe,
-                            "execute_recipe(export)",
-                            0,
-                            "Export is a forwarder string");
-            }
-            auto va = mod_ctx.range.at_rva(exp->rva);
-            if (!va) {
-                return std::unexpected(va.error());
-            }
-            candidates.push_back(*va);
-            return candidates;
+        candidates.push_back(*va);
+        return candidates;
+    }
+    case ResolutionStrategy::Export: {
+        if (!mod_ctx.pe_image.has_value()) {
+            return fail(ErrorCode::NotFound, "execute_recipe(export)", 0, "No PE image available");
         }
-        case ResolutionStrategy::Pattern:
-        case ResolutionStrategy::Relative: {
-            auto pat = Pattern::parse(recipe.pattern);
-            if (!pat) {
-                return std::unexpected(pat.error());
+        auto exp = !recipe.export_name.empty() ? mod_ctx.pe_image->find_export(recipe.export_name)
+                                               : mod_ctx.pe_image->find_export(recipe.export_ordinal);
+        if (!exp) {
+            return std::unexpected(exp.error());
+        }
+        if (exp->is_forwarded()) {
+            return fail(ErrorCode::InvalidPe, "execute_recipe(export)", 0, "Export is a forwarder string");
+        }
+        auto va = mod_ctx.range.at_rva(exp->rva);
+        if (!va) {
+            return std::unexpected(va.error());
+        }
+        candidates.push_back(*va);
+        return candidates;
+    }
+    case ResolutionStrategy::Pattern:
+    case ResolutionStrategy::Relative: {
+        auto pat = Pattern::parse(recipe.pattern);
+        if (!pat) {
+            return std::unexpected(pat.error());
+        }
+        AddressRange scan_range = mod_ctx.range;
+        if (!recipe.section.empty()) {
+            auto sec = find_section_in_ctx(mod_ctx, recipe.section);
+            if (!sec) {
+                return fail(ErrorCode::NotFound, "execute_recipe(pattern)", 0,
+                            "Specified section not found in module");
             }
-            AddressRange scan_range = mod_ctx.range;
-            if (!recipe.section.empty()) {
-                auto sec = find_section_in_ctx(mod_ctx, recipe.section);
-                if (!sec) {
-                    return fail(ErrorCode::NotFound,
-                                "execute_recipe(pattern)",
-                                0,
-                                "Specified section not found in module");
+            scan_range = sec->range();
+        }
+        Scanner scanner{process};
+        auto scan_res = scanner.scan(scan_range, *pat);
+        if (!scan_res) {
+            return std::unexpected(scan_res.error());
+        }
+        for (const Address hit : scan_res->hits) {
+            if (recipe.strategy == ResolutionStrategy::Relative) {
+                auto rel_pa = ProcessAddress{process, hit}
+                                  .cursor()
+                                  .offset(recipe.result_offset)
+                                  .rel32(recipe.rel_disp_offset, recipe.rel_instr_len)
+                                  .address();
+                if (rel_pa) {
+                    candidates.push_back(*rel_pa);
                 }
-                scan_range = sec->range();
-            }
-            Scanner scanner{process};
-            auto scan_res = scanner.scan(scan_range, *pat);
-            if (!scan_res) {
-                return std::unexpected(scan_res.error());
-            }
-            for (const Address hit : scan_res->hits) {
-                if (recipe.strategy == ResolutionStrategy::Relative) {
-                    auto rel_pa = ProcessAddress{process, hit}
-                                      .cursor()
-                                      .offset(recipe.result_offset)
-                                      .rel32(recipe.rel_disp_offset, recipe.rel_instr_len)
-                                      .address();
-                    if (rel_pa) {
-                        candidates.push_back(*rel_pa);
-                    }
-                } else {
-                    if (auto off_addr = hit.offset(recipe.result_offset)) {
-                        candidates.push_back(*off_addr);
-                    }
+            } else {
+                if (auto off_addr = hit.offset(recipe.result_offset)) {
+                    candidates.push_back(*off_addr);
                 }
             }
-            return candidates;
         }
-        case ResolutionStrategy::PointerChain: {
-            auto base_va = mod_ctx.range.at_rva(recipe.rva);
-            if (!base_va) {
-                return std::unexpected(base_va.error());
-            }
-            auto resolved = ProcessAddress{process, *base_va}
-                                .cursor()
-                                .pointer_chain(recipe.pointer_offsets)
-                                .address();
-            if (!resolved) {
-                return std::unexpected(resolved.error());
-            }
-            candidates.push_back(*resolved);
-            return candidates;
+        return candidates;
+    }
+    case ResolutionStrategy::PointerChain: {
+        auto base_va = mod_ctx.range.at_rva(recipe.rva);
+        if (!base_va) {
+            return std::unexpected(base_va.error());
         }
-        case ResolutionStrategy::Field: {
-            auto base_va = mod_ctx.range.at_rva(recipe.rva);
-            if (!base_va) {
-                return std::unexpected(base_va.error());
-            }
-            auto field_va = base_va->offset(recipe.result_offset);
-            if (!field_va) {
-                return std::unexpected(field_va.error());
-            }
-            candidates.push_back(*field_va);
-            return candidates;
+        auto resolved =
+            ProcessAddress{process, *base_va}.cursor().pointer_chain(recipe.pointer_offsets).address();
+        if (!resolved) {
+            return std::unexpected(resolved.error());
         }
-        case ResolutionStrategy::RttiVTable: {
-            const PeImage* pe_ptr = mod_ctx.pe_image ? &(*mod_ctx.pe_image) : nullptr;
-            auto cat = rtti::RttiCatalog::discover_all(process, mod_ctx.range, pe_ptr);
-            if (!cat) {
-                return std::unexpected(cat.error());
-            }
-            auto cls = cat->find_class(recipe.class_name);
-            if (!cls) {
-                return std::unexpected(cls.error());
-            }
-            Address base_target = cls->vftable_address;
-            if (recipe.vtable_index.has_value()) {
-                if (*recipe.vtable_index >= cls->virtual_methods.size()) {
-                    return fail(ErrorCode::OutOfRange,
-                                "execute_recipe(rtti_vtable)",
-                                0,
-                                "vtableIndex out of range for class");
-                }
-                base_target = cls->virtual_methods[*recipe.vtable_index];
-            }
-            auto adj = base_target.offset(recipe.result_offset);
-            if (!adj) {
-                return std::unexpected(adj.error());
-            }
-            candidates.push_back(*adj);
-            return candidates;
+        candidates.push_back(*resolved);
+        return candidates;
+    }
+    case ResolutionStrategy::Field: {
+        auto base_va = mod_ctx.range.at_rva(recipe.rva);
+        if (!base_va) {
+            return std::unexpected(base_va.error());
         }
-        case ResolutionStrategy::StringXref: {
-            auto strs = rtti::BinaryExplorer::scan_strings(process, mod_ctx.range, 3, true);
-            if (!strs) {
-                return std::unexpected(strs.error());
+        auto field_va = base_va->offset(recipe.result_offset);
+        if (!field_va) {
+            return std::unexpected(field_va.error());
+        }
+        candidates.push_back(*field_va);
+        return candidates;
+    }
+    case ResolutionStrategy::RttiVTable: {
+        const PeImage* pe_ptr = mod_ctx.pe_image ? &(*mod_ctx.pe_image) : nullptr;
+        auto cat = rtti::RttiCatalog::discover_all(process, mod_ctx.range, pe_ptr);
+        if (!cat) {
+            return std::unexpected(cat.error());
+        }
+        auto cls = cat->find_class(recipe.class_name);
+        if (!cls) {
+            return std::unexpected(cls.error());
+        }
+        Address base_target = cls->vftable_address;
+        if (recipe.vtable_index.has_value()) {
+            if (*recipe.vtable_index >= cls->virtual_methods.size()) {
+                return fail(ErrorCode::OutOfRange, "execute_recipe(rtti_vtable)", 0,
+                            "vtableIndex out of range for class");
             }
-            for (const auto& ds : *strs) {
-                if (ds.value == recipe.string_literal) {
-                    for (const Address xref_addr : ds.code_xrefs) {
-                        if (auto adj = xref_addr.offset(recipe.result_offset)) {
-                            candidates.push_back(*adj);
-                        }
+            base_target = cls->virtual_methods[*recipe.vtable_index];
+        }
+        auto adj = base_target.offset(recipe.result_offset);
+        if (!adj) {
+            return std::unexpected(adj.error());
+        }
+        candidates.push_back(*adj);
+        return candidates;
+    }
+    case ResolutionStrategy::StringXref: {
+        auto strs = rtti::BinaryExplorer::scan_strings(process, mod_ctx.range, 3, true);
+        if (!strs) {
+            return std::unexpected(strs.error());
+        }
+        for (const auto& ds : *strs) {
+            if (ds.value == recipe.string_literal) {
+                for (const Address xref_addr : ds.code_xrefs) {
+                    if (auto adj = xref_addr.offset(recipe.result_offset)) {
+                        candidates.push_back(*adj);
                     }
                 }
             }
-            return candidates;
         }
-        case ResolutionStrategy::PythonMethod: {
-            const PeImage* pe_ptr = mod_ctx.pe_image ? &(*mod_ctx.pe_image) : nullptr;
-            auto py_cat = rtti::PythonBridgeScanner::discover_all(process, mod_ctx.range, pe_ptr);
-            if (!py_cat) {
-                return std::unexpected(py_cat.error());
-            }
-            auto meth = py_cat->find_method(recipe.python_method);
-            if (!meth) {
-                return std::unexpected(meth.error());
-            }
-            auto adj = meth->cpp_function_address.offset(recipe.result_offset);
-            if (!adj) {
-                return std::unexpected(adj.error());
-            }
-            candidates.push_back(*adj);
-            return candidates;
+        return candidates;
+    }
+    case ResolutionStrategy::PythonMethod: {
+        const PeImage* pe_ptr = mod_ctx.pe_image ? &(*mod_ctx.pe_image) : nullptr;
+        auto py_cat = rtti::PythonBridgeScanner::discover_all(process, mod_ctx.range, pe_ptr);
+        if (!py_cat) {
+            return std::unexpected(py_cat.error());
         }
+        auto meth = py_cat->find_method(recipe.python_method);
+        if (!meth) {
+            return std::unexpected(meth.error());
+        }
+        auto adj = meth->cpp_function_address.offset(recipe.result_offset);
+        if (!adj) {
+            return std::unexpected(adj.error());
+        }
+        candidates.push_back(*adj);
+        return candidates;
+    }
     }
     return candidates;
 }
@@ -220,8 +208,7 @@ namespace {
 } // namespace
 
 ValidationReport AddressResolver::run_validation_checks(const TargetModuleContext& mod_ctx,
-                                                        const AddressEntry& entry,
-                                                        Address candidate,
+                                                        const AddressEntry& entry, Address candidate,
                                                         bool is_compatible_build) const {
     ValidationReport report{};
     report.all_required_passed = true;
@@ -234,145 +221,145 @@ ValidationReport AddressResolver::run_validation_checks(const TargetModuleContex
 
         switch (rule.kind) {
         case ValidationRuleKind::ModuleRange: {
-                if (mod_ctx.range.contains(candidate)) {
-                    chk.status = CheckStatus::Passed;
-                } else {
-                    chk.status = CheckStatus::Failed;
-                    chk.reason = "Candidate address lies outside module address range";
-                }
-                break;
+            if (mod_ctx.range.contains(candidate)) {
+                chk.status = CheckStatus::Passed;
+            } else {
+                chk.status = CheckStatus::Failed;
+                chk.reason = "Candidate address lies outside module address range";
+            }
+            break;
         }
         case ValidationRuleKind::Section: {
-                auto sec = find_section_in_ctx(mod_ctx, rule.value);
-                if (sec && sec->range().contains(candidate)) {
-                    chk.status = CheckStatus::Passed;
-                    report.has_independent_check = true;
-                } else {
-                    chk.status = CheckStatus::Failed;
-                    chk.reason = std::format("Candidate does not lie within section '{}'", rule.value);
-                }
-                break;
+            auto sec = find_section_in_ctx(mod_ctx, rule.value);
+            if (sec && sec->range().contains(candidate)) {
+                chk.status = CheckStatus::Passed;
+                report.has_independent_check = true;
+            } else {
+                chk.status = CheckStatus::Failed;
+                chk.reason = std::format("Candidate does not lie within section '{}'", rule.value);
+            }
+            break;
         }
         case ValidationRuleKind::MemoryReadable: {
-                const std::uint64_t sz = (std::max)(entry.value.size, 1u);
-                auto ok_r = reader.is_readable(AddressRange{candidate, sz});
-                if (ok_r && *ok_r) {
-                    chk.status = CheckStatus::Passed;
-                } else {
-                    chk.status = CheckStatus::Failed;
-                    chk.reason = "Candidate memory range is not readable";
-                }
-                break;
+            const std::uint64_t sz = (std::max)(entry.value.size, 1u);
+            auto ok_r = reader.is_readable(AddressRange{candidate, sz});
+            if (ok_r && *ok_r) {
+                chk.status = CheckStatus::Passed;
+            } else {
+                chk.status = CheckStatus::Failed;
+                chk.reason = "Candidate memory range is not readable";
+            }
+            break;
         }
         case ValidationRuleKind::MemoryWritable: {
-                const std::uint64_t sz = (std::max)(entry.value.size, 1u);
-                auto ok_w = reader.is_writable(AddressRange{candidate, sz});
-                if (ok_w && *ok_w) {
-                    chk.status = CheckStatus::Passed;
-                    report.has_independent_check = true;
-                } else {
-                    chk.status = CheckStatus::Failed;
-                    chk.reason = "Candidate memory range is not writable";
-                }
-                break;
+            const std::uint64_t sz = (std::max)(entry.value.size, 1u);
+            auto ok_w = reader.is_writable(AddressRange{candidate, sz});
+            if (ok_w && *ok_w) {
+                chk.status = CheckStatus::Passed;
+                report.has_independent_check = true;
+            } else {
+                chk.status = CheckStatus::Failed;
+                chk.reason = "Candidate memory range is not writable";
+            }
+            break;
         }
         case ValidationRuleKind::MemoryExecutable: {
-                auto ok_x = reader.is_executable(AddressRange{candidate, 1});
-                if (ok_x && *ok_x) {
+            auto ok_x = reader.is_executable(AddressRange{candidate, 1});
+            if (ok_x && *ok_x) {
+                chk.status = CheckStatus::Passed;
+                report.has_independent_check = true;
+            } else {
+                chk.status = CheckStatus::Failed;
+                chk.reason = "Candidate memory is not executable";
+            }
+            break;
+        }
+        case ValidationRuleKind::ExpectedBytes: {
+            auto pat = Pattern::parse(rule.value);
+            if (!pat) {
+                chk.status = CheckStatus::Failed;
+                chk.reason = "Invalid expected_bytes pattern";
+                break;
+            }
+            if (is_compatible_build && entry.fallback.has_value() &&
+                entry.fallback->strategy == ResolutionStrategy::Pattern &&
+                rule.value != entry.fallback->pattern) {
+                report.has_independent_check = true;
+            }
+            auto bytes = reader.read_bytes(candidate, pat->size());
+            if (bytes && pat->matches(*bytes)) {
+                chk.status = CheckStatus::Passed;
+            } else {
+                chk.status = CheckStatus::Failed;
+                chk.reason = "Bytes at candidate address do not match expected_bytes";
+            }
+            break;
+        }
+        case ValidationRuleKind::SecondarySignature: {
+            auto pat = Pattern::parse(rule.value);
+            auto sec_addr = candidate.offset(rule.relative_offset);
+            if (!pat || !sec_addr) {
+                chk.status = CheckStatus::Failed;
+                chk.reason = "Invalid secondary_signature parameters";
+                break;
+            }
+            auto bytes = reader.read_bytes(*sec_addr, pat->size());
+            if (bytes && pat->matches(*bytes)) {
+                chk.status = CheckStatus::Passed;
+                report.has_independent_check = true;
+            } else {
+                chk.status = CheckStatus::Failed;
+                chk.reason = "Secondary signature check failed";
+            }
+            break;
+        }
+        case ValidationRuleKind::PointerSanity: {
+            auto ptr_val = reader.read_pointer(candidate);
+            const std::uint64_t align_mask = (process_.pointer_size() == 8) ? 7ULL : 3ULL;
+            if (ptr_val && !ptr_val->is_null() && ((ptr_val->value() & align_mask) == 0) &&
+                ptr_val->value() >= 0x10000ULL &&
+                ptr_val->value() <= process_.info().max_application_address) {
+                auto target_readable = reader.is_readable(AddressRange{*ptr_val, 1});
+                if (target_readable && *target_readable) {
                     chk.status = CheckStatus::Passed;
                     report.has_independent_check = true;
                 } else {
                     chk.status = CheckStatus::Failed;
-                    chk.reason = "Candidate memory is not executable";
+                    chk.reason = "Dereferenced pointer points to unreadable memory";
                 }
-                break;
+            } else {
+                chk.status = CheckStatus::Failed;
+                chk.reason = "Pointer value failed null/alignment/range sanity check";
+            }
+            break;
         }
-        case ValidationRuleKind::ExpectedBytes: {
-                auto pat = Pattern::parse(rule.value);
-                if (!pat) {
-                    chk.status = CheckStatus::Failed;
-                    chk.reason = "Invalid expected_bytes pattern";
-                    break;
-                }
-                if (is_compatible_build && entry.fallback.has_value() &&
-                    entry.fallback->strategy == ResolutionStrategy::Pattern &&
-                    rule.value != entry.fallback->pattern) {
-                    report.has_independent_check = true;
-                }
+        case ValidationRuleKind::ValueRange: {
+            auto val32 = reader.read<std::int32_t>(candidate);
+            if (val32 && *val32 >= rule.min_value && *val32 <= rule.max_value) {
+                chk.status = CheckStatus::Passed;
+                report.has_independent_check = true;
+            } else {
+                chk.status = CheckStatus::Failed;
+                chk.reason = "Value at candidate address is outside allowed range";
+            }
+            break;
+        }
+        case ValidationRuleKind::InstructionShape: {
+            auto pat = Pattern::parse(rule.value);
+            if (pat) {
                 auto bytes = reader.read_bytes(candidate, pat->size());
                 if (bytes && pat->matches(*bytes)) {
                     chk.status = CheckStatus::Passed;
-                } else {
-                    chk.status = CheckStatus::Failed;
-                    chk.reason = "Bytes at candidate address do not match expected_bytes";
-                }
-                break;
-        }
-        case ValidationRuleKind::SecondarySignature: {
-                auto pat = Pattern::parse(rule.value);
-                auto sec_addr = candidate.offset(rule.relative_offset);
-                if (!pat || !sec_addr) {
-                    chk.status = CheckStatus::Failed;
-                    chk.reason = "Invalid secondary_signature parameters";
-                    break;
-                }
-                auto bytes = reader.read_bytes(*sec_addr, pat->size());
-                if (bytes && pat->matches(*bytes)) {
-                    chk.status = CheckStatus::Passed;
                     report.has_independent_check = true;
                 } else {
                     chk.status = CheckStatus::Failed;
-                    chk.reason = "Secondary signature check failed";
+                    chk.reason = "Instruction shape mismatch";
                 }
-                break;
-        }
-        case ValidationRuleKind::PointerSanity: {
-                auto ptr_val = reader.read_pointer(candidate);
-                const std::uint64_t align_mask = (process_.pointer_size() == 8) ? 7ULL : 3ULL;
-                if (ptr_val && !ptr_val->is_null() && ((ptr_val->value() & align_mask) == 0) &&
-                    ptr_val->value() >= 0x10000ULL &&
-                    ptr_val->value() <= process_.info().max_application_address) {
-                    auto target_readable = reader.is_readable(AddressRange{*ptr_val, 1});
-                    if (target_readable && *target_readable) {
-                        chk.status = CheckStatus::Passed;
-                        report.has_independent_check = true;
-                    } else {
-                        chk.status = CheckStatus::Failed;
-                        chk.reason = "Dereferenced pointer points to unreadable memory";
-                    }
-                } else {
-                    chk.status = CheckStatus::Failed;
-                    chk.reason = "Pointer value failed null/alignment/range sanity check";
-                }
-                break;
-        }
-        case ValidationRuleKind::ValueRange: {
-                auto val32 = reader.read<std::int32_t>(candidate);
-                if (val32 && *val32 >= rule.min_value && *val32 <= rule.max_value) {
-                    chk.status = CheckStatus::Passed;
-                    report.has_independent_check = true;
-                } else {
-                    chk.status = CheckStatus::Failed;
-                    chk.reason = "Value at candidate address is outside allowed range";
-                }
-                break;
-        }
-        case ValidationRuleKind::InstructionShape: {
-                auto pat = Pattern::parse(rule.value);
-                if (pat) {
-                    auto bytes = reader.read_bytes(candidate, pat->size());
-                    if (bytes && pat->matches(*bytes)) {
-                        chk.status = CheckStatus::Passed;
-                        report.has_independent_check = true;
-                    } else {
-                        chk.status = CheckStatus::Failed;
-                        chk.reason = "Instruction shape mismatch";
-                    }
-                } else {
-                    chk.status = CheckStatus::Failed;
-                    chk.reason = "Invalid instruction_shape pattern";
-                }
-                break;
+            } else {
+                chk.status = CheckStatus::Failed;
+                chk.reason = "Invalid instruction_shape pattern";
+            }
+            break;
         }
         }
 
@@ -388,20 +375,14 @@ ValidationReport AddressResolver::run_validation_checks(const TargetModuleContex
     return report;
 }
 
-ResolutionOutcome AddressResolver::resolve_entry(
-    TargetProfile& profile,
-    std::string_view entry_id,
-    PersistPolicy persist_policy,
-    TargetProfileStore* store) {
+ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile, std::string_view entry_id,
+                                                 PersistPolicy persist_policy, TargetProfileStore* store) {
     return resolve_entry(profile, entry_id, persist_policy, store, nullptr);
 }
 
-ResolutionOutcome AddressResolver::resolve_entry(
-    TargetProfile& profile,
-    std::string_view entry_id,
-    PersistPolicy persist_policy,
-    TargetProfileStore* store,
-    ResolutionTrace* trace) {
+ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile, std::string_view entry_id,
+                                                 PersistPolicy persist_policy, TargetProfileStore* store,
+                                                 ResolutionTrace* trace) {
     ResolutionOutcome outcome{};
     if (trace != nullptr) {
         trace->steps.clear();
@@ -435,14 +416,15 @@ ResolutionOutcome AddressResolver::resolve_entry(
                         "Compatible-build candidate passed required and independent checks";
                     break;
                 case ResolutionStatus::NeedsReview:
-                    trace->steps.back().detail =
-                        "Candidate needs review because independent verification or policy approval is missing";
+                    trace->steps.back().detail = "Candidate needs review because independent verification or "
+                                                 "policy approval is missing";
                     break;
                 case ResolutionStatus::Ambiguous:
                     trace->steps.back().detail = "More than one candidate matched";
                     break;
                 case ResolutionStatus::Stale:
-                    trace->steps.back().detail = "Candidate recipe was unavailable or failed required validation";
+                    trace->steps.back().detail =
+                        "Candidate recipe was unavailable or failed required validation";
                     break;
                 case ResolutionStatus::NotFound:
                     trace->steps.back().detail = "No matching build, module, or candidate was found";
@@ -463,10 +445,9 @@ ResolutionOutcome AddressResolver::resolve_entry(
         (process_.architecture() == Architecture::X64) ? TargetArch::X64 : TargetArch::X86;
 
     // 1. Verify target architecture compatibility
-    const bool arch_supported =
-        std::find(profile.application.supported_architectures.begin(),
-                  profile.application.supported_architectures.end(),
-                  proc_arch) != profile.application.supported_architectures.end();
+    const bool arch_supported = std::find(profile.application.supported_architectures.begin(),
+                                          profile.application.supported_architectures.end(),
+                                          proc_arch) != profile.application.supported_architectures.end();
     if (!arch_supported) {
         outcome.status = ResolutionStatus::IncompatibleTarget;
         return finish();
@@ -556,12 +537,8 @@ ResolutionOutcome AddressResolver::resolve_entry(
             if (outcome.report.all_required_passed) {
                 outcome.status = ResolutionStatus::VerifiedExactBuild;
                 const Rva verified_rva = outcome.candidate_rva.value_or(Rva{0});
-                outcome.verified_ = VerifiedAddress{
-                    cand,
-                    verified_rva,
-                    entry->id,
-                    entry->module_id,
-                    ResolutionStatus::VerifiedExactBuild};
+                outcome.verified_ = VerifiedAddress{cand, verified_rva, entry->id, entry->module_id,
+                                                    ResolutionStatus::VerifiedExactBuild};
                 session_cache_.push_back(SessionCacheItem{
                     .pid = process_.pid(),
                     .profile_revision = profile.revision,
@@ -587,8 +564,7 @@ ResolutionOutcome AddressResolver::resolve_entry(
 
     begin_stage("Fallback and compatible-build recipe");
     // 5. Fallback / compatible-build resolution
-    const ResolutionRecipe& compat_recipe =
-        entry->fallback.has_value() ? *entry->fallback : entry->primary;
+    const ResolutionRecipe& compat_recipe = entry->fallback.has_value() ? *entry->fallback : entry->primary;
     if (compat_recipe.strategy == ResolutionStrategy::Rva && exact_build == nullptr) {
         // Raw RVA cannot be trusted on a different build without a pattern/export fallback
         outcome.status = ResolutionStatus::Stale;
@@ -597,8 +573,7 @@ ResolutionOutcome AddressResolver::resolve_entry(
 
     auto compat_cands = execute_recipe(process_, *mod_ctx, compat_recipe);
     if (!compat_cands || compat_cands->empty()) {
-        outcome.status = (exact_build != nullptr) ? ResolutionStatus::Stale
-                                                  : ResolutionStatus::NotFound;
+        outcome.status = (exact_build != nullptr) ? ResolutionStatus::Stale : ResolutionStatus::NotFound;
         return finish();
     }
     if (compat_cands->size() > 1) {
@@ -619,8 +594,8 @@ ResolutionOutcome AddressResolver::resolve_entry(
         outcome.report.has_independent_check = true;
     }
     if (!outcome.report.all_required_passed) {
-        outcome.status = (exact_build != nullptr) ? ResolutionStatus::Stale
-                                                  : ResolutionStatus::CandidateFound;
+        outcome.status =
+            (exact_build != nullptr) ? ResolutionStatus::Stale : ResolutionStatus::CandidateFound;
         return finish();
     }
 
@@ -633,12 +608,8 @@ ResolutionOutcome AddressResolver::resolve_entry(
 
     outcome.status = ResolutionStatus::VerifiedCompatibleBuild;
     const Rva verified_rva = outcome.candidate_rva.value_or(Rva{0});
-    outcome.verified_ = VerifiedAddress{
-        cand,
-        verified_rva,
-        entry->id,
-        entry->module_id,
-        ResolutionStatus::VerifiedCompatibleBuild};
+    outcome.verified_ = VerifiedAddress{cand, verified_rva, entry->id, entry->module_id,
+                                        ResolutionStatus::VerifiedCompatibleBuild};
 
     session_cache_.push_back(SessionCacheItem{
         .pid = process_.pid(),
@@ -656,10 +627,8 @@ ResolutionOutcome AddressResolver::resolve_entry(
         begin_stage("Verified compatible-build persistence");
         TargetBuild new_build{};
         new_build.build_id = std::format(
-            "auto-{}-{}",
-            proc_arch == TargetArch::X64 ? "x64" : "x86",
-            mod_ctx->fingerprint.sha256.empty() ? "mem"
-                                                : mod_ctx->fingerprint.sha256.substr(0, 8));
+            "auto-{}-{}", proc_arch == TargetArch::X64 ? "x64" : "x86",
+            mod_ctx->fingerprint.sha256.empty() ? "mem" : mod_ctx->fingerprint.sha256.substr(0, 8));
         new_build.architecture = proc_arch;
         new_build.fingerprint.size_of_image = mod_ctx->fingerprint.size_of_image;
         new_build.fingerprint.timestamp = mod_ctx->fingerprint.timestamp;

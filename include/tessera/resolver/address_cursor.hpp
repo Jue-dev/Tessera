@@ -1,17 +1,17 @@
 #pragma once
 
+#include "tessera/core/result.hpp"
+#include "tessera/core/types.hpp"
+#include "tessera/memory/process_address.hpp"
+#include "tessera/resolver/resolver.hpp"
+#include "tessera/scanner/scanner.hpp"
+
 #include <array>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <span>
 #include <utility>
-
-#include "tessera/core/result.hpp"
-#include "tessera/core/types.hpp"
-#include "tessera/memory/process_address.hpp"
-#include "tessera/resolver/resolver.hpp"
-#include "tessera/scanner/scanner.hpp"
 
 namespace tessera {
 
@@ -23,8 +23,7 @@ public:
         : state_(initial ? Result<ProcessAddress>{ProcessAddress{std::move(proc), *initial}}
                          : std::unexpected(initial.error())) {}
 
-    explicit AddressCursor(Result<ProcessAddress> initial) noexcept
-        : state_(std::move(initial)) {}
+    explicit AddressCursor(Result<ProcessAddress> initial) noexcept : state_(std::move(initial)) {}
 
     [[nodiscard]] AddressCursor deref() const noexcept {
         if (!state_) {
@@ -49,14 +48,13 @@ public:
     }
 
     template <std::convertible_to<std::int64_t>... Offs>
-        requires (sizeof...(Offs) > 0)
+        requires(sizeof...(Offs) > 0)
     [[nodiscard]] AddressCursor pointer_chain(Offs... offsets) const noexcept {
         const std::array<std::int64_t, sizeof...(Offs)> arr{static_cast<std::int64_t>(offsets)...};
         return pointer_chain(std::span<const std::int64_t>(arr));
     }
 
-    [[nodiscard]] AddressCursor rel32(std::size_t disp_off = 1,
-                                      std::size_t instr_len = 5) const noexcept {
+    [[nodiscard]] AddressCursor rel32(std::size_t disp_off = 1, std::size_t instr_len = 5) const noexcept {
         if (!state_) {
             return *this;
         }
@@ -129,8 +127,7 @@ public:
         return state_->address();
     }
 
-    template <TriviallyReadable T>
-    [[nodiscard]] Result<T> read() const noexcept {
+    template <TriviallyReadable T> [[nodiscard]] Result<T> read() const noexcept {
         if (!state_) {
             return std::unexpected(state_.error());
         }
@@ -145,14 +142,12 @@ inline AddressCursor ProcessAddress::cursor() const noexcept {
     return AddressCursor{Result<ProcessAddress>{*this}};
 }
 
-inline AddressCursor Scanner::find_first_cursor(AddressRange range,
-                                                const Pattern& pattern,
+inline AddressCursor Scanner::find_first_cursor(AddressRange range, const Pattern& pattern,
                                                 const ScanOptions& options) const {
     return AddressCursor{process_, find_first(range, pattern, options)};
 }
 
-inline AddressCursor Scanner::find_unique_cursor(AddressRange range,
-                                                 const Pattern& pattern,
+inline AddressCursor Scanner::find_unique_cursor(AddressRange range, const Pattern& pattern,
                                                  const ScanOptions& options) const {
     return AddressCursor{process_, find_unique(range, pattern, options)};
 }

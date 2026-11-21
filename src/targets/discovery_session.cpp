@@ -1,24 +1,20 @@
+#include "tessera/memory/memory_reader.hpp"
+#include "tessera/resolver/resolver.hpp"
 #include "tessera/targets/target_runtime.hpp"
+#include "tessera/utility/hex.hpp"
 
 #include <algorithm>
 #include <utility>
 
-#include "tessera/memory/memory_reader.hpp"
-#include "tessera/resolver/resolver.hpp"
-#include "tessera/utility/hex.hpp"
-
 namespace tessera::targets {
 
-Result<AddressEntry> DiscoverySession::capture_and_verify(
-    TargetProfile& profile,
-    const DiscoveryCandidate& candidate) const {
+Result<AddressEntry> DiscoverySession::capture_and_verify(TargetProfile& profile,
+                                                          const DiscoveryCandidate& candidate) const {
     if (candidate.entry_id.empty() || candidate.address.is_null()) {
         return fail(ErrorCode::InvalidArgument, "DiscoverySession::capture_and_verify");
     }
     if (!mod_ctx_.range.contains(candidate.address)) {
-        return fail(ErrorCode::OutOfRange,
-                    "DiscoverySession::capture_and_verify",
-                    0,
+        return fail(ErrorCode::OutOfRange, "DiscoverySession::capture_and_verify", 0,
                     "Candidate address is outside target module range");
     }
 
@@ -98,9 +94,7 @@ Result<AddressEntry> DiscoverySession::capture_and_verify(
     AddressResolver resolver{process_, {mod_ctx_}};
     auto outcome = resolver.resolve_entry(temp_profile, entry.id, PersistPolicy::ReadOnly);
     if (!outcome.verified().has_value()) {
-        return fail(ErrorCode::ValidationFailed,
-                    "DiscoverySession::capture_and_verify",
-                    0,
+        return fail(ErrorCode::ValidationFailed, "DiscoverySession::capture_and_verify", 0,
                     "Discovered candidate failed mandatory validation checks");
     }
 
@@ -112,6 +106,5 @@ Result<AddressEntry> DiscoverySession::capture_and_verify(
     }
     return entry;
 }
-
 
 } // namespace tessera::targets

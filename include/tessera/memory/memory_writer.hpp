@@ -1,17 +1,17 @@
 #pragma once
 
+#include "tessera/core/error.hpp"
+#include "tessera/core/result.hpp"
+#include "tessera/core/types.hpp"
+#include "tessera/memory/memory_reader.hpp"
+#include "tessera/process/process.hpp"
+
 #include <array>
 #include <bit>
 #include <cstddef>
 #include <optional>
 #include <span>
 #include <vector>
-
-#include "tessera/core/error.hpp"
-#include "tessera/core/result.hpp"
-#include "tessera/core/types.hpp"
-#include "tessera/memory/memory_reader.hpp"
-#include "tessera/process/process.hpp"
 
 namespace tessera {
 
@@ -40,10 +40,8 @@ struct WriteReport {
     std::vector<PendingProtectionRestore> pending_protection_restores{};
 
     [[nodiscard]] constexpr bool succeeded() const noexcept {
-        return pending_protection_restores.empty() &&
-               !write_error.has_value() &&
-               !rollback_error.has_value() &&
-               !protection_restore_warning.has_value() &&
+        return pending_protection_restores.empty() && !write_error.has_value() &&
+               !rollback_error.has_value() && !protection_restore_warning.has_value() &&
                !icache_flush_error.has_value();
     }
 };
@@ -65,34 +63,26 @@ public:
     // Retain the report when protection restoration fails and retry it with
     // restore_pending_protections(). The status-only write() convenience API
     // performs one automatic retry but cannot expose persistent retry tickets.
-    [[nodiscard]] Result<WriteReport> write_with_report(Address address,
-                                                        std::span<const std::byte> data,
+    [[nodiscard]] Result<WriteReport> write_with_report(Address address, std::span<const std::byte> data,
                                                         WriteOptions options = {}) const;
 
     // Retries every outstanding page-protection restoration recorded by a prior
     // write_with_report call. Failed entries remain in the report for another retry.
     [[nodiscard]] Status restore_pending_protections(WriteReport& report) const;
 
-    [[nodiscard]] Status write(Address address,
-                               std::span<const std::byte> data,
+    [[nodiscard]] Status write(Address address, std::span<const std::byte> data,
                                WriteOptions options = {}) const;
 
     template <TriviallyReadable T>
-    [[nodiscard]] Status write_value(Address address,
-                                     const T& value,
-                                     WriteOptions options = {}) const {
+    [[nodiscard]] Status write_value(Address address, const T& value, WriteOptions options = {}) const {
         const auto bytes = std::bit_cast<std::array<std::byte, sizeof(T)>>(value);
         return write(address, bytes, options);
     }
 
-    [[nodiscard]] Status fill(Address address,
-                              std::byte value,
-                              std::size_t count,
+    [[nodiscard]] Status fill(Address address, std::byte value, std::size_t count,
                               WriteOptions options = {}) const;
 
-    [[nodiscard]] Status nop(Address address,
-                             std::size_t count,
-                             WriteOptions options = {}) const {
+    [[nodiscard]] Status nop(Address address, std::size_t count, WriteOptions options = {}) const {
         return fill(address, std::byte{0x90}, count, options);
     }
 

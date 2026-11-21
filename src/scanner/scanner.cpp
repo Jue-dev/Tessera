@@ -1,4 +1,9 @@
 #include "tessera/scanner/scanner.hpp"
+
+#include "disasm/x86_instruction_decoder.hpp"
+#include "tessera/core/checked_math.hpp"
+#include "tessera/memory/memory_backend.hpp"
+#include "tessera/module/pe_image.hpp"
 #include "tessera/scanner/xref.hpp"
 
 #include <algorithm>
@@ -9,11 +14,6 @@
 #include <new>
 #include <utility>
 
-#include "tessera/core/checked_math.hpp"
-#include "tessera/memory/memory_backend.hpp"
-#include "tessera/module/pe_image.hpp"
-#include "disasm/x86_instruction_decoder.hpp"
-
 namespace tessera {
 
 namespace {
@@ -21,11 +21,8 @@ namespace {
 constexpr std::uint64_t kPageSize = 0x1000ULL;
 
 template <class ChunkCallback>
-Result<ScanStats> for_each_readable_chunk(const Process& process,
-                                          AddressRange range,
-                                          std::size_t overlap,
-                                          const ScanOptions& options,
-                                          bool& out_cancelled,
+Result<ScanStats> for_each_readable_chunk(const Process& process, AddressRange range, std::size_t overlap,
+                                          const ScanOptions& options, bool& out_cancelled,
                                           ChunkCallback&& on_chunk,
                                           ScanReadPolicy read_policy = ScanReadPolicy::BestEffort,
                                           std::vector<std::byte>* workspace = nullptr) {
@@ -90,18 +87,17 @@ Result<ScanStats> for_each_readable_chunk(const Process& process,
                 } else {
                     runs.push_back(ContiguousRun{clipped_begin, clipped_end});
                 }
-                auto total = checked_add<std::uint64_t>(
-                    total_run_bytes, clipped_end - clipped_begin);
+                auto total = checked_add<std::uint64_t>(total_run_bytes, clipped_end - clipped_begin);
                 if (!total) {
-                    return fail(ErrorCode::OutOfRange, "Scanner::scan",
-                                0, "Total readable scan length overflowed");
+                    return fail(ErrorCode::OutOfRange, "Scanner::scan", 0,
+                                "Total readable scan length overflowed");
                 }
                 total_run_bytes = *total;
             } else {
                 ++stats.regions_skipped;
                 if (read_policy == ScanReadPolicy::Strict) {
-                    return fail(ErrorCode::AccessDenied, "Scanner::scan",
-                                0, "Strict scan encountered a filtered or inaccessible memory region");
+                    return fail(ErrorCode::AccessDenied, "Scanner::scan", 0,
+                                "Strict scan encountered a filtered or inaccessible memory region");
                 }
             }
             cur = r_end;
@@ -129,8 +125,8 @@ Result<ScanStats> for_each_readable_chunk(const Process& process,
                 }
 
                 const std::uint64_t rem = run.end - pos;
-                const auto want = static_cast<std::size_t>(
-                    (std::min)(static_cast<std::uint64_t>(*buffer_size), rem));
+                const auto want =
+                    static_cast<std::size_t>((std::min)(static_cast<std::uint64_t>(*buffer_size), rem));
                 const bool is_last_in_run = (want == rem);
 
                 auto got_res = backend.read(Address{pos}, std::span<std::byte>(buffer.data(), want));
@@ -151,11 +147,8 @@ Result<ScanStats> for_each_readable_chunk(const Process& process,
                         (is_last_in_run || !full_ok) ? got : (std::min)(chunk_sz, got);
                     stats.bytes_scanned += valid_Advance;
                     const std::size_t start_limit = (is_last_in_run || !full_ok) ? got : chunk_sz;
-                    if (!on_chunk(std::span<const std::byte>(buffer.data(), got),
-                                  start_limit,
-                                  Address{pos},
-                                  stats.bytes_scanned,
-                                  total_run_bytes)) {
+                    if (!on_chunk(std::span<const std::byte>(buffer.data(), got), start_limit, Address{pos},
+                                  stats.bytes_scanned, total_run_bytes)) {
                         keep_going = false;
                         break;
                     }
@@ -185,48 +178,33 @@ Result<ScanStats> for_each_readable_chunk(const Process& process,
 
 } // namespace
 
-Result<ScanResult> Scanner::scan(AddressRange range,
-                                 const Pattern& pattern,
+Result<ScanResult> Scanner::scan(AddressRange range, const Pattern& pattern,
                                  const ScanOptions& options) const {
     return scan_impl(range, pattern, options, ScanReadPolicy::BestEffort, nullptr, {});
 }
 
-Result<ScanResult> Scanner::scan(AddressRange range,
-                                 const Pattern& pattern,
-                                 const ScanOptions& options,
+Result<ScanResult> Scanner::scan(AddressRange range, const Pattern& pattern, const ScanOptions& options,
                                  ScanReadPolicy read_policy) const {
     return scan_impl(range, pattern, options, read_policy, nullptr, {});
 }
 
-Result<ScanResult> Scanner::scan(AddressRange range,
-                                 const Pattern& pattern,
-                                 const ScanOptions& options,
-                                 ScanWorkspace& workspace,
-                                 ScanReadPolicy read_policy) const {
+Result<ScanResult> Scanner::scan(AddressRange range, const Pattern& pattern, const ScanOptions& options,
+                                 ScanWorkspace& workspace, ScanReadPolicy read_policy) const {
     return scan_impl(range, pattern, options, read_policy, &workspace, {});
 }
 
-Result<ScanResult> Scanner::scan_streaming(
-    AddressRange range,
-    const Pattern& pattern,
-    const ScanOptions& options,
-    FunctionRef<bool(Address)> on_match,
-    ScanWorkspace* workspace,
-    ScanReadPolicy read_policy) const {
+Result<ScanResult> Scanner::scan_streaming(AddressRange range, const Pattern& pattern,
+                                           const ScanOptions& options, FunctionRef<bool(Address)> on_match,
+                                           ScanWorkspace* workspace, ScanReadPolicy read_policy) const {
     if (!on_match) {
-        return fail(ErrorCode::InvalidArgument, "Scanner::scan_streaming",
-                    0, "Match callback is empty");
+        return fail(ErrorCode::InvalidArgument, "Scanner::scan_streaming", 0, "Match callback is empty");
     }
     return scan_impl(range, pattern, options, read_policy, workspace, on_match);
 }
 
-Result<ScanResult> Scanner::scan_impl(
-    AddressRange range,
-    const Pattern& pattern,
-    const ScanOptions& options,
-    ScanReadPolicy read_policy,
-    ScanWorkspace* workspace,
-    FunctionRef<bool(Address)> on_match) const {
+Result<ScanResult> Scanner::scan_impl(AddressRange range, const Pattern& pattern, const ScanOptions& options,
+                                      ScanReadPolicy read_policy, ScanWorkspace* workspace,
+                                      FunctionRef<bool(Address)> on_match) const {
     if (pattern.empty()) {
         return fail(ErrorCode::InvalidPattern, "Scanner::scan", 0, "Pattern is empty");
     }
@@ -244,16 +222,9 @@ Result<ScanResult> Scanner::scan_impl(
     try {
         bool cancelled = false;
         auto stats_res = for_each_readable_chunk(
-            process_,
-            range,
-            pattern.size() - 1,
-            options,
-            cancelled,
-            [&](std::span<const std::byte> data,
-                std::size_t start_limit,
-                Address chunk_base,
-                std::uint64_t scanned_so_far,
-                std::uint64_t total_bytes) -> bool {
+            process_, range, pattern.size() - 1, options, cancelled,
+            [&](std::span<const std::byte> data, std::size_t start_limit, Address chunk_base,
+                std::uint64_t scanned_so_far, std::uint64_t total_bytes) -> bool {
                 bool continue_scan = true;
                 pattern.search(data, start_limit, [&](std::size_t match_off) -> bool {
                     const std::uint64_t hit_addr = chunk_base.value() + match_off;
@@ -288,8 +259,7 @@ Result<ScanResult> Scanner::scan_impl(
                 }
                 return continue_scan;
             },
-            read_policy,
-            workspace ? &workspace->buffer_ : nullptr);
+            read_policy, workspace ? &workspace->buffer_ : nullptr);
 
         if (!stats_res) {
             return std::unexpected(stats_res.error());
@@ -302,26 +272,21 @@ Result<ScanResult> Scanner::scan_impl(
     }
 }
 
-Result<std::vector<ScanResult>> Scanner::scan_batch(
-    AddressRange range,
-    std::span<const Pattern> patterns,
-    const ScanOptions& options) const {
+Result<std::vector<ScanResult>> Scanner::scan_batch(AddressRange range, std::span<const Pattern> patterns,
+                                                    const ScanOptions& options) const {
     return scan_batch_impl(range, patterns, options, nullptr);
 }
 
-Result<std::vector<ScanResult>> Scanner::scan_batch(
-    AddressRange range,
-    std::span<const Pattern> patterns,
-    const ScanOptions& options,
-    ScanWorkspace& workspace) const {
+Result<std::vector<ScanResult>> Scanner::scan_batch(AddressRange range, std::span<const Pattern> patterns,
+                                                    const ScanOptions& options,
+                                                    ScanWorkspace& workspace) const {
     return scan_batch_impl(range, patterns, options, &workspace);
 }
 
-Result<std::vector<ScanResult>> Scanner::scan_batch_impl(
-    AddressRange range,
-    std::span<const Pattern> patterns,
-    const ScanOptions& options,
-    ScanWorkspace* workspace) const {
+Result<std::vector<ScanResult>> Scanner::scan_batch_impl(AddressRange range,
+                                                         std::span<const Pattern> patterns,
+                                                         const ScanOptions& options,
+                                                         ScanWorkspace* workspace) const {
     if (range.empty()) {
         return fail(ErrorCode::InvalidArgument, "Scanner::scan_batch", 0, "AddressRange is empty");
     }
@@ -369,21 +334,13 @@ Result<std::vector<ScanResult>> Scanner::scan_batch_impl(
         const std::size_t align = options.alignment > 0 ? options.alignment : 1;
         bool cancelled = false;
         auto stats_res = for_each_readable_chunk(
-            process_,
-            range,
-            max_pattern_len - 1,
-            options,
-            cancelled,
-            [&](std::span<const std::byte> data,
-                std::size_t start_limit,
-                Address chunk_base,
-                std::uint64_t scanned_so_far,
-                std::uint64_t total_bytes) -> bool {
+            process_, range, max_pattern_len - 1, options, cancelled,
+            [&](std::span<const std::byte> data, std::size_t start_limit, Address chunk_base,
+                std::uint64_t scanned_so_far, std::uint64_t total_bytes) -> bool {
                 std::size_t aggregate_hits = 0;
                 bool active = false;
                 const auto quota_reached = [&](std::size_t index) {
-                    return options.max_results > 0 &&
-                           results[index].hits.size() >= options.max_results;
+                    return options.max_results > 0 && results[index].hits.size() >= options.max_results;
                 };
 
                 for (const auto& group : groups) {
@@ -396,27 +353,22 @@ Result<std::vector<ScanResult>> Scanner::scan_batch_impl(
                     }
 
                     std::size_t offset = 0;
-                    while (offset < start_limit &&
-                           group.anchor_index < data.size() - offset) {
-                        const std::size_t search_length = (std::min)(
-                            start_limit - offset,
-                            data.size() - offset - group.anchor_index);
+                    while (offset < start_limit && group.anchor_index < data.size() - offset) {
+                        const std::size_t search_length =
+                            (std::min)(start_limit - offset, data.size() - offset - group.anchor_index);
                         if (search_length == 0) {
                             break;
                         }
-                        const auto* found = static_cast<const std::byte*>(std::memchr(
-                            data.data() + offset + group.anchor_index,
-                            std::to_integer<unsigned char>(group.anchor_value),
-                            search_length));
+                        const auto* found = static_cast<const std::byte*>(
+                            std::memchr(data.data() + offset + group.anchor_index,
+                                        std::to_integer<unsigned char>(group.anchor_value), search_length));
                         if (found == nullptr) {
                             break;
                         }
-                        const std::size_t anchor_position =
-                            static_cast<std::size_t>(found - data.data());
+                        const std::size_t anchor_position = static_cast<std::size_t>(found - data.data());
                         const std::size_t candidate = anchor_position - group.anchor_index;
                         for (const std::size_t index : group.pattern_indices) {
-                            if (quota_reached(index) ||
-                                !patterns[index].matches(data.subspan(candidate))) {
+                            if (quota_reached(index) || !patterns[index].matches(data.subspan(candidate))) {
                                 continue;
                             }
                             const std::uint64_t hit_address = chunk_base.value() + candidate;
@@ -468,8 +420,7 @@ Result<std::vector<ScanResult>> Scanner::scan_batch_impl(
                 }
                 return active;
             },
-            ScanReadPolicy::BestEffort,
-            workspace ? &workspace->buffer_ : nullptr);
+            ScanReadPolicy::BestEffort, workspace ? &workspace->buffer_ : nullptr);
         if (!stats_res) {
             return std::unexpected(stats_res.error());
         }
@@ -483,8 +434,7 @@ Result<std::vector<ScanResult>> Scanner::scan_batch_impl(
     }
 }
 
-Result<Address> Scanner::find_first(AddressRange range,
-                                    const Pattern& pattern,
+Result<Address> Scanner::find_first(AddressRange range, const Pattern& pattern,
                                     const ScanOptions& options) const {
     ScanOptions first_opt{};
     first_opt.max_results = 1;
@@ -507,8 +457,7 @@ Result<Address> Scanner::find_first(AddressRange range,
     return res->hits.front();
 }
 
-Result<Address> Scanner::find_unique(AddressRange range,
-                                     const Pattern& pattern,
+Result<Address> Scanner::find_unique(AddressRange range, const Pattern& pattern,
                                      const ScanOptions& options) const {
     ScanOptions unique_opt{};
     unique_opt.max_results = 2;
@@ -529,21 +478,16 @@ Result<Address> Scanner::find_unique(AddressRange range,
         return fail(ErrorCode::NotFound, "Scanner::find_unique");
     }
     if (res->hits.size() > 1) {
-        return fail(ErrorCode::Ambiguous,
-                    "Scanner::find_unique",
-                    0,
-                    "Pattern matched more than one address");
+        return fail(ErrorCode::Ambiguous, "Scanner::find_unique", 0, "Pattern matched more than one address");
     }
     return res->hits.front();
 }
 
 namespace xref {
 
-Result<XrefBatchScanResult> find_decoded_xrefs_batch(
-    const Process& process,
-    AddressRange instruction_range,
-    std::span<const Address> targets,
-    const ScanOptions& options) {
+Result<XrefBatchScanResult> find_decoded_xrefs_batch(const Process& process, AddressRange instruction_range,
+                                                     std::span<const Address> targets,
+                                                     const ScanOptions& options) {
     if (instruction_range.empty() || targets.empty() ||
         std::any_of(targets.begin(), targets.end(), [](Address target) { return target.is_null(); })) {
         return fail(ErrorCode::InvalidArgument, "xref::find_decoded_xrefs_batch");
@@ -552,8 +496,7 @@ Result<XrefBatchScanResult> find_decoded_xrefs_batch(
     if (!range_end) {
         return std::unexpected(range_end.error());
     }
-    auto max_exclusive = checked_add<std::uint64_t>(
-        process.info().max_application_address, 1u);
+    auto max_exclusive = checked_add<std::uint64_t>(process.info().max_application_address, 1u);
     if (!max_exclusive || range_end->value() > *max_exclusive) {
         return fail(ErrorCode::OutOfRange, "xref::find_decoded_xrefs_batch");
     }
@@ -578,14 +521,13 @@ Result<XrefBatchScanResult> find_decoded_xrefs_batch(
                     return std::unexpected(region.error());
                 }
                 if (!matches_region_filter(*region, options.filter)) {
-                    return fail(ErrorCode::AccessDenied, "xref::find_decoded_xrefs_batch",
-                                0, "Instruction sweep entered a filtered or inaccessible region");
+                    return fail(ErrorCode::AccessDenied, "xref::find_decoded_xrefs_batch", 0,
+                                "Instruction sweep entered a filtered or inaccessible region");
                 }
-                auto next_region = checked_add<std::uint64_t>(
-                    region->base.value(), region->size);
+                auto next_region = checked_add<std::uint64_t>(region->base.value(), region->size);
                 if (!next_region || *next_region <= cursor) {
-                    return fail(ErrorCode::OutOfRange, "xref::find_decoded_xrefs_batch",
-                                0, "Memory-region query returned an invalid range");
+                    return fail(ErrorCode::OutOfRange, "xref::find_decoded_xrefs_batch", 0,
+                                "Memory-region query returned an invalid range");
                 }
                 region_end = *next_region;
                 for (auto& result : batch.results) {
@@ -608,14 +550,12 @@ Result<XrefBatchScanResult> find_decoded_xrefs_batch(
             }
 
             ::tessera::detail::x86::DecodedInstruction decoded{};
-            const auto mode = process.pointer_size() == 8
-                                  ? ::tessera::detail::x86::Mode::x64
-                                  : ::tessera::detail::x86::Mode::x86;
-            if (!::tessera::detail::x86::decode_instruction(
-                    raw.data(), available, mode, decoded) ||
+            const auto mode = process.pointer_size() == 8 ? ::tessera::detail::x86::Mode::x64
+                                                          : ::tessera::detail::x86::Mode::x86;
+            if (!::tessera::detail::x86::decode_instruction(raw.data(), available, mode, decoded) ||
                 decoded.length == 0 || decoded.length > remaining) {
-                return fail(ErrorCode::UnsupportedInstruction, "xref::find_decoded_xrefs_batch",
-                            0, "Instruction boundary cannot be established at sweep cursor");
+                return fail(ErrorCode::UnsupportedInstruction, "xref::find_decoded_xrefs_batch", 0,
+                            "Instruction boundary cannot be established at sweep cursor");
             }
 
             bool matched = false;
@@ -626,15 +566,14 @@ Result<XrefBatchScanResult> find_decoded_xrefs_batch(
                 decoded.relative_offset + decoded.relative_size <= decoded.length) {
                 std::int64_t displacement = 0;
                 if (decoded.relative_size == 1) {
-                    displacement = static_cast<std::int8_t>(
-                        std::to_integer<std::uint8_t>(raw[decoded.relative_offset]));
+                    displacement =
+                        static_cast<std::int8_t>(std::to_integer<std::uint8_t>(raw[decoded.relative_offset]));
                 } else if (decoded.relative_size == 4) {
                     std::int32_t rel32 = 0;
                     std::memcpy(&rel32, raw.data() + decoded.relative_offset, sizeof(rel32));
                     displacement = rel32;
                 }
-                auto next_ip = checked_add<std::uint64_t>(
-                    cursor, static_cast<std::uint64_t>(decoded.length));
+                auto next_ip = checked_add<std::uint64_t>(cursor, static_cast<std::uint64_t>(decoded.length));
                 if (!next_ip) {
                     return fail(ErrorCode::OutOfRange, "xref::find_decoded_xrefs_batch");
                 }
@@ -642,23 +581,20 @@ Result<XrefBatchScanResult> find_decoded_xrefs_batch(
                 if (destination) {
                     const bool direct_call = decoded.opcode == 0xE8u;
                     const bool direct_jump = decoded.opcode == 0xE9u || decoded.opcode == 0xEBu;
-                    const bool short_conditional =
-                        decoded.opcode >= 0x70u && decoded.opcode <= 0x7Fu;
+                    const bool short_conditional = decoded.opcode >= 0x70u && decoded.opcode <= 0x7Fu;
                     const bool near_conditional =
-                        decoded.opcode == 0x0Fu && decoded.opcode2 >= 0x80u &&
-                        decoded.opcode2 <= 0x8Fu;
+                        decoded.opcode == 0x0Fu && decoded.opcode2 >= 0x80u && decoded.opcode2 <= 0x8Fu;
                     if (direct_call || direct_jump || short_conditional || near_conditional) {
                         resolved_target = Address{*destination};
                         matched = true;
-                        kind = direct_call ? XrefKind::DirectCall
+                        kind = direct_call   ? XrefKind::DirectCall
                                : direct_jump ? XrefKind::DirectJump
                                              : XrefKind::ConditionalBranch;
                     }
                 }
             }
 
-            if (!matched && process.pointer_size() == 4u &&
-                decoded.opcode == 0xFFu && decoded.length == 6u &&
+            if (!matched && process.pointer_size() == 4u && decoded.opcode == 0xFFu && decoded.length == 6u &&
                 (raw[1] == std::byte{0x15} || raw[1] == std::byte{0x25}) &&
                 (decoded.modrm_reg == 2u || decoded.modrm_reg == 4u)) {
                 std::uint32_t slot32 = 0;
@@ -680,18 +616,15 @@ Result<XrefBatchScanResult> find_decoded_xrefs_batch(
                 std::int32_t displacement = 0;
                 std::memcpy(&displacement, raw.data() + decoded.rip_displacement_offset,
                             sizeof(displacement));
-                auto next_ip = checked_add<std::uint64_t>(
-                    cursor, static_cast<std::uint64_t>(decoded.length));
+                auto next_ip = checked_add<std::uint64_t>(cursor, static_cast<std::uint64_t>(decoded.length));
                 if (!next_ip) {
                     return fail(ErrorCode::OutOfRange, "xref::find_decoded_xrefs_batch");
                 }
                 auto slot = checked_offset<std::uint64_t>(*next_ip, displacement);
                 if (slot) {
                     resolved_target = Address{*slot};
-                    const bool indirect_call =
-                        decoded.opcode == 0xFFu && decoded.modrm_reg == 2u;
-                    const bool indirect_jump =
-                        decoded.opcode == 0xFFu && decoded.modrm_reg == 4u;
+                    const bool indirect_call = decoded.opcode == 0xFFu && decoded.modrm_reg == 2u;
+                    const bool indirect_jump = decoded.opcode == 0xFFu && decoded.modrm_reg == 4u;
                     if (indirect_call || indirect_jump) {
                         std::array<std::byte, sizeof(std::uint64_t)> pointer_bytes{};
                         const std::size_t pointer_size = process.pointer_size();
@@ -723,8 +656,7 @@ Result<XrefBatchScanResult> find_decoded_xrefs_batch(
                         continue;
                     }
                     auto& result = batch.results[target_index];
-                    if (options.max_results > 0 &&
-                        result.references.size() >= options.max_results) {
+                    if (options.max_results > 0 && result.references.size() >= options.max_results) {
                         result.truncated = true;
                         continue;
                     }
@@ -733,8 +665,7 @@ Result<XrefBatchScanResult> find_decoded_xrefs_batch(
                         .target = resolved_target,
                         .kind = kind,
                     });
-                    if (options.max_results > 0 &&
-                        result.references.size() >= options.max_results) {
+                    if (options.max_results > 0 && result.references.size() >= options.max_results) {
                         result.truncated = true;
                     }
                 }
@@ -756,10 +687,9 @@ Result<XrefBatchScanResult> find_decoded_xrefs_batch(
                 });
             }
             if (options.max_results > 0 &&
-                std::all_of(batch.results.begin(), batch.results.end(),
-                    [&](const XrefScanResult& result) {
-                        return result.references.size() >= options.max_results;
-                    })) {
+                std::all_of(batch.results.begin(), batch.results.end(), [&](const XrefScanResult& result) {
+                    return result.references.size() >= options.max_results;
+                })) {
                 for (auto& result : batch.results) {
                     result.truncated = true;
                 }
@@ -772,12 +702,8 @@ Result<XrefBatchScanResult> find_decoded_xrefs_batch(
     }
 }
 
-
-Result<XrefScanResult> find_decoded_xrefs(
-    const Process& process,
-    AddressRange instruction_range,
-    Address target,
-    const ScanOptions& options) {
+Result<XrefScanResult> find_decoded_xrefs(const Process& process, AddressRange instruction_range,
+                                          Address target, const ScanOptions& options) {
     const std::array<Address, 1> targets{target};
     auto batch = find_decoded_xrefs_batch(process, instruction_range, targets, options);
     if (!batch) {
@@ -786,13 +712,11 @@ Result<XrefScanResult> find_decoded_xrefs(
     return std::move(batch->results.front());
 }
 
-
 namespace {
 
-
 template <class Predicate>
-[[nodiscard]] Result<std::vector<Address>> filter_decoded_references(
-    const Process& process, std::vector<Address> candidates, Predicate&& predicate) {
+[[nodiscard]] Result<std::vector<Address>>
+filter_decoded_references(const Process& process, std::vector<Address> candidates, Predicate&& predicate) {
     std::vector<Address> verified;
     try {
         verified.reserve(candidates.size());
@@ -803,9 +727,8 @@ template <class Predicate>
                 continue;
             }
             ::tessera::detail::x86::DecodedInstruction decoded{};
-            const auto mode = process.pointer_size() == 8
-                                  ? ::tessera::detail::x86::Mode::x64
-                                  : ::tessera::detail::x86::Mode::x86;
+            const auto mode = process.pointer_size() == 8 ? ::tessera::detail::x86::Mode::x64
+                                                          : ::tessera::detail::x86::Mode::x86;
             if (::tessera::detail::x86::decode_instruction(raw.data(), *read, mode, decoded) &&
                 predicate(decoded)) {
                 verified.push_back(address);
@@ -819,18 +742,14 @@ template <class Predicate>
 
 } // namespace
 
-Result<std::vector<Address>> find_pointer_refs(const Process& process,
-                                               AddressRange range,
-                                               Address target,
+Result<std::vector<Address>> find_pointer_refs(const Process& process, AddressRange range, Address target,
                                                const ScanOptions& options) {
     if (target.is_null()) {
         return fail(ErrorCode::NullAddress, "xref::find_pointer_refs");
     }
     const std::uint8_t ptr_size = process.pointer_size();
     if (ptr_size == 4 && target.value() > 0xFFFFFFFFULL) {
-        return fail(ErrorCode::OutOfRange,
-                    "xref::find_pointer_refs",
-                    0,
+        return fail(ErrorCode::OutOfRange, "xref::find_pointer_refs", 0,
                     "Target address exceeds 32-bit pointer range for x86 process");
     }
 
@@ -860,14 +779,11 @@ Result<std::vector<Address>> find_pointer_refs(const Process& process,
     return std::move(res->hits);
 }
 
-Result<std::vector<std::vector<Address>>> find_pointer_refs_batch(
-    const Process& process,
-    AddressRange range,
-    std::span<const Address> targets,
-    const ScanOptions& options) {
+Result<std::vector<std::vector<Address>>> find_pointer_refs_batch(const Process& process, AddressRange range,
+                                                                  std::span<const Address> targets,
+                                                                  const ScanOptions& options) {
     if (targets.empty()) {
-        return fail(ErrorCode::InvalidArgument, "xref::find_pointer_refs_batch",
-                    0, "Target batch is empty");
+        return fail(ErrorCode::InvalidArgument, "xref::find_pointer_refs_batch", 0, "Target batch is empty");
     }
     const std::uint8_t pointer_size = process.pointer_size();
     std::vector<Pattern> patterns;
@@ -878,13 +794,13 @@ Result<std::vector<std::vector<Address>>> find_pointer_refs_batch(
                 return fail(ErrorCode::NullAddress, "xref::find_pointer_refs_batch");
             }
             if (pointer_size == 4 && target.value() > 0xFFFFFFFFULL) {
-                return fail(ErrorCode::OutOfRange, "xref::find_pointer_refs_batch",
-                            0, "Target address exceeds x86 pointer range");
+                return fail(ErrorCode::OutOfRange, "xref::find_pointer_refs_batch", 0,
+                            "Target address exceeds x86 pointer range");
             }
-            auto pattern = pointer_size == 8
-                               ? Pattern::from_value<std::uint64_t>(target.value())
-                               : Pattern::from_value<std::uint32_t>(
-                                     static_cast<std::uint32_t>(target.value()));
+            auto pattern =
+                pointer_size == 8
+                    ? Pattern::from_value<std::uint64_t>(target.value())
+                    : Pattern::from_value<std::uint32_t>(static_cast<std::uint32_t>(target.value()));
             if (!pattern) {
                 return std::unexpected(pattern.error());
             }
@@ -923,11 +839,8 @@ Result<std::vector<std::vector<Address>>> find_pointer_refs_batch(
     }
 }
 
-Result<std::vector<Address>> find_rel32_refs(const Process& process,
-                                             AddressRange range,
-                                             Address target,
-                                             const Pattern& prefix,
-                                             std::size_t trailing_bytes,
+Result<std::vector<Address>> find_rel32_refs(const Process& process, AddressRange range, Address target,
+                                             const Pattern& prefix, std::size_t trailing_bytes,
                                              const ScanOptions& options) {
     if (target.is_null()) {
         return fail(ErrorCode::NullAddress, "xref::find_rel32_refs");
@@ -959,23 +872,16 @@ Result<std::vector<Address>> find_rel32_refs(const Process& process,
     try {
         bool cancelled = false;
         auto stats_res = for_each_readable_chunk(
-            process,
-            range,
-            full_pat->size() - 1,
-            options,
-            cancelled,
-            [&](std::span<const std::byte> data,
-                std::size_t start_limit,
-                Address chunk_base,
-                std::uint64_t,
+            process, range, full_pat->size() - 1, options, cancelled,
+            [&](std::span<const std::byte> data, std::size_t start_limit, Address chunk_base, std::uint64_t,
                 std::uint64_t) -> bool {
                 bool more = true;
                 full_pat->search(data, start_limit, [&](std::size_t off) -> bool {
                     std::int32_t disp = 0;
                     std::memcpy(&disp, data.data() + off + pre_len, sizeof(disp));
                     const std::uint64_t ins_addr = chunk_base.value() + off;
-                    auto next_ip = checked_add<std::uint64_t>(
-                        ins_addr, static_cast<std::uint64_t>(*instruction_span));
+                    auto next_ip =
+                        checked_add<std::uint64_t>(ins_addr, static_cast<std::uint64_t>(*instruction_span));
                     if (!next_ip) {
                         arithmetic_error = next_ip.error();
                         more = false;
@@ -1009,9 +915,7 @@ Result<std::vector<Address>> find_rel32_refs(const Process& process,
     }
 }
 
-Result<std::vector<Address>> find_calls(const Process& process,
-                                        AddressRange range,
-                                        Address target,
+Result<std::vector<Address>> find_calls(const Process& process, AddressRange range, Address target,
                                         const ScanOptions& options) {
     static constexpr std::array<std::byte, 1> kCallOpcode{std::byte{0xE8}};
     auto pat = Pattern::from_bytes(kCallOpcode);
@@ -1023,16 +927,12 @@ Result<std::vector<Address>> find_calls(const Process& process,
         return std::unexpected(candidates.error());
     }
     return filter_decoded_references(
-        process, std::move(*candidates),
-        [](const ::tessera::detail::x86::DecodedInstruction& decoded) {
-            return decoded.opcode == 0xE8u && decoded.has_relative_operand &&
-                   decoded.relative_size == 4;
+        process, std::move(*candidates), [](const ::tessera::detail::x86::DecodedInstruction& decoded) {
+            return decoded.opcode == 0xE8u && decoded.has_relative_operand && decoded.relative_size == 4;
         });
 }
 
-Result<std::vector<Address>> find_jumps(const Process& process,
-                                        AddressRange range,
-                                        Address target,
+Result<std::vector<Address>> find_jumps(const Process& process, AddressRange range, Address target,
                                         const ScanOptions& options) {
     static constexpr std::array<std::byte, 1> kJmpOpcode{std::byte{0xE9}};
     auto pat = Pattern::from_bytes(kJmpOpcode);
@@ -1044,16 +944,13 @@ Result<std::vector<Address>> find_jumps(const Process& process,
         return std::unexpected(candidates.error());
     }
     return filter_decoded_references(
-        process, std::move(*candidates),
-        [](const ::tessera::detail::x86::DecodedInstruction& decoded) {
-            return decoded.opcode == 0xE9u && decoded.has_relative_operand &&
-                   decoded.relative_size == 4;
+        process, std::move(*candidates), [](const ::tessera::detail::x86::DecodedInstruction& decoded) {
+            return decoded.opcode == 0xE9u && decoded.has_relative_operand && decoded.relative_size == 4;
         });
 }
 
-Result<std::vector<Address>> find_conditional_branches(
-    const Process& process, AddressRange range, Address target,
-    const ScanOptions& options) {
+Result<std::vector<Address>> find_conditional_branches(const Process& process, AddressRange range,
+                                                       Address target, const ScanOptions& options) {
     auto prefix = Pattern::parse("0F 8?");
     if (!prefix) {
         return std::unexpected(prefix.error());
@@ -1063,17 +960,14 @@ Result<std::vector<Address>> find_conditional_branches(
         return std::unexpected(candidates.error());
     }
     return filter_decoded_references(
-        process, std::move(*candidates),
-        [](const ::tessera::detail::x86::DecodedInstruction& decoded) {
-            return decoded.opcode == 0x0Fu && decoded.opcode2 >= 0x80u &&
-                   decoded.opcode2 <= 0x8Fu && decoded.has_relative_operand &&
-                   decoded.relative_size == 4;
+        process, std::move(*candidates), [](const ::tessera::detail::x86::DecodedInstruction& decoded) {
+            return decoded.opcode == 0x0Fu && decoded.opcode2 >= 0x80u && decoded.opcode2 <= 0x8Fu &&
+                   decoded.has_relative_operand && decoded.relative_size == 4;
         });
 }
 
-Result<std::vector<Address>> find_indirect_refs(
-    const Process& process, AddressRange range, Address target,
-    const ScanOptions& options) {
+Result<std::vector<Address>> find_indirect_refs(const Process& process, AddressRange range, Address target,
+                                                const ScanOptions& options) {
     if (target.is_null()) {
         return fail(ErrorCode::NullAddress, "xref::find_indirect_refs");
     }
@@ -1101,13 +995,10 @@ Result<std::vector<Address>> find_indirect_refs(
                     continue;
                 }
                 ::tessera::detail::x86::DecodedInstruction decoded{};
-                const auto mode = process.pointer_size() == 8
-                                      ? ::tessera::detail::x86::Mode::x64
-                                      : ::tessera::detail::x86::Mode::x86;
-                if (!::tessera::detail::x86::decode_instruction(
-                        raw.data(), *read, mode, decoded) ||
-                    decoded.opcode != 0xFFu ||
-                    (decoded.modrm_reg != 2u && decoded.modrm_reg != 4u) ||
+                const auto mode = process.pointer_size() == 8 ? ::tessera::detail::x86::Mode::x64
+                                                              : ::tessera::detail::x86::Mode::x86;
+                if (!::tessera::detail::x86::decode_instruction(raw.data(), *read, mode, decoded) ||
+                    decoded.opcode != 0xFFu || (decoded.modrm_reg != 2u && decoded.modrm_reg != 4u) ||
                     decoded.length != 6) {
                     continue;
                 }
@@ -1119,8 +1010,8 @@ Result<std::vector<Address>> find_indirect_refs(
                     if (!decoded.has_rip_relative_operand) {
                         continue;
                     }
-                    auto next_ip = checked_add<std::uint64_t>(
-                        instruction.value(), static_cast<std::uint64_t>(decoded.length));
+                    auto next_ip = checked_add<std::uint64_t>(instruction.value(),
+                                                              static_cast<std::uint64_t>(decoded.length));
                     if (!next_ip) {
                         continue;
                     }
@@ -1167,22 +1058,21 @@ Result<std::vector<Address>> find_indirect_refs(
     }
 }
 
-Result<std::vector<Address>> find_relocated_pointer_refs(
-    const Process& process, Address module_base, const PeImage& image, Address target) {
+Result<std::vector<Address>> find_relocated_pointer_refs(const Process& process, Address module_base,
+                                                         const PeImage& image, Address target) {
     if (module_base.is_null() || target.is_null()) {
         return fail(ErrorCode::NullAddress, "xref::find_relocated_pointer_refs");
     }
     const std::size_t pointer_size = image.kind() == PeKind::Pe32Plus ? 8u : 4u;
     if (process.pointer_size() != pointer_size) {
-        return fail(ErrorCode::UnsupportedArchitecture, "xref::find_relocated_pointer_refs",
-                    0, "Process and PE image architectures do not match");
+        return fail(ErrorCode::UnsupportedArchitecture, "xref::find_relocated_pointer_refs", 0,
+                    "Process and PE image architectures do not match");
     }
     try {
         std::vector<Address> references;
         for (const auto& relocation : image.relocations()) {
-            const bool pointer_relocation =
-                (pointer_size == 4u && relocation.type == 3u) ||
-                (pointer_size == 8u && relocation.type == 10u);
+            const bool pointer_relocation = (pointer_size == 4u && relocation.type == 3u) ||
+                                            (pointer_size == 8u && relocation.type == 10u);
             if (!pointer_relocation) {
                 continue;
             }
@@ -1191,8 +1081,8 @@ Result<std::vector<Address>> find_relocated_pointer_refs(
                 return std::unexpected(location.error());
             }
             std::array<std::byte, sizeof(std::uint64_t)> raw{};
-            auto read = memory_backend(process).read(
-                *location, std::span<std::byte>{raw}.first(pointer_size));
+            auto read =
+                memory_backend(process).read(*location, std::span<std::byte>{raw}.first(pointer_size));
             if (!read || *read != pointer_size) {
                 continue;
             }

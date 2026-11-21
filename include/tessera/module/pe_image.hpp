@@ -1,5 +1,10 @@
 #pragma once
 
+#include "tessera/core/enum_flags.hpp"
+#include "tessera/core/result.hpp"
+#include "tessera/core/types.hpp"
+#include "tessera/process/process.hpp"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -9,11 +14,6 @@
 #include <string>
 #include <string_view>
 #include <vector>
-
-#include "tessera/core/enum_flags.hpp"
-#include "tessera/core/result.hpp"
-#include "tessera/core/types.hpp"
-#include "tessera/process/process.hpp"
 
 namespace tessera {
 
@@ -158,9 +158,7 @@ public:
     [[nodiscard]] std::span<const PeFunctionEntry> exception_functions() const noexcept;
     [[nodiscard]] std::vector<BaseRelocation> relocations() const;
 
-    [[nodiscard]] const std::optional<CodeViewInfo>& code_view() const noexcept {
-        return code_view_;
-    }
+    [[nodiscard]] const std::optional<CodeViewInfo>& code_view() const noexcept { return code_view_; }
 
 private:
     PeKind kind_ = PeKind::Pe32Plus;

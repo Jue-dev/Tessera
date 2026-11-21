@@ -1,8 +1,9 @@
 #include "tessera/pattern/pattern.hpp"
+
 #include "pattern_simd.hpp"
 
-#include <bit>
 #include <algorithm>
+#include <bit>
 #include <cstring>
 #include <format>
 #include <new>
@@ -11,16 +12,12 @@
 namespace tessera {
 
 Result<Pattern> Pattern::build_from_spans(std::span<const std::byte> raw_bytes,
-                                          std::span<const std::byte> raw_mask,
-                                          std::string_view op_name) {
+                                          std::span<const std::byte> raw_mask, std::string_view op_name) {
     if (raw_bytes.empty() || raw_bytes.size() != raw_mask.size()) {
         return fail(ErrorCode::InvalidPattern, op_name, 0, "Pattern cannot be empty");
     }
     if (raw_bytes.size() > kMaxPatternLength) {
-        return fail(ErrorCode::InvalidPattern,
-                    op_name,
-                    0,
-                    "Pattern length exceeds kMaxPatternLength");
+        return fail(ErrorCode::InvalidPattern, op_name, 0, "Pattern length exceeds kMaxPatternLength");
     }
 
     Pattern p;
@@ -31,9 +28,7 @@ Result<Pattern> Pattern::build_from_spans(std::span<const std::byte> raw_bytes,
     }
 
     if (!p.finalize_anchor()) {
-        return fail(ErrorCode::InvalidPattern,
-                    op_name,
-                    0,
+        return fail(ErrorCode::InvalidPattern, op_name, 0,
                     "Pattern must contain at least one constrained bit");
     }
     return p;
@@ -44,9 +39,7 @@ Result<Pattern> Pattern::parse(std::string_view text, PatternError* out_error) {
         if (out_error != nullptr) {
             *out_error = PatternError{.position = pos, .reason = reason};
         }
-        return fail(ErrorCode::InvalidPattern,
-                    "Pattern::parse",
-                    0,
+        return fail(ErrorCode::InvalidPattern, "Pattern::parse", 0,
                     std::format("at offset {}: {}", pos, reason));
     };
 
@@ -121,9 +114,7 @@ Result<Pattern> Pattern::from_bytes(std::span<const std::byte> bytes) {
         return fail(ErrorCode::InvalidPattern, "Pattern::from_bytes", 0, "Byte span is empty");
     }
     if (bytes.size() > kMaxPatternLength) {
-        return fail(ErrorCode::InvalidPattern,
-                    "Pattern::from_bytes",
-                    0,
+        return fail(ErrorCode::InvalidPattern, "Pattern::from_bytes", 0,
                     "Byte span exceeds kMaxPatternLength");
     }
     try {
@@ -136,15 +127,11 @@ Result<Pattern> Pattern::from_bytes(std::span<const std::byte> bytes) {
 
 Result<Pattern> Pattern::from_code(std::span<const std::byte> bytes, std::string_view mask) {
     if (mask.empty() || bytes.size() != mask.size()) {
-        return fail(ErrorCode::InvalidPattern,
-                    "Pattern::from_code",
-                    0,
+        return fail(ErrorCode::InvalidPattern, "Pattern::from_code", 0,
                     "Bytes and mask must be non-empty and of equal length");
     }
     if (mask.size() > kMaxPatternLength) {
-        return fail(ErrorCode::InvalidPattern,
-                    "Pattern::from_code",
-                    0,
+        return fail(ErrorCode::InvalidPattern, "Pattern::from_code", 0,
                     "Pattern length exceeds kMaxPatternLength");
     }
     try {
@@ -156,9 +143,7 @@ Result<Pattern> Pattern::from_code(std::span<const std::byte> bytes, std::string
             } else if (c == '?' || c == '.') {
                 mask_bytes[i] = std::byte{0x00};
             } else {
-                return fail(ErrorCode::InvalidPattern,
-                            "Pattern::from_code",
-                            0,
+                return fail(ErrorCode::InvalidPattern, "Pattern::from_code", 0,
                             "Mask contains invalid character (expected 'x', '?', or '.')");
             }
         }
@@ -180,9 +165,7 @@ Result<Pattern> Pattern::from_utf16(std::u16string_view text) {
         return fail(ErrorCode::InvalidPattern, "Pattern::from_utf16", 0, "UTF-16 text is empty");
     }
     if (text.size() * 2 > kMaxPatternLength) {
-        return fail(ErrorCode::InvalidPattern,
-                    "Pattern::from_utf16",
-                    0,
+        return fail(ErrorCode::InvalidPattern, "Pattern::from_utf16", 0,
                     "UTF-16 text exceeds kMaxPatternLength");
     }
     try {
@@ -207,9 +190,7 @@ Result<Pattern> Pattern::extended(std::size_t trailing_wildcards) const {
         return *this;
     }
     if (size_ + trailing_wildcards > kMaxPatternLength || size_ + trailing_wildcards < size_) {
-        return fail(ErrorCode::InvalidPattern,
-                    "Pattern::extended",
-                    0,
+        return fail(ErrorCode::InvalidPattern, "Pattern::extended", 0,
                     "Extended pattern exceeds kMaxPatternLength");
     }
     try {
@@ -225,8 +206,7 @@ Result<Pattern> Pattern::extended(std::size_t trailing_wildcards) const {
     }
 }
 
-void Pattern::search(std::span<const std::byte> data,
-                     std::size_t start_limit,
+void Pattern::search(std::span<const std::byte> data, std::size_t start_limit,
                      FunctionRef<bool(std::size_t)> on_match) const {
     if (size_ == 0 || data.size() < size_ || !on_match) {
         return;
@@ -242,9 +222,8 @@ void Pattern::search(std::span<const std::byte> data,
         const std::byte primary_value = pat_bytes[anchor_];
         const std::byte secondary_value = pat_bytes[secondary_index];
         const auto report_candidate = [&](std::size_t candidate) -> bool {
-            const bool full_match =
-                exact ? std::memcmp(data.data() + candidate, pat_bytes.data(), size_) == 0
-                      : matches(data.subspan(candidate, size_));
+            const bool full_match = exact ? std::memcmp(data.data() + candidate, pat_bytes.data(), size_) == 0
+                                          : matches(data.subspan(candidate, size_));
             return !full_match || on_match(candidate);
         };
 
@@ -252,15 +231,13 @@ void Pattern::search(std::span<const std::byte> data,
         static const bool sse2_available = pattern::detail::cpu_supports_sse2();
         const std::size_t last_anchor = (std::max)(anchor_, secondary_index);
         const std::size_t simd_limit =
-            data.size() > last_anchor + 31u
-                ? (std::min)(limit, data.size() - last_anchor - 31u)
-                : 0u;
+            data.size() > last_anchor + 31u ? (std::min)(limit, data.size() - last_anchor - 31u) : 0u;
         std::size_t off = 0;
 
         if (avx2_available) {
             while (simd_limit - off >= 32u) {
-                std::uint32_t mask = pattern::detail::dual_anchor_mask_avx2(
-                    raw, off, anchor_, primary_value, secondary_index, secondary_value);
+                std::uint32_t mask = pattern::detail::dual_anchor_mask_avx2(raw, off, anchor_, primary_value,
+                                                                            secondary_index, secondary_value);
                 while (mask != 0) {
                     const unsigned bit = std::countr_zero(mask);
                     if (!report_candidate(off + bit)) {
@@ -274,8 +251,8 @@ void Pattern::search(std::span<const std::byte> data,
 
         if (sse2_available) {
             while (simd_limit - off >= 16u) {
-                std::uint32_t mask = pattern::detail::dual_anchor_mask_sse2(
-                    raw, off, anchor_, primary_value, secondary_index, secondary_value);
+                std::uint32_t mask = pattern::detail::dual_anchor_mask_sse2(raw, off, anchor_, primary_value,
+                                                                            secondary_index, secondary_value);
                 while (mask != 0) {
                     const unsigned bit = std::countr_zero(mask);
                     if (!report_candidate(off + bit)) {
@@ -288,8 +265,7 @@ void Pattern::search(std::span<const std::byte> data,
         }
 
         for (; off < limit; ++off) {
-            if (raw[off + anchor_] == primary_value &&
-                raw[off + secondary_index] == secondary_value &&
+            if (raw[off + anchor_] == primary_value && raw[off + secondary_index] == secondary_value &&
                 !report_candidate(off)) {
                 return;
             }

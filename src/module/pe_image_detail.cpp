@@ -4,18 +4,13 @@
 
 namespace tessera::pe_detail {
 
-Result<std::vector<BaseRelocation>> parse_base_relocations(
-    const ImageSource& source,
-    std::uint32_t directory_rva,
-    std::uint32_t directory_size,
-    PeKind kind,
-    std::span<const Section> sections,
-    std::uint32_t size_of_image) {
+Result<std::vector<BaseRelocation>>
+parse_base_relocations(const ImageSource& source, std::uint32_t directory_rva, std::uint32_t directory_size,
+                       PeKind kind, std::span<const Section> sections, std::uint32_t size_of_image) {
     if (directory_rva == 0 && directory_size == 0) {
         return std::vector<BaseRelocation>{};
     }
-    if (directory_rva == 0 || directory_size < 8u ||
-        directory_rva >= size_of_image ||
+    if (directory_rva == 0 || directory_size < 8u || directory_rva >= size_of_image ||
         directory_size > size_of_image - directory_rva) {
         return fail(ErrorCode::InvalidPe, "PeImage::relocations", 0,
                     "Base relocation directory is outside the image bounds");
@@ -37,9 +32,8 @@ Result<std::vector<BaseRelocation>> parse_base_relocations(
             }
             auto page = source.read_rva_val<std::uint32_t>(*block_rva, sections, size_of_image);
             auto block_size = source.read_rva_val<std::uint32_t>(*block_rva + 4u, sections, size_of_image);
-            if (!page || !block_size || (*page & 0xFFFu) != 0 ||
-                *block_size < 8u || ((*block_size - 8u) % 2u) != 0 ||
-                *block_size > remaining) {
+            if (!page || !block_size || (*page & 0xFFFu) != 0 || *block_size < 8u ||
+                ((*block_size - 8u) % 2u) != 0 || *block_size > remaining) {
                 return fail(ErrorCode::InvalidPe, "PeImage::relocations", 0,
                             "Malformed base relocation block");
             }
@@ -73,8 +67,7 @@ Result<std::vector<BaseRelocation>> parse_base_relocations(
                     return fail(ErrorCode::InvalidPe, "PeImage::relocations", 0,
                                 "Relocation target exceeds SizeOfImage");
                 }
-                const std::uint32_t width =
-                    type == 10u ? 8u : (type == 3u ? 4u : 1u);
+                const std::uint32_t width = type == 10u ? 8u : (type == 3u ? 4u : 1u);
                 if (width > size_of_image - *location) {
                     return fail(ErrorCode::InvalidPe, "PeImage::relocations", 0,
                                 "Relocation target width exceeds SizeOfImage");
@@ -93,20 +86,16 @@ Result<std::vector<BaseRelocation>> parse_base_relocations(
     }
 }
 
-Result<std::string> ImageSource::read_rva_Ascii(
-    std::uint32_t rva,
-    std::size_t max_len,
-    std::span<const Section> sections,
-    std::uint32_t size_of_image) const {
+Result<std::string> ImageSource::read_rva_Ascii(std::uint32_t rva, std::size_t max_len,
+                                                std::span<const Section> sections,
+                                                std::uint32_t size_of_image) const {
     if (rva == 0 || rva >= size_of_image) {
         return fail(ErrorCode::InvalidPe, "PeImage::read_rva_ascii", 0, "RVA out of bounds");
     }
     std::string out;
     for (std::size_t i = 0; i < max_len; ++i) {
         if (rva + i >= size_of_image) {
-            return fail(ErrorCode::InvalidPe,
-                        "PeImage::read_rva_ascii",
-                        0,
+            return fail(ErrorCode::InvalidPe, "PeImage::read_rva_ascii", 0,
                         "Unterminated string at image boundary");
         }
         auto ch = read_rva_val<char>(static_cast<std::uint32_t>(rva + i), sections, size_of_image);
@@ -118,15 +107,13 @@ Result<std::string> ImageSource::read_rva_Ascii(
         }
         out.push_back(*ch);
     }
-    return fail(ErrorCode::InvalidPe, "PeImage::read_rva_ascii", 0,
-                "String exceeds maximum length");
+    return fail(ErrorCode::InvalidPe, "PeImage::read_rva_ascii", 0, "String exceeds maximum length");
 }
 
 MappedMemorySource::MappedMemorySource(const Process& process, Address base) noexcept
     : reader_(process), base_(base) {}
 
-Status MappedMemorySource::read_header(
-    std::uint32_t offset, std::span<std::byte> out) const noexcept {
+Status MappedMemorySource::read_header(std::uint32_t offset, std::span<std::byte> out) const noexcept {
     if (offset > 0x10000u || out.size() > 0x10000u) {
         return fail(ErrorCode::InvalidPe, "PeImage::read_header");
     }
@@ -141,14 +128,10 @@ Status MappedMemorySource::read_header(
     return ok();
 }
 
-Status MappedMemorySource::read_rva(
-    std::uint32_t rva,
-    std::span<std::byte> out,
-    std::span<const Section>,
-    std::uint32_t size_of_image) const noexcept {
+Status MappedMemorySource::read_rva(std::uint32_t rva, std::span<std::byte> out, std::span<const Section>,
+                                    std::uint32_t size_of_image) const noexcept {
     if (rva >= size_of_image || out.size() > (size_of_image - rva)) {
-        return fail(ErrorCode::InvalidPe, "PeImage::read_rva", 0,
-                    "RVA range exceeds SizeOfImage");
+        return fail(ErrorCode::InvalidPe, "PeImage::read_rva", 0, "RVA range exceeds SizeOfImage");
     }
     auto address = base_.add_rva(Rva{rva});
     if (!address) {
@@ -161,24 +144,19 @@ Status MappedMemorySource::read_rva(
     return ok();
 }
 
-RawBufferSource::RawBufferSource(std::span<const std::byte> data) noexcept
-    : data_(data) {}
+RawBufferSource::RawBufferSource(std::span<const std::byte> data) noexcept : data_(data) {}
 
-Status RawBufferSource::read_header(
-    std::uint32_t offset, std::span<std::byte> out) const noexcept {
+Status RawBufferSource::read_header(std::uint32_t offset, std::span<std::byte> out) const noexcept {
     if (offset > data_.size() || out.size() > (data_.size() - offset)) {
-        return fail(ErrorCode::InvalidPe, "PeImage::read_header", 0,
-                    "Header offset out of file bounds");
+        return fail(ErrorCode::InvalidPe, "PeImage::read_header", 0, "Header offset out of file bounds");
     }
     std::memcpy(out.data(), data_.data() + offset, out.size());
     return ok();
 }
 
-Status RawBufferSource::read_rva(
-    std::uint32_t rva,
-    std::span<std::byte> out,
-    std::span<const Section> sections,
-    std::uint32_t size_of_image) const noexcept {
+Status RawBufferSource::read_rva(std::uint32_t rva, std::span<std::byte> out,
+                                 std::span<const Section> sections,
+                                 std::uint32_t size_of_image) const noexcept {
     if (rva >= size_of_image || out.size() > (size_of_image - rva)) {
         return fail(ErrorCode::InvalidPe, "PeImage::read_rva", 0, "RVA exceeds SizeOfImage");
     }
@@ -188,8 +166,7 @@ Status RawBufferSource::read_rva(
         if (rva >= section_rva && (rva - section_rva) < section_span) {
             const std::uint32_t delta = rva - section_rva;
             if (delta >= section.raw_size || out.size() > (section.raw_size - delta)) {
-                return fail(ErrorCode::InvalidPe, "PeImage::read_rva", 0,
-                            "RVA span exceeds section RawSize");
+                return fail(ErrorCode::InvalidPe, "PeImage::read_rva", 0, "RVA span exceeds section RawSize");
             }
             const std::uint64_t file_offset = static_cast<std::uint64_t>(section.raw_offset) + delta;
             if (file_offset > data_.size() || out.size() > (data_.size() - file_offset)) {

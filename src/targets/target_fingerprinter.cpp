@@ -1,18 +1,16 @@
+#include "tessera/filesystem/filesystem.hpp"
+#include "tessera/memory/memory_reader.hpp"
 #include "tessera/targets/target_runtime.hpp"
+#include "tessera/utility/bytes.hpp"
 
 #include <algorithm>
 #include <system_error>
 #include <utility>
 
-#include "tessera/filesystem/filesystem.hpp"
-#include "tessera/memory/memory_reader.hpp"
-#include "tessera/utility/bytes.hpp"
-
 namespace tessera::targets {
 
-Result<ModuleFingerprint> TargetFingerprinter::fingerprint_file(
-    std::string module_id,
-    const std::filesystem::path& file_path) {
+Result<ModuleFingerprint> TargetFingerprinter::fingerprint_file(std::string module_id,
+                                                                const std::filesystem::path& file_path) {
     std::error_code ec;
     const auto abs_path = std::filesystem::absolute(file_path, ec);
     if (ec || !std::filesystem::exists(abs_path, ec)) {
@@ -30,8 +28,7 @@ Result<ModuleFingerprint> TargetFingerprinter::fingerprint_file(
     if (policy_ == FingerprintPolicy::Performance) {
         const std::lock_guard<std::mutex> lock(mutex_);
         for (const auto& entry : cache_) {
-            if (entry.path == abs_path && entry.file_size == fsize &&
-                entry.last_write_time == mtime) {
+            if (entry.path == abs_path && entry.file_size == fsize && entry.last_write_time == mtime) {
                 ModuleFingerprint cached = entry.fingerprint;
                 cached.module_id = std::move(module_id);
                 cached.from_metadata_cache = true;
@@ -87,11 +84,10 @@ Result<ModuleFingerprint> TargetFingerprinter::fingerprint_file(
     return fp;
 }
 
-Result<ModuleFingerprint> TargetFingerprinter::fingerprint_memory_module(
-    const Process& process,
-    std::string module_id,
-    std::string file_name,
-    AddressRange module_range) {
+Result<ModuleFingerprint> TargetFingerprinter::fingerprint_memory_module(const Process& process,
+                                                                         std::string module_id,
+                                                                         std::string file_name,
+                                                                         AddressRange module_range) {
     if (module_range.empty()) {
         return fail(ErrorCode::InvalidArgument, "TargetFingerprinter::fingerprint_memory_module");
     }
@@ -126,6 +122,5 @@ void TargetFingerprinter::clear_cache() noexcept {
     const std::lock_guard<std::mutex> lock(mutex_);
     cache_.clear();
 }
-
 
 } // namespace tessera::targets

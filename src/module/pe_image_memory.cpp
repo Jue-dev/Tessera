@@ -65,7 +65,8 @@ Result<PeImage> PeImage::from_memory(const Process& process, Address base) {
         std::uint32_t num_rva_and_sizes = 0;
         if (img.kind_ == PeKind::Pe32Plus) {
             if (*opt_hdr_size < 112u) {
-                return fail(ErrorCode::InvalidPe, "PeImage::from_memory", 0, "PE32+ optional header too small");
+                return fail(ErrorCode::InvalidPe, "PeImage::from_memory", 0,
+                            "PE32+ optional header too small");
             }
             auto ib = src.read_header_val<std::uint64_t>(opt_off + 24u);
             auto n_dirs = src.read_header_val<std::uint32_t>(opt_off + 108u);
@@ -116,9 +117,7 @@ Result<PeImage> PeImage::from_memory(const Process& process, Address base) {
                 std::memcpy(&flags, sh.data() + 36, 4);
 
                 if (vaddr >= img.size_of_image_) {
-                    return fail(ErrorCode::InvalidPe,
-                                "PeImage::from_memory",
-                                0,
+                    return fail(ErrorCode::InvalidPe, "PeImage::from_memory", 0,
                                 "Section VirtualAddress exceeds SizeOfImage");
                 }
 
@@ -140,11 +139,8 @@ Result<PeImage> PeImage::from_memory(const Process& process, Address base) {
             // Parse Export Directory (DataDirectory[0]) if present
             const DataDirEntry exp_dir = dirs[0];
             if (exp_dir.rva != 0 && exp_dir.size >= 40u) {
-                if (exp_dir.rva >= img.size_of_image_ ||
-                    exp_dir.size > (img.size_of_image_ - exp_dir.rva)) {
-                    return fail(ErrorCode::InvalidPe,
-                                "PeImage::from_memory",
-                                0,
+                if (exp_dir.rva >= img.size_of_image_ || exp_dir.size > (img.size_of_image_ - exp_dir.rva)) {
+                    return fail(ErrorCode::InvalidPe, "PeImage::from_memory", 0,
                                 "Export directory out of bounds");
                 }
                 std::array<std::byte, 40> ed{};
@@ -162,22 +158,18 @@ Result<PeImage> PeImage::from_memory(const Process& process, Address base) {
                 std::memcpy(&addr_ords, ed.data() + 36, 4);
 
                 if (num_funcs > kMaxExports || num_names > kMaxExports) {
-                    return fail(ErrorCode::InvalidPe,
-                                "PeImage::from_memory",
-                                0,
+                    return fail(ErrorCode::InvalidPe, "PeImage::from_memory", 0,
                                 "Export count exceeds kMaxExports");
                 }
 
                 std::vector<std::string> func_names(num_funcs);
                 for (std::uint32_t i = 0; i < num_names; ++i) {
-                    auto name_rva = src.read_rva_val<std::uint32_t>(
-                        addr_names + i * 4u, img.sections_, img.size_of_image_);
-                    auto ord_idx = src.read_rva_val<std::uint16_t>(
-                        addr_ords + i * 2u, img.sections_, img.size_of_image_);
+                    auto name_rva = src.read_rva_val<std::uint32_t>(addr_names + i * 4u, img.sections_,
+                                                                    img.size_of_image_);
+                    auto ord_idx = src.read_rva_val<std::uint16_t>(addr_ords + i * 2u, img.sections_,
+                                                                   img.size_of_image_);
                     if (!name_rva || !ord_idx || *ord_idx >= num_funcs) {
-                        return fail(ErrorCode::InvalidPe,
-                                    "PeImage::from_memory",
-                                    0,
+                        return fail(ErrorCode::InvalidPe, "PeImage::from_memory", 0,
                                     "Invalid export name/ordinal table entry");
                     }
                     auto exp_name = src.read_rva_Ascii(*name_rva, 512, img.sections_, img.size_of_image_);
@@ -188,8 +180,8 @@ Result<PeImage> PeImage::from_memory(const Process& process, Address base) {
                 }
 
                 for (std::uint32_t i = 0; i < num_funcs; ++i) {
-                    auto fn_rva = src.read_rva_val<std::uint32_t>(
-                        addr_funcs + i * 4u, img.sections_, img.size_of_image_);
+                    auto fn_rva = src.read_rva_val<std::uint32_t>(addr_funcs + i * 4u, img.sections_,
+                                                                  img.size_of_image_);
                     if (!fn_rva) {
                         return std::unexpected(fn_rva.error());
                     }
@@ -248,8 +240,8 @@ Result<PeImage> PeImage::from_memory(const Process& process, Address base) {
                         const std::uint32_t cur_thunk = thunk_rva + ti * step;
                         const std::uint32_t cur_iat = (ft != 0) ? (ft + ti * step) : cur_thunk;
                         if (img.kind_ == PeKind::Pe32Plus) {
-                            auto tval = src.read_rva_val<std::uint64_t>(
-                                cur_thunk, img.sections_, img.size_of_image_);
+                            auto tval =
+                                src.read_rva_val<std::uint64_t>(cur_thunk, img.sections_, img.size_of_image_);
                             if (!tval || *tval == 0) {
                                 break;
                             }
@@ -262,19 +254,19 @@ Result<PeImage> PeImage::from_memory(const Process& process, Address base) {
                             } else {
                                 const std::uint32_t ibn_rva =
                                     static_cast<std::uint32_t>(*tval & 0x7FFFFFFFULL);
-                                if (auto hint = src.read_rva_val<std::uint16_t>(
-                                        ibn_rva, img.sections_, img.size_of_image_)) {
+                                if (auto hint = src.read_rva_val<std::uint16_t>(ibn_rva, img.sections_,
+                                                                                img.size_of_image_)) {
                                     ie.ordinal = *hint;
                                 }
-                                if (auto fn_name = src.read_rva_Ascii(
-                                        ibn_rva + 2u, 512, img.sections_, img.size_of_image_)) {
+                                if (auto fn_name = src.read_rva_Ascii(ibn_rva + 2u, 512, img.sections_,
+                                                                      img.size_of_image_)) {
                                     ie.function_name = std::move(*fn_name);
                                 }
                             }
                             img.imports_.push_back(std::move(ie));
                         } else {
-                            auto tval = src.read_rva_val<std::uint32_t>(
-                                cur_thunk, img.sections_, img.size_of_image_);
+                            auto tval =
+                                src.read_rva_val<std::uint32_t>(cur_thunk, img.sections_, img.size_of_image_);
                             if (!tval || *tval == 0) {
                                 break;
                             }
@@ -286,12 +278,12 @@ Result<PeImage> PeImage::from_memory(const Process& process, Address base) {
                                 ie.ordinal = static_cast<std::uint16_t>(*tval & 0xFFFFu);
                             } else {
                                 const std::uint32_t ibn_rva = (*tval & 0x7FFFFFFFu);
-                                if (auto hint = src.read_rva_val<std::uint16_t>(
-                                        ibn_rva, img.sections_, img.size_of_image_)) {
+                                if (auto hint = src.read_rva_val<std::uint16_t>(ibn_rva, img.sections_,
+                                                                                img.size_of_image_)) {
                                     ie.ordinal = *hint;
                                 }
-                                if (auto fn_name = src.read_rva_Ascii(
-                                        ibn_rva + 2u, 512, img.sections_, img.size_of_image_)) {
+                                if (auto fn_name = src.read_rva_Ascii(ibn_rva + 2u, 512, img.sections_,
+                                                                      img.size_of_image_)) {
                                     ie.function_name = std::move(*fn_name);
                                 }
                             }
@@ -305,8 +297,8 @@ Result<PeImage> PeImage::from_memory(const Process& process, Address base) {
             const DataDirEntry exc_dir = dirs[3];
             if (img.kind_ == PeKind::Pe32Plus && exc_dir.rva != 0 && exc_dir.size >= 12u &&
                 exc_dir.rva < img.size_of_image_) {
-                const std::uint32_t count = (std::min)(
-                    exc_dir.size / 12u, static_cast<std::uint32_t>(kMaxExceptionFunctions));
+                const std::uint32_t count =
+                    (std::min)(exc_dir.size / 12u, static_cast<std::uint32_t>(kMaxExceptionFunctions));
                 img.exception_functions_.reserve((std::min)(count, 4096u));
                 for (std::uint32_t i = 0; i < count; ++i) {
                     std::array<std::byte, 12> rf{};
@@ -373,8 +365,8 @@ Result<PeImage> PeImage::from_memory(const Process& process, Address base) {
                                 CodeViewInfo cv{};
                                 std::memcpy(cv.guid.data(), cv_hdr.data() + 4, 16);
                                 std::memcpy(&cv.age, cv_hdr.data() + 20, 4);
-                                if (auto pdb = src.read_rva_Ascii(
-                                        dbg_rva + 24u, 512, img.sections_, img.size_of_image_)) {
+                                if (auto pdb = src.read_rva_Ascii(dbg_rva + 24u, 512, img.sections_,
+                                                                  img.size_of_image_)) {
                                     cv.pdb_path = std::move(*pdb);
                                 }
                                 img.code_view_ = std::move(cv);

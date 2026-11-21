@@ -1,8 +1,8 @@
 #include "pattern_simd.hpp"
 
 #if defined(_MSC_VER)
-#include <windows.h>
 #include <intrin.h>
+#include <windows.h>
 #endif
 
 #if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
@@ -48,27 +48,24 @@ bool cpu_supports_avx2() noexcept {
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((target("sse2")))
 #endif
-std::uint32_t dual_anchor_mask_sse2(
-    const std::byte* data,
-    std::size_t offset,
-    std::size_t primary,
-    std::byte primary_value,
-    std::size_t secondary,
-    std::byte secondary_value) noexcept {
+std::uint32_t
+dual_anchor_mask_sse2(const std::byte* data, std::size_t offset, std::size_t primary, std::byte primary_value,
+                      std::size_t secondary, std::byte secondary_value) noexcept {
     const auto* primary_ptr = reinterpret_cast<const __m128i*>(data + offset + primary);
     const auto* secondary_ptr = reinterpret_cast<const __m128i*>(data + offset + secondary);
     const __m128i primary_bytes = _mm_loadu_si128(primary_ptr);
     const __m128i secondary_bytes = _mm_loadu_si128(secondary_ptr);
-    const __m128i primary_key = _mm_set1_epi8(static_cast<char>(std::to_integer<unsigned char>(primary_value)));
-    const __m128i secondary_key = _mm_set1_epi8(static_cast<char>(std::to_integer<unsigned char>(secondary_value)));
+    const __m128i primary_key =
+        _mm_set1_epi8(static_cast<char>(std::to_integer<unsigned char>(primary_value)));
+    const __m128i secondary_key =
+        _mm_set1_epi8(static_cast<char>(std::to_integer<unsigned char>(secondary_value)));
     const __m128i primary_match = _mm_cmpeq_epi8(primary_bytes, primary_key);
     const __m128i secondary_match = _mm_cmpeq_epi8(secondary_bytes, secondary_key);
-    return static_cast<std::uint32_t>(
-        _mm_movemask_epi8(_mm_and_si128(primary_match, secondary_match)));
+    return static_cast<std::uint32_t>(_mm_movemask_epi8(_mm_and_si128(primary_match, secondary_match)));
 }
 #else
-std::uint32_t dual_anchor_mask_sse2(
-    const std::byte*, std::size_t, std::size_t, std::byte, std::size_t, std::byte) noexcept {
+std::uint32_t dual_anchor_mask_sse2(const std::byte*, std::size_t, std::size_t, std::byte, std::size_t,
+                                    std::byte) noexcept {
     return 0;
 }
 #endif

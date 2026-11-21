@@ -1,17 +1,15 @@
 #include "targets/detail/target_profile_json_common.hpp"
 
+#include "tessera/utility/hex.hpp"
+#include "tessera/utility/string.hpp"
+
+#include "json/detail/field_access.hpp"
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
 
-#include "tessera/utility/hex.hpp"
-#include "tessera/utility/string.hpp"
-#include "json/detail/field_access.hpp"
-
-
 namespace tessera::targets::target_profile_json_detail {
-
 
 [[nodiscard]] std::string_view arch_to_str(TargetArch a) noexcept {
     return a == TargetArch::X64 ? "x64" : "x86";
@@ -29,113 +27,185 @@ namespace tessera::targets::target_profile_json_detail {
 
 [[nodiscard]] std::string_view kind_to_str(AddressKind k) noexcept {
     switch (k) {
-        case AddressKind::Function: return "function";
-        case AddressKind::Global:   return "global";
-        case AddressKind::Object:   return "object";
-        case AddressKind::Field:    return "field";
-        case AddressKind::VTable:   return "vtable";
-        case AddressKind::Pointer:  return "pointer";
-        case AddressKind::Data:     return "data";
-        case AddressKind::Export:   return "export";
+    case AddressKind::Function:
+        return "function";
+    case AddressKind::Global:
+        return "global";
+    case AddressKind::Object:
+        return "object";
+    case AddressKind::Field:
+        return "field";
+    case AddressKind::VTable:
+        return "vtable";
+    case AddressKind::Pointer:
+        return "pointer";
+    case AddressKind::Data:
+        return "data";
+    case AddressKind::Export:
+        return "export";
     }
     return "global";
 }
 
 [[nodiscard]] Result<AddressKind> str_to_kind(std::string_view s) noexcept {
-    if (utility::ascii_iequals(s, "function")) return AddressKind::Function;
-    if (utility::ascii_iequals(s, "global"))   return AddressKind::Global;
-    if (utility::ascii_iequals(s, "object"))   return AddressKind::Object;
-    if (utility::ascii_iequals(s, "field"))    return AddressKind::Field;
-    if (utility::ascii_iequals(s, "vtable"))   return AddressKind::VTable;
-    if (utility::ascii_iequals(s, "pointer"))  return AddressKind::Pointer;
-    if (utility::ascii_iequals(s, "data"))     return AddressKind::Data;
-    if (utility::ascii_iequals(s, "export"))   return AddressKind::Export;
+    if (utility::ascii_iequals(s, "function"))
+        return AddressKind::Function;
+    if (utility::ascii_iequals(s, "global"))
+        return AddressKind::Global;
+    if (utility::ascii_iequals(s, "object"))
+        return AddressKind::Object;
+    if (utility::ascii_iequals(s, "field"))
+        return AddressKind::Field;
+    if (utility::ascii_iequals(s, "vtable"))
+        return AddressKind::VTable;
+    if (utility::ascii_iequals(s, "pointer"))
+        return AddressKind::Pointer;
+    if (utility::ascii_iequals(s, "data"))
+        return AddressKind::Data;
+    if (utility::ascii_iequals(s, "export"))
+        return AddressKind::Export;
     return fail(ErrorCode::ParseError, "str_to_kind", 0, "Unknown AddressKind");
 }
 
 [[nodiscard]] std::string_view val_type_to_str(ValueType vt) noexcept {
     switch (vt) {
-        case ValueType::UInt8:   return "uint8";
-        case ValueType::Int32:   return "int32";
-        case ValueType::UInt32:  return "uint32";
-        case ValueType::Int64:   return "int64";
-        case ValueType::UInt64:  return "uint64";
-        case ValueType::Float:   return "float";
-        case ValueType::Double:  return "double";
-        case ValueType::Pointer: return "pointer";
-        case ValueType::Bytes:   return "bytes";
+    case ValueType::UInt8:
+        return "uint8";
+    case ValueType::Int32:
+        return "int32";
+    case ValueType::UInt32:
+        return "uint32";
+    case ValueType::Int64:
+        return "int64";
+    case ValueType::UInt64:
+        return "uint64";
+    case ValueType::Float:
+        return "float";
+    case ValueType::Double:
+        return "double";
+    case ValueType::Pointer:
+        return "pointer";
+    case ValueType::Bytes:
+        return "bytes";
     }
     return "uint32";
 }
 
 [[nodiscard]] Result<ValueType> str_to_val_type(std::string_view s) noexcept {
-    if (utility::ascii_iequals(s, "uint8"))   return ValueType::UInt8;
-    if (utility::ascii_iequals(s, "int32"))   return ValueType::Int32;
-    if (utility::ascii_iequals(s, "uint32"))  return ValueType::UInt32;
-    if (utility::ascii_iequals(s, "int64"))   return ValueType::Int64;
-    if (utility::ascii_iequals(s, "uint64"))  return ValueType::UInt64;
-    if (utility::ascii_iequals(s, "float"))   return ValueType::Float;
-    if (utility::ascii_iequals(s, "double"))  return ValueType::Double;
-    if (utility::ascii_iequals(s, "pointer")) return ValueType::Pointer;
-    if (utility::ascii_iequals(s, "bytes"))   return ValueType::Bytes;
+    if (utility::ascii_iequals(s, "uint8"))
+        return ValueType::UInt8;
+    if (utility::ascii_iequals(s, "int32"))
+        return ValueType::Int32;
+    if (utility::ascii_iequals(s, "uint32"))
+        return ValueType::UInt32;
+    if (utility::ascii_iequals(s, "int64"))
+        return ValueType::Int64;
+    if (utility::ascii_iequals(s, "uint64"))
+        return ValueType::UInt64;
+    if (utility::ascii_iequals(s, "float"))
+        return ValueType::Float;
+    if (utility::ascii_iequals(s, "double"))
+        return ValueType::Double;
+    if (utility::ascii_iequals(s, "pointer"))
+        return ValueType::Pointer;
+    if (utility::ascii_iequals(s, "bytes"))
+        return ValueType::Bytes;
     return fail(ErrorCode::ParseError, "str_to_val_type", 0, "Unknown ValueType");
 }
 
 [[nodiscard]] std::string_view strategy_to_str(ResolutionStrategy st) noexcept {
     switch (st) {
-        case ResolutionStrategy::Rva:          return "rva";
-        case ResolutionStrategy::Export:       return "export";
-        case ResolutionStrategy::Pattern:      return "pattern";
-        case ResolutionStrategy::PointerChain: return "pointer_chain";
-        case ResolutionStrategy::Relative:     return "relative";
-        case ResolutionStrategy::Field:        return "field";
-        case ResolutionStrategy::RttiVTable:   return "rtti_vtable";
-        case ResolutionStrategy::StringXref:   return "string_xref";
-        case ResolutionStrategy::PythonMethod: return "python_method";
+    case ResolutionStrategy::Rva:
+        return "rva";
+    case ResolutionStrategy::Export:
+        return "export";
+    case ResolutionStrategy::Pattern:
+        return "pattern";
+    case ResolutionStrategy::PointerChain:
+        return "pointer_chain";
+    case ResolutionStrategy::Relative:
+        return "relative";
+    case ResolutionStrategy::Field:
+        return "field";
+    case ResolutionStrategy::RttiVTable:
+        return "rtti_vtable";
+    case ResolutionStrategy::StringXref:
+        return "string_xref";
+    case ResolutionStrategy::PythonMethod:
+        return "python_method";
     }
     return "rva";
 }
 
 [[nodiscard]] Result<ResolutionStrategy> str_to_strategy(std::string_view s) noexcept {
-    if (utility::ascii_iequals(s, "rva"))           return ResolutionStrategy::Rva;
-    if (utility::ascii_iequals(s, "export"))        return ResolutionStrategy::Export;
-    if (utility::ascii_iequals(s, "pattern"))       return ResolutionStrategy::Pattern;
-    if (utility::ascii_iequals(s, "pointer_chain")) return ResolutionStrategy::PointerChain;
-    if (utility::ascii_iequals(s, "relative"))      return ResolutionStrategy::Relative;
-    if (utility::ascii_iequals(s, "field"))         return ResolutionStrategy::Field;
-    if (utility::ascii_iequals(s, "rtti_vtable"))   return ResolutionStrategy::RttiVTable;
-    if (utility::ascii_iequals(s, "string_xref"))   return ResolutionStrategy::StringXref;
-    if (utility::ascii_iequals(s, "python_method")) return ResolutionStrategy::PythonMethod;
+    if (utility::ascii_iequals(s, "rva"))
+        return ResolutionStrategy::Rva;
+    if (utility::ascii_iequals(s, "export"))
+        return ResolutionStrategy::Export;
+    if (utility::ascii_iequals(s, "pattern"))
+        return ResolutionStrategy::Pattern;
+    if (utility::ascii_iequals(s, "pointer_chain"))
+        return ResolutionStrategy::PointerChain;
+    if (utility::ascii_iequals(s, "relative"))
+        return ResolutionStrategy::Relative;
+    if (utility::ascii_iequals(s, "field"))
+        return ResolutionStrategy::Field;
+    if (utility::ascii_iequals(s, "rtti_vtable"))
+        return ResolutionStrategy::RttiVTable;
+    if (utility::ascii_iequals(s, "string_xref"))
+        return ResolutionStrategy::StringXref;
+    if (utility::ascii_iequals(s, "python_method"))
+        return ResolutionStrategy::PythonMethod;
     return fail(ErrorCode::ParseError, "str_to_strategy", 0, "Unknown ResolutionStrategy");
 }
 
 [[nodiscard]] std::string_view rule_to_str(ValidationRuleKind rk) noexcept {
     switch (rk) {
-        case ValidationRuleKind::ModuleRange:        return "module_range";
-        case ValidationRuleKind::Section:            return "section";
-        case ValidationRuleKind::MemoryReadable:     return "memory_readable";
-        case ValidationRuleKind::MemoryWritable:     return "memory_writable";
-        case ValidationRuleKind::MemoryExecutable:   return "memory_executable";
-        case ValidationRuleKind::ExpectedBytes:      return "expected_bytes";
-        case ValidationRuleKind::SecondarySignature: return "secondary_signature";
-        case ValidationRuleKind::PointerSanity:      return "pointer_sanity";
-        case ValidationRuleKind::ValueRange:         return "value_range";
-        case ValidationRuleKind::InstructionShape:   return "instruction_shape";
+    case ValidationRuleKind::ModuleRange:
+        return "module_range";
+    case ValidationRuleKind::Section:
+        return "section";
+    case ValidationRuleKind::MemoryReadable:
+        return "memory_readable";
+    case ValidationRuleKind::MemoryWritable:
+        return "memory_writable";
+    case ValidationRuleKind::MemoryExecutable:
+        return "memory_executable";
+    case ValidationRuleKind::ExpectedBytes:
+        return "expected_bytes";
+    case ValidationRuleKind::SecondarySignature:
+        return "secondary_signature";
+    case ValidationRuleKind::PointerSanity:
+        return "pointer_sanity";
+    case ValidationRuleKind::ValueRange:
+        return "value_range";
+    case ValidationRuleKind::InstructionShape:
+        return "instruction_shape";
     }
     return "module_range";
 }
 
 [[nodiscard]] Result<ValidationRuleKind> str_to_rule(std::string_view s) noexcept {
-    if (utility::ascii_iequals(s, "module_range"))        return ValidationRuleKind::ModuleRange;
-    if (utility::ascii_iequals(s, "section"))             return ValidationRuleKind::Section;
-    if (utility::ascii_iequals(s, "memory_readable"))     return ValidationRuleKind::MemoryReadable;
-    if (utility::ascii_iequals(s, "memory_writable"))     return ValidationRuleKind::MemoryWritable;
-    if (utility::ascii_iequals(s, "memory_executable"))   return ValidationRuleKind::MemoryExecutable;
-    if (utility::ascii_iequals(s, "expected_bytes"))      return ValidationRuleKind::ExpectedBytes;
-    if (utility::ascii_iequals(s, "secondary_signature")) return ValidationRuleKind::SecondarySignature;
-    if (utility::ascii_iequals(s, "pointer_sanity"))      return ValidationRuleKind::PointerSanity;
-    if (utility::ascii_iequals(s, "value_range"))         return ValidationRuleKind::ValueRange;
-    if (utility::ascii_iequals(s, "instruction_shape"))   return ValidationRuleKind::InstructionShape;
+    if (utility::ascii_iequals(s, "module_range"))
+        return ValidationRuleKind::ModuleRange;
+    if (utility::ascii_iequals(s, "section"))
+        return ValidationRuleKind::Section;
+    if (utility::ascii_iequals(s, "memory_readable"))
+        return ValidationRuleKind::MemoryReadable;
+    if (utility::ascii_iequals(s, "memory_writable"))
+        return ValidationRuleKind::MemoryWritable;
+    if (utility::ascii_iequals(s, "memory_executable"))
+        return ValidationRuleKind::MemoryExecutable;
+    if (utility::ascii_iequals(s, "expected_bytes"))
+        return ValidationRuleKind::ExpectedBytes;
+    if (utility::ascii_iequals(s, "secondary_signature"))
+        return ValidationRuleKind::SecondarySignature;
+    if (utility::ascii_iequals(s, "pointer_sanity"))
+        return ValidationRuleKind::PointerSanity;
+    if (utility::ascii_iequals(s, "value_range"))
+        return ValidationRuleKind::ValueRange;
+    if (utility::ascii_iequals(s, "instruction_shape"))
+        return ValidationRuleKind::InstructionShape;
     return fail(ErrorCode::ParseError, "str_to_rule", 0, "Unknown ValidationRuleKind");
 }
 
@@ -143,61 +213,61 @@ namespace tessera::targets::target_profile_json_detail {
     json::JsonValue obj = json::JsonValue::make_object();
     obj.set("strategy", strategy_to_str(r.strategy));
     switch (r.strategy) {
-        case ResolutionStrategy::Rva:
-            obj.set("rva", hex::format_u64(r.rva.value(), 8));
-            break;
-        case ResolutionStrategy::Export:
-            if (!r.export_name.empty()) {
-                obj.set("exportName", r.export_name);
-            } else {
-                obj.set("ordinal", static_cast<std::int64_t>(r.export_ordinal));
-            }
-            break;
-        case ResolutionStrategy::Pattern:
-        case ResolutionStrategy::Relative:
-            obj.set("pattern", r.pattern);
-            if (!r.section.empty()) {
-                obj.set("section", r.section);
-            }
-            obj.set("matchCount", static_cast<std::int64_t>(r.match_count));
-            obj.set("resultOffset", r.result_offset);
-            if (r.strategy == ResolutionStrategy::Relative) {
-                obj.set("dispOffset", static_cast<std::int64_t>(r.rel_disp_offset));
-                obj.set("instrLen", static_cast<std::int64_t>(r.rel_instr_len));
-            }
-            break;
-        case ResolutionStrategy::PointerChain: {
-            obj.set("rva", hex::format_u64(r.rva.value(), 8));
-            obj.set("offsets", json::JsonValue{json::detail::serialize_array(
-                r.pointer_offsets,
-                [](std::int64_t offset) { return json::JsonValue{offset}; })});
-            break;
+    case ResolutionStrategy::Rva:
+        obj.set("rva", hex::format_u64(r.rva.value(), 8));
+        break;
+    case ResolutionStrategy::Export:
+        if (!r.export_name.empty()) {
+            obj.set("exportName", r.export_name);
+        } else {
+            obj.set("ordinal", static_cast<std::int64_t>(r.export_ordinal));
         }
-        case ResolutionStrategy::Field:
-            obj.set("rva", hex::format_u64(r.rva.value(), 8));
+        break;
+    case ResolutionStrategy::Pattern:
+    case ResolutionStrategy::Relative:
+        obj.set("pattern", r.pattern);
+        if (!r.section.empty()) {
+            obj.set("section", r.section);
+        }
+        obj.set("matchCount", static_cast<std::int64_t>(r.match_count));
+        obj.set("resultOffset", r.result_offset);
+        if (r.strategy == ResolutionStrategy::Relative) {
+            obj.set("dispOffset", static_cast<std::int64_t>(r.rel_disp_offset));
+            obj.set("instrLen", static_cast<std::int64_t>(r.rel_instr_len));
+        }
+        break;
+    case ResolutionStrategy::PointerChain: {
+        obj.set("rva", hex::format_u64(r.rva.value(), 8));
+        obj.set("offsets",
+                json::JsonValue{json::detail::serialize_array(
+                    r.pointer_offsets, [](std::int64_t offset) { return json::JsonValue{offset}; })});
+        break;
+    }
+    case ResolutionStrategy::Field:
+        obj.set("rva", hex::format_u64(r.rva.value(), 8));
+        obj.set("resultOffset", r.result_offset);
+        break;
+    case ResolutionStrategy::RttiVTable:
+        obj.set("className", r.class_name);
+        if (r.vtable_index.has_value()) {
+            obj.set("vtableIndex", static_cast<std::int64_t>(*r.vtable_index));
+        }
+        if (r.result_offset != 0) {
             obj.set("resultOffset", r.result_offset);
-            break;
-        case ResolutionStrategy::RttiVTable:
-            obj.set("className", r.class_name);
-            if (r.vtable_index.has_value()) {
-                obj.set("vtableIndex", static_cast<std::int64_t>(*r.vtable_index));
-            }
-            if (r.result_offset != 0) {
-                obj.set("resultOffset", r.result_offset);
-            }
-            break;
-        case ResolutionStrategy::StringXref:
-            obj.set("stringLiteral", r.string_literal);
-            if (r.result_offset != 0) {
-                obj.set("resultOffset", r.result_offset);
-            }
-            break;
-        case ResolutionStrategy::PythonMethod:
-            obj.set("pythonMethod", r.python_method);
-            if (r.result_offset != 0) {
-                obj.set("resultOffset", r.result_offset);
-            }
-            break;
+        }
+        break;
+    case ResolutionStrategy::StringXref:
+        obj.set("stringLiteral", r.string_literal);
+        if (r.result_offset != 0) {
+            obj.set("resultOffset", r.result_offset);
+        }
+        break;
+    case ResolutionStrategy::PythonMethod:
+        obj.set("pythonMethod", r.python_method);
+        if (r.result_offset != 0) {
+            obj.set("resultOffset", r.result_offset);
+        }
+        break;
     }
     return obj;
 }
@@ -207,11 +277,7 @@ namespace tessera::targets::target_profile_json_detail {
         return fail(ErrorCode::ParseError, "json_to_recipe", 0, "Recipe must be an object");
     }
     auto strategy_name = json::detail::required_field<std::string_view>(
-        jv,
-        "strategy",
-        "json_to_recipe",
-        "Missing recipe strategy",
-        "Missing recipe strategy",
+        jv, "strategy", "json_to_recipe", "Missing recipe strategy", "Missing recipe strategy",
         [](const json::JsonValue& value) { return value.as_string(); });
     if (!strategy_name) {
         return std::unexpected(strategy_name.error());
@@ -285,7 +351,5 @@ namespace tessera::targets::target_profile_json_detail {
     }
     return r;
 }
-
-
 
 } // namespace tessera::targets::target_profile_json_detail
