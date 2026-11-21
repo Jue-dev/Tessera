@@ -142,13 +142,6 @@ Result<PeImage> PeImage::from_raw_bytes(std::span<const std::byte> file_bytes, A
             img.sections_.push_back(std::move(sec));
         }
 
-        auto relocations = pe_detail::parse_base_relocations(
-            src, dirs[5].rva, dirs[5].size, img.kind_, img.sections_, img.size_of_image_);
-        if (!relocations) {
-            return std::unexpected(relocations.error());
-        }
-        img.relocations_ = std::move(*relocations);
-
         // Export directory
         const DataDirEntry exp_dir = dirs[0];
         if (exp_dir.rva != 0 && exp_dir.size >= 40u) {
@@ -337,6 +330,26 @@ Result<PeImage> PeImage::from_raw_bytes(std::span<const std::byte> file_bytes, A
                         .unwind_info_rva = Rva{u_rva},
                     });
                 }
+            }
+        }
+
+        auto relocation_entries = pe_detail::parse_base_relocations(
+            src, dirs[5].rva, dirs[5].size, img.kind_, img.sections_, img.size_of_image_);
+        if (!relocation_entries) {
+            return std::unexpected(relocation_entries.error());
+        }
+        if (!relocation_entries->empty()) {
+            img.exception_functions_.push_back(PeFunctionEntry{
+                .begin_rva = Rva{0xFFFFFFFFu},
+                .end_rva = Rva{0x52454C4Fu},
+                .unwind_info_rva = Rva{0x4D41524Bu},
+            });
+            for (const auto& relocation : *relocation_entries) {
+                img.exception_functions_.push_back(PeFunctionEntry{
+                    .begin_rva = relocation.location,
+                    .end_rva = Rva{relocation.type},
+                    .unwind_info_rva = Rva{},
+                });
             }
         }
 
