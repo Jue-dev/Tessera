@@ -15,7 +15,9 @@ jobs:
   permissions: {contents: write}
   steps:
    - uses: actions/checkout@v5
-     with: {ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref }}, persist-credentials: false}
+     with:
+      ref: "${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref }}"
+      persist-credentials: false
    - uses: ./.github/actions/setup-msvc
      with: {arch: x64}
    - name: Export SDK, checksum and validate
