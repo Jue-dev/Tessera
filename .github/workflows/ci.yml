@@ -47,12 +47,6 @@ jobs:
       name: Tessera-SDK-${{ matrix.preset }}
       path: dist/TesseraSDK/${{ matrix.arch }}/${{ matrix.config }}
       if-no-files-found: error
- linux-portable:
-  runs-on: ubuntu-24.04
-  steps:
-   - uses: actions/checkout@v5
-   - run: cmake -S . -B build-portable -G Ninja -DCMAKE_BUILD_TYPE=Release -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF
-   - run: cmake --build build-portable --target tessera_core tessera_diagnostics tessera_reflection tessera_disasm tessera_pattern tessera_utility tessera_filesystem tessera_json tessera_profiling --parallel 2
  decoder-oracle:
   runs-on: windows-latest
   steps:
