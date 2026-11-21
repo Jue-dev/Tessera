@@ -443,9 +443,17 @@ Result<std::vector<std::vector<Address>>> find_pointer_refs_batch(
             patterns.push_back(*pattern);
         }
 
-        ScanOptions batch_options = options;
-        if (batch_options.alignment <= 1) {
-            batch_options.alignment = pointer_size;
+        ScanOptions batch_options{};
+        batch_options.max_results = options.max_results;
+        batch_options.alignment = options.alignment > 1 ? options.alignment : pointer_size;
+        batch_options.filter = options.filter;
+        batch_options.chunk_size = options.chunk_size;
+        batch_options.stop = options.stop;
+        batch_options.observer = options.observer;
+        if (options.on_progress) {
+            batch_options.on_progress = [&options](const ScanProgress& progress) {
+                options.on_progress(progress);
+            };
         }
         Scanner scanner{process};
         auto scanned = scanner.scan_batch(range, patterns, batch_options);
