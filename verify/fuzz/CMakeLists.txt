@@ -193,3 +193,29 @@ if(TESSERA_ENABLE_LIBFUZZER)
         endif()
     endforeach()
 endif()
+
+
+# Standalone smoke builds replay every checked-in seed through the same
+# LLVMFuzzerTestOneInput entry point. Coverage-guided runtimes own their
+# corpus scheduling and therefore do not register these deterministic tests.
+if(TESSERA_BUILD_TESTS AND NOT TESSERA_ENABLE_MSVC_FUZZER AND NOT TESSERA_ENABLE_LIBFUZZER)
+    function(tessera_add_fuzz_corpus_test target corpus)
+        if(TARGET ${target})
+            add_test(
+                NAME ${target}_corpus_replay
+                COMMAND $<TARGET_FILE:${target}>
+                        "${CMAKE_CURRENT_SOURCE_DIR}/corpus/${corpus}"
+                        "-runs=100"
+            )
+        endif()
+    endfunction()
+
+    tessera_add_fuzz_corpus_test(tessera_fuzz_pattern pattern)
+    tessera_add_fuzz_corpus_test(tessera_fuzz_pe pe)
+    tessera_add_fuzz_corpus_test(tessera_fuzz_json json)
+    tessera_add_fuzz_corpus_test(tessera_fuzz_profile_json profile_json)
+    tessera_add_fuzz_corpus_test(tessera_fuzz_python_bridge python_bridge)
+    tessera_add_fuzz_corpus_test(tessera_fuzz_scanner scanner)
+    tessera_add_fuzz_corpus_test(tessera_fuzz_rtti_discovery rtti_discovery)
+    tessera_add_fuzz_corpus_test(tessera_fuzz_native_hook native_hook)
+endif()

@@ -97,7 +97,7 @@
       "binaryDir": "${sourceDir}/artifacts/x64/Bench/build",
       "installDir": "${sourceDir}/artifacts/x64/Bench/install",
       "cacheVariables": {
-        "TESSERA_BUILD_TESTS": "OFF",
+        "TESSERA_BUILD_TESTS": "ON",
         "TESSERA_BUILD_EXAMPLES": "OFF",
         "TESSERA_BUILD_BENCH": "ON"
       }
@@ -109,7 +109,7 @@
       "binaryDir": "${sourceDir}/artifacts/x64/FuzzSmoke/build",
       "installDir": "${sourceDir}/artifacts/x64/FuzzSmoke/install",
       "cacheVariables": {
-        "TESSERA_BUILD_TESTS": "OFF",
+        "TESSERA_BUILD_TESTS": "ON",
         "TESSERA_BUILD_EXAMPLES": "OFF",
         "TESSERA_BUILD_FUZZ": "ON",
         "TESSERA_ENABLE_LIBFUZZER": "OFF"
@@ -143,26 +143,11 @@
     },
     {
       "name": "x64-bench",
-      "configurePreset": "x64-bench",
-      "targets": [
-        "tessera_bench",
-        "tessera_decoder_bench",
-        "tessera_pe_bench"
-      ]
+      "configurePreset": "x64-bench"
     },
     {
       "name": "x64-fuzz-smoke",
-      "configurePreset": "x64-fuzz-smoke",
-      "targets": [
-        "tessera_fuzz_pattern",
-        "tessera_fuzz_pe",
-        "tessera_fuzz_json",
-        "tessera_fuzz_profile_json",
-        "tessera_fuzz_python_bridge",
-        "tessera_fuzz_scanner",
-        "tessera_fuzz_rtti_discovery",
-        "tessera_fuzz_native_hook"
-      ]
+      "configurePreset": "x64-fuzz-smoke"
     }
   ],
   "testPresets": [
@@ -197,6 +182,20 @@
     {
       "name": "x64-analyze",
       "configurePreset": "x64-analyze",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "x64-bench",
+      "configurePreset": "x64-bench",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "x64-fuzz-smoke",
+      "configurePreset": "x64-fuzz-smoke",
       "output": {
         "outputOnFailure": true
       }

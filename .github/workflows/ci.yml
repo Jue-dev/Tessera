@@ -270,7 +270,9 @@ jobs:
           $benchmarkTargets = @(
             "build-nortti/verify/bench/Release/tessera_bench.exe",
             "build-nortti/verify/bench/Release/tessera_decoder_bench.exe",
-            "build-nortti/verify/bench/Release/tessera_pe_bench.exe"
+            "build-nortti/verify/bench/Release/tessera_pe_bench.exe",
+            "build-nortti/verify/bench/Release/tessera_json_bench.exe",
+            "build-nortti/verify/bench/Release/tessera_rtti_discovery_bench.exe"
           )
           foreach ($target in $benchmarkTargets) {
             if (-not (Test-Path $target)) { throw "Missing Release benchmark smoke target: $target" }
@@ -281,6 +283,38 @@ jobs:
 
       - name: Verify CMake Install Package (Single tessera.lib)
         run: cmake --install build-nortti --config Release --prefix install-nortti
+
+  optional-cmake-presets:
+    name: Optional CMake Presets (${{ matrix.preset }})
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [x64-bench, x64-fuzz-smoke]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Setup MSVC Developer Command Prompt (x64)
+        uses: ./.github/actions/setup-msvc
+        with:
+          arch: x64
+
+      - name: Generate PE test fixtures
+        shell: pwsh
+        run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
+
+      - name: Configure optional preset
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build optional preset
+        run: cmake --build --preset ${{ matrix.preset }} --parallel
+
+      - name: Run optional preset CTest suite
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure
 
   msvc-static-analysis:
     name: MSVC Static Analysis (/analyze, x64)

@@ -1,4 +1,6 @@
 #include "tessera/json/json.hpp"
+
+#include "fuzz_corpus_runner.hpp"
 #include "tessera/profile/profile_json.hpp"
 #include "tessera/targets/target_profile_json.hpp"
 
@@ -25,7 +27,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
 }
 
 #if !defined(TESSERA_LIBFUZZER)
-int main() {
+int main(int argc, char** argv) {
+    if (argc > 1) {
+        return tessera::fuzz::run_corpus(argc, argv, &LLVMFuzzerTestOneInput);
+    }
     constexpr char sample[] =
         R"({"formatVersion":1,"schemaVersion":1,"revision":0,"id":"fuzz-seed","values":{},"profileVersion":1,"application":{"applicationId":"sample","executables":["sample.exe"]},"targets":[]})";
     return LLVMFuzzerTestOneInput(

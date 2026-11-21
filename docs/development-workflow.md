@@ -70,13 +70,13 @@ cmake --build --preset x64-debug
 ctest --preset x64-debug --output-on-failure
 ```
 
-Optional configure/build presets are available without changing the default SDK build:
+Optional configure/build/test presets are available without changing the default SDK build:
 
 - `x64-analyze`: MSVC static analysis.
-- `x64-bench`: scanner, instruction-decoder, and PE benchmarks.
-- `x64-fuzz-smoke`: standalone fuzz harnesses; use `scripts/run-fuzz-smoke.ps1` to replay all checked-in corpora.
+- `x64-bench`: scanner, instruction-decoder, PE, JSON, and RTTI-discovery benchmarks; CTest runs all tests plus benchmark smoke checks.
+- `x64-fuzz-smoke`: standalone fuzz harnesses; CTest replays all checked-in corpora through the shared `LLVMFuzzerTestOneInput` entry points.
 
-The current benchmark executables are `tessera_bench`, `tessera_decoder_bench`, and `tessera_pe_bench`. The fuzz-smoke preset covers `pattern`, `pe`, `json`, `profile_json`, `python_bridge`, `scanner`, `rtti_discovery`, and (on Windows) `native_hook`.
+The benchmark executables are `tessera_bench`, `tessera_decoder_bench`, `tessera_pe_bench`, `tessera_json_bench`, and `tessera_rtti_discovery_bench`. The fuzz-smoke preset covers `pattern`, `pe`, `json`, `profile_json`, `python_bridge`, `scanner`, `rtti_discovery`, and (on Windows) `native_hook`.
 
 The independent decoder differential job builds `verify/tests/decoder_oracle/decoder_probe.cpp` and compares instruction boundaries with pinned test-only `iced-x86==1.21.0` using `verify/tests/decoder_oracle/compare_iced.py`. It is enabled by `TESSERA_ENABLE_DECODER_ORACLE=ON` and is not a runtime or SDK dependency. The decoder's supported subset and explicit rejection boundaries are documented in [the native decoder envelope](native-instruction-decoder-envelope.md).
 

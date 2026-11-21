@@ -1,4 +1,6 @@
 #include "FakeMemoryBackend.hpp"
+
+#include "fuzz_corpus_runner.hpp"
 #include "tessera/pattern/pattern.hpp"
 #include "tessera/scanner/scanner.hpp"
 #include "tessera/scanner/xref.hpp"
@@ -56,7 +58,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     return 0;
 }
 #if !defined(TESSERA_LIBFUZZER)
-int main() {
+int main(int argc, char** argv) {
+    if (argc > 1) {
+        return tessera::fuzz::run_corpus(argc, argv, &LLVMFuzzerTestOneInput);
+    }
     constexpr char sample[] = "48 8B ? ? 90 E8 00 00 00 00";
     return LLVMFuzzerTestOneInput(reinterpret_cast<const std::uint8_t*>(sample), sizeof(sample) - 1);
 }
