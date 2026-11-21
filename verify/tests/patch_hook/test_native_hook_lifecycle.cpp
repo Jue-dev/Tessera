@@ -141,7 +141,7 @@ TEST_CASE("Native inline backend rejects invalid thread policies without changin
                              &read_execute_protection));
     auto unsupported_leaf = Hook<NativeHookFn>::create(
         Address{static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(code + 256))},
-        reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(&native_hook_detour)),
+        &native_hook_detour,
         &backend);
     REQUIRE(unsupported_leaf.has_value());
     const auto unsupported_leaf_status = unsupported_leaf->install(options);
@@ -198,7 +198,7 @@ TEST_CASE("Native x64 unwind rejects a stolen patch that crosses the source func
     auto hook = Hook<NativeHookFn>::create(
         Address{static_cast<std::uint64_t>(
             reinterpret_cast<std::uintptr_t>(code + target_offset))},
-        reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(&native_hook_detour)),
+        &native_hook_detour,
         &backend);
     REQUIRE(hook.has_value());
     HookOptions options{};
