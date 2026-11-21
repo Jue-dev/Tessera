@@ -309,6 +309,20 @@ TEST_CASE("PE parser rejects malformed headers and reports missing sections and 
     REQUIRE(relocated_refs->size() == 1);
     REQUIRE(relocated_refs->front() == Address{0x501010});
 
+    auto malformed_reloc_block = bytes;
+    malformed_reloc_block[0x404] = std::byte{0x07};
+    malformed_reloc_block[0x405] = std::byte{0x00};
+    malformed_reloc_block[0x406] = std::byte{0x00};
+    malformed_reloc_block[0x407] = std::byte{0x00};
+    REQUIRE_FALSE(PeImage::from_raw_bytes(malformed_reloc_block).has_value());
+
+    auto out_of_bounds_reloc_dir = bytes;
+    out_of_bounds_reloc_dir[0x134] = std::byte{0xFF};
+    out_of_bounds_reloc_dir[0x135] = std::byte{0xFF};
+    out_of_bounds_reloc_dir[0x136] = std::byte{0xFF};
+    out_of_bounds_reloc_dir[0x137] = std::byte{0xFF};
+    REQUIRE_FALSE(PeImage::from_raw_bytes(out_of_bounds_reloc_dir).has_value());
+
     auto malformed_lfanew = bytes;
     malformed_lfanew[0x3C] = std::byte{0xF0};
     malformed_lfanew[0x3D] = std::byte{0xFF};
