@@ -26,11 +26,9 @@ Result<json::JsonValue> serialize_target_profile_to_json(const TargetProfile& pr
         app.set("applicationId", profile.application.application_id);
         app.set("displayName", profile.application.display_name);
         app.set("publisher", profile.application.publisher);
-        json::JsonValue::Array exes;
-        for (const auto& exe : profile.application.executables) {
-            exes.emplace_back(exe);
-        }
-        app.set("executables", json::JsonValue{std::move(exes)});
+        app.set("executables", json::JsonValue{json::detail::serialize_array(
+            profile.application.executables,
+            [](const std::string& executable) { return json::JsonValue{executable}; })});
         root.set("application", std::move(app));
 
         json::JsonValue::Array builds_arr;

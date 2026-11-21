@@ -3,6 +3,9 @@
 #endif
 
 #include <cstddef>
+#include <cstdint>
+#include <filesystem>
+#include <vector>
 #include <span>
 #include <string_view>
 
@@ -43,30 +46,30 @@ namespace {
 using HookFn = void (*)();
 void consumer_noop() {}
 
-using MemoryReadFn = decltype(&tessera::MemoryReader::read_exact);
-using ModuleSnapshotFn = decltype(&tessera::ModuleCatalog::snapshot);
-using ScanFn = decltype(&tessera::Scanner::scan);
-using CursorOffsetFn = decltype(&tessera::AddressCursor::offset);
-using PatchNopFn = decltype(&tessera::Patch::nop);
-using HookCreateFn = decltype(&tessera::Hook<HookFn>::create);
-using NativeBackendFn = decltype(&tessera::native_inline_hook_backend);
-using PeMemoryFn = decltype(&tessera::PeImage::from_memory);
-using PeFileFn = decltype(&tessera::PeImage::from_file);
-using PeRawFn = decltype(&tessera::PeImage::from_raw_bytes);
-using PatternParseFn = decltype(&tessera::Pattern::parse);
-using JsonParseFn = decltype(&tessera::json::parse);
-using Rel32Fn = decltype(&tessera::resolve::abs32_to_rva);
-using RttiDiscoverFn = decltype(&tessera::rtti::RttiCatalog::discover_all);
-using PythonDetectFn = decltype(&tessera::rtti::PythonBridgeScanner::detect_environment);
-using PythonInittabFn = decltype(&tessera::rtti::PythonBridgeScanner::scan_inittab);
-using PythonMethodsFn = decltype(&tessera::rtti::PythonBridgeScanner::scan_method_tables);
-using PythonLinkFn = decltype(&tessera::rtti::PythonBridgeScanner::link_tables_to_modules);
-using PythonMembersFn = decltype(&tessera::rtti::PythonBridgeScanner::scan_member_tables);
-using PythonGetSetFn = decltype(&tessera::rtti::PythonBridgeScanner::scan_getset_tables);
-using PythonTypesFn = decltype(&tessera::rtti::PythonBridgeScanner::scan_type_objects);
-using PythonDiscoverFn = decltype(&tessera::rtti::PythonBridgeScanner::discover_all);
-using PythonFindFn = decltype(&tessera::rtti::PythonBridgeCatalog::find_method);
-using PythonExportFn = decltype(&tessera::rtti::PythonBridgeCatalog::export_to_registry);
+using MemoryReadFn = tessera::Status (tessera::MemoryReader::*)(tessera::Address, std::span<std::byte>) const noexcept;
+using ModuleSnapshotFn = tessera::Result<std::vector<tessera::Module>> (*)(const tessera::Process&);
+using ScanFn = tessera::Result<tessera::ScanResult> (tessera::Scanner::*)(tessera::AddressRange, const tessera::Pattern&, const tessera::ScanOptions&) const;
+using CursorOffsetFn = tessera::AddressCursor (tessera::AddressCursor::*)(std::int64_t) const noexcept;
+using PatchNopFn = tessera::Result<tessera::Patch> (*)(tessera::ProcessAddress, std::size_t, tessera::PatchOptions);
+using HookCreateFn = tessera::Result<tessera::Hook<HookFn>> (*)(tessera::Address, HookFn, tessera::HookBackend*) noexcept;
+using NativeBackendFn = tessera::HookBackend& (*)() noexcept;
+using PeMemoryFn = tessera::Result<tessera::PeImage> (*)(const tessera::Process&, tessera::Address);
+using PeFileFn = tessera::Result<tessera::PeImage> (*)(const std::filesystem::path&);
+using PeRawFn = tessera::Result<tessera::PeImage> (*)(std::span<const std::byte>, tessera::Address);
+using PatternParseFn = tessera::Result<tessera::Pattern> (*)(std::string_view, tessera::PatternError*);
+using JsonParseFn = tessera::Result<tessera::json::JsonValue> (*)(std::string_view, const tessera::json::JsonParseOptions&, tessera::json::JsonParseError*);
+using Rel32Fn = tessera::Result<tessera::Rva> (*)(const tessera::ProcessAddress&, std::size_t, std::uint64_t) noexcept;
+using RttiDiscoverFn = tessera::Result<tessera::rtti::RttiCatalog> (*)(const tessera::Process&, tessera::AddressRange, const tessera::PeImage*);
+using PythonDetectFn = tessera::Result<tessera::rtti::PythonEnvironmentInfo> (*)(const tessera::Process&, tessera::AddressRange, const tessera::PeImage*);
+using PythonInittabFn = tessera::Result<std::vector<tessera::rtti::PyInittabEntry>> (*)(const tessera::Process&, tessera::AddressRange);
+using PythonMethodsFn = tessera::Result<std::vector<tessera::rtti::PyMethodTable>> (*)(const tessera::Process&, tessera::AddressRange);
+using PythonLinkFn = void (*)(const tessera::Process&, tessera::AddressRange, std::span<tessera::rtti::PyMethodTable>, std::span<const tessera::rtti::PyInittabEntry>, tessera::Address*);
+using PythonMembersFn = tessera::Result<std::vector<tessera::rtti::PyMemberEntry>> (*)(const tessera::Process&, tessera::AddressRange);
+using PythonGetSetFn = tessera::Result<std::vector<tessera::rtti::PyGetSetEntry>> (*)(const tessera::Process&, tessera::AddressRange);
+using PythonTypesFn = tessera::Result<std::vector<tessera::rtti::PyDiscoveredTypeObject>> (*)(const tessera::Process&, tessera::AddressRange);
+using PythonDiscoverFn = tessera::Result<tessera::rtti::PythonBridgeCatalog> (*)(const tessera::Process&, tessera::AddressRange, const tessera::PeImage*);
+using PythonFindFn = tessera::Result<tessera::rtti::PyMethodEntry> (tessera::rtti::PythonBridgeCatalog::*)(std::string_view) const;
+using PythonExportFn = tessera::Status (tessera::rtti::PythonBridgeCatalog::*)(tessera::reflection::TypeRegistry&) const;
 
 [[maybe_unused]] MemoryReadFn volatile g_memory_read = &tessera::MemoryReader::read_exact;
 [[maybe_unused]] ModuleSnapshotFn volatile g_module_snapshot = &tessera::ModuleCatalog::snapshot;

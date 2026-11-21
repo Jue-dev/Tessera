@@ -20,6 +20,7 @@ on:
       - "vcpkg-configuration.json"
       - ".github/workflows/**"
       - ".github/actions/**"
+      - ".github/scripts/**"
   # Full validation on main and manually on any selected branch.
   # Tag pushes still run the release pipeline; path filters do not apply to tags.
   push:
@@ -40,6 +41,7 @@ on:
       - "vcpkg-configuration.json"
       - ".github/workflows/**"
       - ".github/actions/**"
+      - ".github/scripts/**"
   # Select the develop branch in the Actions UI for manual development validation.
   workflow_dispatch:
   schedule:

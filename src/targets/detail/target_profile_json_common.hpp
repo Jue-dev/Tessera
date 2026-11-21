@@ -169,11 +169,9 @@ namespace {
             break;
         case ResolutionStrategy::PointerChain: {
             obj.set("rva", hex::format_u64(r.rva.value(), 8));
-            json::JsonValue::Array offs;
-            for (const std::int64_t off : r.pointer_offsets) {
-                offs.emplace_back(off);
-            }
-            obj.set("offsets", json::JsonValue{std::move(offs)});
+            obj.set("offsets", json::JsonValue{json::detail::serialize_array(
+                r.pointer_offsets,
+                [](std::int64_t offset) { return json::JsonValue{offset}; })});
             break;
         }
         case ResolutionStrategy::Field:

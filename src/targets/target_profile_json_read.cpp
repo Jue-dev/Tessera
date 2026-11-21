@@ -55,12 +55,17 @@ Result<TargetProfile> deserialize_target_profile_from_json(const json::JsonValue
                 *app, "publisher", [](const json::JsonValue& value) { return value.as_string(); })) {
             p.application.publisher = std::string(*publisher);
         }
-        if (const auto* exes = app->find("executables"); exes && exes->is_array()) {
-            for (const auto& e : *exes->as_array()) {
-                if (auto s = e.as_string()) {
-                    p.application.executables.emplace_back(*s);
-                }
-            }
+        if (const auto* exes = app->find("executables")) {
+            json::detail::append_array(
+                *exes,
+                p.application.executables,
+                [](const json::JsonValue& value) -> std::optional<std::string> {
+                    auto text = value.as_string();
+                    if (!text) {
+                        return std::nullopt;
+                    }
+                    return std::string(*text);
+                });
         }
 
         if (const auto* builds = root.find("builds"); builds && builds->is_array()) {
