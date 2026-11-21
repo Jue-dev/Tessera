@@ -22,6 +22,9 @@ placeholders:
   relocates it to `src/disasm/` because scanner/xref and resolver now need the
   same conservative instruction-boundary and operand metadata. It remains an
   internal implementation with no public API role.
+  The native hook backend keeps a two-line private forwarding include at its
+  historical local include path; the decoder implementation and canonical
+  internal header are owned by `src/disasm/`.
 - `src/rtti/python_bridge.cpp` contains Python-runtime detection and bridge
   scanning logic, while `src/rtti/discovery.cpp` contains RTTI discovery and
   type reconstruction. They share the RTTI domain and some memory/scanning
