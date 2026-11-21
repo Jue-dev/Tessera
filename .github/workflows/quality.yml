@@ -26,6 +26,7 @@ jobs:
      shell: bash
      run: |
       set -euo pipefail
+      if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF_NAME" != "main" ]]; then BASE_SHA="$(git merge-base origin/main "$HEAD_SHA")"; fi
       if [[ -z "$BASE_SHA" || "$BASE_SHA" == "0000000000000000000000000000000000000000" ]]; then BASE_SHA="$(git rev-list --max-parents=0 HEAD)"; fi
       mapfile -t files < <(git diff --name-only --diff-filter=ACMRT "$BASE_SHA" "$HEAD_SHA" -- 'src/*.c' 'src/**/*.c' 'src/*.cc' 'src/**/*.cc' 'src/*.cpp' 'src/**/*.cpp' 'src/*.cxx' 'src/**/*.cxx' 'include/*.h' 'include/**/*.h' 'include/*.hh' 'include/**/*.hh' 'include/*.hpp' 'include/**/*.hpp' 'include/*.hxx' 'include/**/*.hxx' 'examples/*.c' 'examples/**/*.c' 'examples/*.cc' 'examples/**/*.cc' 'examples/*.cpp' 'examples/**/*.cpp' 'examples/*.cxx' 'examples/**/*.cxx' 'examples/*.h' 'examples/**/*.h' 'examples/*.hh' 'examples/**/*.hh' 'examples/*.hpp' 'examples/**/*.hpp' 'examples/*.hxx' 'examples/**/*.hxx')
       for file in "${files[@]}"; do
@@ -40,6 +41,7 @@ jobs:
      shell: bash
      run: |
       set -euo pipefail
+      if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF_NAME" != "main" ]]; then BASE_SHA="$(git merge-base origin/main "$HEAD_SHA")"; fi
       if [[ -z "$BASE_SHA" || "$BASE_SHA" == "0000000000000000000000000000000000000000" ]]; then BASE_SHA="$(git rev-list --max-parents=0 HEAD)"; fi
       mapfile -t files < <(git diff --name-only --diff-filter=ACMRT "$BASE_SHA" "$HEAD_SHA" -- 'src/*.c' 'src/**/*.c' 'src/*.cc' 'src/**/*.cc' 'src/*.cpp' 'src/**/*.cpp' 'src/*.cxx' 'src/**/*.cxx' 'include/*.h' 'include/**/*.h' 'include/*.hh' 'include/**/*.hh' 'include/*.hpp' 'include/**/*.hpp' 'include/*.hxx' 'include/**/*.hxx' 'examples/*.c' 'examples/**/*.c' 'examples/*.cc' 'examples/**/*.cc' 'examples/*.cpp' 'examples/**/*.cpp' 'examples/*.cxx' 'examples/**/*.cxx' 'examples/*.h' 'examples/**/*.h' 'examples/*.hh' 'examples/**/*.hh' 'examples/*.hpp' 'examples/**/*.hpp' 'examples/*.hxx' 'examples/**/*.hxx')
       if ((${#files[@]} == 0)); then echo "No changed production sources"; exit 0; fi
