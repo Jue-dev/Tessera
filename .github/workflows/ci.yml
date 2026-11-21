@@ -1,8 +1,6 @@
 name: Tessera CI & SDK Release
 
 on:
-  # Full validation automatically runs for pull requests and relevant main pushes.
-  # Release publication remains restricted to version-tag pushes.
   pull_request:
     branches: [ "main" ]
     paths:
@@ -21,8 +19,6 @@ on:
       - ".github/workflows/**"
       - ".github/actions/**"
       - ".github/scripts/**"
-  # Full validation on main and manually on any selected branch.
-  # Tag pushes still run the release pipeline; path filters do not apply to tags.
   push:
     branches: [ "main" ]
     tags: [ "v*" ]
@@ -42,7 +38,6 @@ on:
       - ".github/workflows/**"
       - ".github/actions/**"
       - ".github/scripts/**"
-  # Select the develop branch in the Actions UI for manual development validation.
   workflow_dispatch:
   schedule:
     - cron: "17 3 * * 1" # Weekly full validation (Monday, 03:17 UTC).
@@ -135,14 +130,9 @@ jobs:
       - name: Install pinned test-only decoder oracle
         run: python -m pip install --disable-pip-version-check iced-x86==1.21.0
 
-      - name: Configure independent decoder differential test
-        run: cmake -S . -B build-decoder-oracle -G Ninja -DCMAKE_BUILD_TYPE=Release -DTESSERA_BUILD_TESTS=ON -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_ENABLE_DECODER_ORACLE=ON
-
-      - name: Build decoder probe
-        run: cmake --build build-decoder-oracle --target tessera_decoder_probe --parallel
-
-      - name: Compare instruction boundaries against iced-x86
-        run: ctest --test-dir build-decoder-oracle -R tessera_decoder_differential --output-on-failure
+      - name: Configure, build and compare decoder boundaries against iced-x86
+        shell: pwsh
+        run: .\.github\scripts\ci\run-decoder-differential.ps1
 
   windows-backend-mock:
     name: Windows Backend Mock (Linux)
@@ -153,14 +143,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Run deterministic Windows backend mock tests
-        run: bash ./verify/windows_mock/run_windows_mock_tests.sh
-      - name: Run Windows backend mock tests with ASan and UBSan
-        env:
-          EXTRA_CXXFLAGS: -fsanitize=address,undefined -fno-omit-frame-pointer
-          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
-          UBSAN_OPTIONS: halt_on_error=1
-        run: bash ./verify/windows_mock/run_windows_mock_tests.sh
+      - name: Run Windows backend mock tests (normal and ASan/UBSan)
+        run: bash ./.github/scripts/ci/run-windows-mock-validation.sh
 
   detours-integration:
     name: Live Microsoft Detours Hook (${{ matrix.arch }})
@@ -333,8 +317,6 @@ jobs:
         run:  .\.github\scripts\ci\test-installed-sdk-consumer.ps1 -Options '${{ matrix.options }}'
 
   release-package-dry-run:
-    # Exercise the exact release assembly and checksum path on PRs/manual runs,
-    # without creating a tag or publishing a GitHub Release.
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     name: Release SDK Package (tag-independent dry run)
     needs: [build-and-test]
@@ -366,7 +348,6 @@ jobs:
           if-no-files-found: error
 
   publish-sdk-bundle:
-    # Manual validation must not assemble or publish release artifacts.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     name: Bundle Full SDK & Publish GitHub Release
     needs: [build-and-test, no-rtti-and-packaging-gate, detours-integration, msvc-static-analysis]
