@@ -262,6 +262,7 @@ tessera_add_module(
         tessera::process
         tessera::memory
         tessera::pattern
+        tessera::disasm
     PRIVATE_DEPS
         tessera::disasm
 )
@@ -297,6 +298,7 @@ tessera_add_module(
         tessera::process
         tessera::memory
         tessera::scanner
+        tessera::disasm
     PRIVATE_DEPS
         tessera::disasm
 )
