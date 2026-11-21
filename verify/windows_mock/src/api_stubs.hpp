@@ -69,6 +69,7 @@ extern int release_mutex_calls;
 extern LONG detour_update_error;
 extern LONG detour_attach_error;
 extern LONG detour_detach_error;
+extern LONG detour_commit_error;
 extern int detour_attach_calls;
 extern int detour_detach_calls;
 extern int detour_abort_calls;
