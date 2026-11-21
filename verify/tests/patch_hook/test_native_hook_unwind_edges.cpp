@@ -464,4 +464,3 @@ TEST_CASE("Native x64 unwind rejects unsupported, malformed, and prefix-boundary
     }
 }
 #endif
-#endif
