@@ -22,7 +22,8 @@ jobs:
      with: {arch: x64}
    - name: Export SDK, checksum and validate
      shell: pwsh
-     env: {RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}}
+     env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
      run: .\.github\scripts\ci-sdk.ps1 -Task package-release -ReleaseTag "$env:RELEASE_TAG"
    - name: Verify installed SDK consumers
      shell: pwsh
