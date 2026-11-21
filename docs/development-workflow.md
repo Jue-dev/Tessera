@@ -17,7 +17,7 @@
 | Documentation-only change | No automatic CI run unless workflow/config paths are changed |
 | Push to feature branch | No automatic CI unless it is part of a PR targeting `main` |
 | Manual `Tessera CI & SDK Release` dispatch | Full CI on selected branch; release publication remains tag-push-only |
-| Manual `Native Hook Coverage-Guided Fuzz` dispatch | Bounded 60/300/900-second x64 Clang libFuzzer + ASan/UBSan campaign |
+| Manual `Continuous Fuzzing` dispatch | Bounded 30/60/120/300-second MSVC fuzzer + ASan campaigns across all eight corpus targets |
 
 The CI path allowlist covers CMake configuration, `cmake/`, `include/`, `src/`, `verify/`, `examples/`, `scripts/`, dependency manifests, `.clang-tidy`, and GitHub workflow files. Small PowerShell CI helpers are grouped by responsibility: `detours.ps1` handles architecture-specific Detours build/verification, and `configure.ps1` handles no-RTTI/reduced configurations. Prose-only documentation changes do not start CI. A commit containing documentation and an allowlisted input still starts CI.
 
@@ -108,7 +108,7 @@ ctest --preset x64-debug --output-on-failure
 
 When Catch2 is unavailable, `test_main.cpp` accepts `--shuffle`, `--seed N`, `--filter substring`, and `--junit path`. When Catch2 is available, CTest uses Catch2's equivalent randomized-order, fixed-seed and JUnit reporter arguments.
 
-All five benchmark executables support `--json`; `verify/bench/validate_bench_json.py` checks their output in CTest when Python is available. Coverage can be enabled on GCC/Clang with `TESSERA_ENABLE_COVERAGE=ON`. CI runs ASan+UBSan and TSan as separate configurations, and CodeQL and continuous fuzz campaigns are scheduled/manual workflows.
+All five benchmark executables support `--json`; `verify/bench/validate_bench_json.py` checks their output in CTest when Python is available. LLVM line/branch coverage can be enabled with `TESSERA_ENABLE_COVERAGE=ON` using the Windows clang-cl toolchain. CI runs ASan+UBSan and TSan separately against the portable Windows-backend mock harness; CodeQL uses the supported Windows MSVC build, and all eight continuous fuzz campaigns use the MSVC fuzzer.
 
 Release tags (`v*`) use the SDK packaging job and publish the SDK ZIP with `SHA256SUMS.txt`. See [SECURITY.md](../SECURITY.md) for vulnerability reporting and the native-memory/inline-hook threat model.
 
