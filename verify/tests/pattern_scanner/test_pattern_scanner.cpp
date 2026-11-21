@@ -398,6 +398,16 @@ TEST_CASE("Decoded xrefs reject CALL opcode bytes embedded inside instruction im
     REQUIRE(decoded->references.front().instruction == Address{base + 0x100});
     REQUIRE(decoded->references.front().target == target);
     REQUIRE(decoded->references.front().kind == xref::XrefKind::DirectCall);
+
+    const std::array<Address, 3> targets{
+        target, Address{target_value + 1}, target};
+    auto decoded_batch = xref::find_decoded_xrefs_batch(process, range, targets, options);
+    REQUIRE(decoded_batch.has_value());
+    REQUIRE(decoded_batch->results.size() == targets.size());
+    REQUIRE(decoded_batch->results[0].references.size() == 1);
+    REQUIRE(decoded_batch->results[1].references.empty());
+    REQUIRE(decoded_batch->results[2].references.size() == 1);
+    REQUIRE(decoded_batch->results[2].references.front().instruction == Address{base + 0x100});
 }
 
 TEST_CASE("Scanner reports query failures and rejects chunk overlap overflow", "[scanner][safety]") {
