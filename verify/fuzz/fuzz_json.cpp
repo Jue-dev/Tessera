@@ -1,5 +1,7 @@
 #include "tessera/json/json.hpp"
 
+#include "fuzz_corpus_runner.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
@@ -14,7 +16,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
 }
 
 #if !defined(TESSERA_LIBFUZZER)
-int main() {
+int main(int argc, char** argv) {
+    if (argc > 1) {
+        return tessera::fuzz::run_corpus(argc, argv, &LLVMFuzzerTestOneInput);
+    }
     const char sample[] = R"({"key": [1, true, "val"]})";
     return LLVMFuzzerTestOneInput(reinterpret_cast<const std::uint8_t*>(sample), sizeof(sample) - 1);
 }
