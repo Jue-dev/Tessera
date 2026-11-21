@@ -42,3 +42,14 @@ For invariants that constrain implementation changes, see [ADR 0002](adr/0002-na
 
 
 The supporting technical boundaries are recorded in [JSON validation](json-validation-boundaries.md), [memory write recovery](memory-write-recovery.md), and the [native decoder envelope](native-instruction-decoder-envelope.md).
+
+## Shared instruction decoder boundary (Wave 3)
+
+The bounded x86/x64 instruction decoder is an internal L0.75 component at `src/disasm/`. The hook, scanner and resolver object targets consume it through private CMake dependencies. It is deliberately not installed as a public header or exported SDK target. This keeps instruction-boundary and relative/RIP-relative operand interpretation consistent without making scanner or resolver depend on the hook subsystem.
+
+The decoder rejects unsupported encodings and bounds every instruction to the architectural 15-byte maximum. Public `AddressCursor` operations are additive wrappers over this private implementation; callers receive explicit errors for partial reads, unsupported instructions, cycles and hop limits. The independent iced-x86 differential remains test-only.
+
+## Scanner batch operation
+
+`Scanner::scan_batch` accepts a stable span of `Pattern` objects and reuses one chunk read for all patterns. Result entries preserve input order, and `ScanOptions::max_results` is enforced independently for each entry. Each pattern retains the same masked full-match verification used by single-pattern scanning. The current implementation intentionally keeps the existing memory-region policy and chunk-overlap behavior shared with `Scanner::scan`.
+
