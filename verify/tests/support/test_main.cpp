@@ -94,7 +94,7 @@ int main(int argc, char** argv) {
         std::printf("[RUN ] %s\n", tc.name);
         std::fflush(stdout);
         const int checks_before = ::tessera::test_runner::check_failure_counter();
-        TestOutcome outcome{.name = tc.name};
+        TestOutcome outcome{.name = tc.name, .passed = false, .failure = {}};
         try {
             tc.fn();
             if (::tessera::test_runner::check_failure_counter() == checks_before) {
