@@ -1,5 +1,6 @@
 #include "patch_hook_test_support.hpp"
 
+#include <cstdint>
 #include <array>
 #include <atomic>
 #include <barrier>
