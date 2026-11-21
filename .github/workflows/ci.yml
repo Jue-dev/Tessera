@@ -194,10 +194,10 @@ jobs:
       - name: Build Microsoft Detours for ${{ matrix.arch }}
         shell: pwsh
         working-directory: dependencies/Detours/src
-        run: '& "$env:GITHUB_WORKSPACE\.github\scripts\ci\build-detours.ps1" -Architecture "${{ matrix.arch }}"'
+        run: '& "$env:GITHUB_WORKSPACE\.github\scripts\ci\detours.ps1 -Action Build" -Architecture "${{ matrix.arch }}"'
       - name: Verify architecture-specific Detours outputs
         shell: pwsh
-        run:  .\.github\scripts\ci\verify-detours.ps1 -Architecture "${{ matrix.arch }}"
+        run:  .\.github\scripts\ci\detours.ps1 -Action Verify -Architecture "${{ matrix.arch }}"
       - name: Build Tessera and run the live Detours test
         shell: pwsh
         run: |
@@ -225,7 +225,7 @@ jobs:
         run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
 
       - name: Configure with Compiler RTTI Disabled (/GR-) and Benchmarks/Fuzz Enabled
-        run:  .\.github\scripts\ci\configure-no-rtti.ps1
+        run:  .\.github\scripts\ci\configure.ps1 -Mode NoRtti
       - name: Build Release with /GR-
         run: cmake --build build-nortti --config Release --parallel
 
@@ -326,7 +326,7 @@ jobs:
 
       - name: Configure reduced SDK
         shell: pwsh
-        run:  .\.github\scripts\ci\configure-reduced.ps1 -Options '${{ matrix.options }}'
+        run:  .\.github\scripts\ci\configure.ps1 -Mode Reduced -Options '${{ matrix.options }}'
       - name: Build reduced SDK
         run: cmake --build build-reduced --parallel
 
