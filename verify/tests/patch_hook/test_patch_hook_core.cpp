@@ -7,6 +7,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_set>
+#include <vector>
 
 namespace {
 int concurrency_hook_target(int value) { return value + 1; }
@@ -59,11 +60,18 @@ TEST_CASE("Hook registry serializes concurrent duplicate installs and releases o
     using namespace tessera;
 
     constexpr std::size_t worker_count = 8;
-    const auto target_address = static_cast<std::uint64_t>(
-        reinterpret_cast<std::uintptr_t>(&concurrency_hook_target));
     ConcurrentRegistryBackend backend;
     std::barrier gate{static_cast<std::ptrdiff_t>(worker_count)};
     std::array<std::jthread, worker_count> workers{};
+    std::vector<Hook<int (*)(int)>> hooks;
+    hooks.reserve(worker_count);
+    for (std::size_t i = 0; i < worker_count; ++i) {
+        auto hook = Hook<int (*)(int)>::create(
+            &concurrency_hook_target, &concurrency_hook_detour, &backend);
+        REQUIRE(hook.has_value());
+        hooks.push_back(std::move(*hook));
+    }
+
     std::atomic<unsigned> installed{0};
     std::atomic<unsigned> conflicts{0};
     std::atomic<unsigned> unexpected{0};
@@ -71,16 +79,9 @@ TEST_CASE("Hook registry serializes concurrent duplicate installs and releases o
 
     HookOptions options{};
     options.threads = ThreadPolicy::None;
-    for (auto& worker : workers) {
-        worker = std::jthread([&] {
-            auto hook = Hook<int (*)(int)>::create(
-                Address{target_address}, &concurrency_hook_detour, &backend);
-            if (!hook) {
-                unexpected.fetch_add(1, std::memory_order_relaxed);
-                gate.arrive_and_wait();
-                return;
-            }
-            auto status = hook->install(options);
+    for (std::size_t i = 0; i < worker_count; ++i) {
+        workers[i] = std::jthread([&, i] {
+            auto status = hooks[i].install(options);
             if (status) {
                 installed.fetch_add(1, std::memory_order_relaxed);
             } else if (status.error().code == ErrorCode::Conflict) {
@@ -90,7 +91,7 @@ TEST_CASE("Hook registry serializes concurrent duplicate installs and releases o
             }
 
             gate.arrive_and_wait();
-            if (status && !hook->remove()) {
+            if (status && !hooks[i].remove()) {
                 remove_failures.fetch_add(1, std::memory_order_relaxed);
             }
         });
