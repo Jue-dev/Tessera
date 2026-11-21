@@ -17,7 +17,7 @@ int main() {
         return 2;
     }
 
-    winmock_tests::run_process_tests(process);
+    winmock_tests::run_process_tests();
     winmock_tests::run_memory_module_tests(process);
     winmock_tests::run_thread_tests();
     winmock_tests::run_detours_hook_tests();
