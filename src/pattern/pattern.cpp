@@ -250,7 +250,12 @@ void Pattern::search(std::span<const std::byte> data,
             const bool secondary_matches =
                 !secondary.has_value() ||
                 data[candidate + *secondary] == pat_bytes[*secondary];
-            if (secondary_matches && matches(data.subspan(candidate, size_))) {
+            const bool full_match =
+                secondary_matches &&
+                (is_exact()
+                     ? std::memcmp(data.data() + candidate, pat_bytes.data(), size_) == 0
+                     : matches(data.subspan(candidate, size_)));
+            if (full_match) {
                 if (!on_match(candidate)) {
                     return;
                 }
