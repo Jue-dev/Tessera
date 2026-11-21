@@ -38,7 +38,7 @@ jobs:
 
       - name: Configure production build
         shell: pwsh
-        run: cmake -S . -B build-codeql -G "Visual Studio 17 2022" -A x64 -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_FUZZ=OFF -DTESSERA_BUILD_BENCH=OFF
+        run: cmake -S . -B build-codeql -G "Visual Studio 18 2026" -A x64 -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_FUZZ=OFF -DTESSERA_BUILD_BENCH=OFF
 
       - name: Build production targets
         shell: pwsh
