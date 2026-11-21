@@ -103,6 +103,16 @@ private:
     std::optional<VerifiedAddress> verified_{};
 };
 
+struct ResolutionTraceStep {
+    std::string stage{};
+    ResolutionStatus status = ResolutionStatus::NotFound;
+    std::string detail{};
+};
+
+struct ResolutionTrace {
+    std::vector<ResolutionTraceStep> steps{};
+};
+
 // Describes a loaded module inside a target session (supports both OS modules and synthetic test modules).
 struct TargetModuleContext {
     std::string module_id = "main";
@@ -160,6 +170,12 @@ public:
         std::string_view entry_id,
         PersistPolicy persist_policy = PersistPolicy::AskBeforePersist,
         TargetProfileStore* store = nullptr);
+    [[nodiscard]] ResolutionOutcome resolve_entry(
+        TargetProfile& profile,
+        std::string_view entry_id,
+        PersistPolicy persist_policy,
+        TargetProfileStore* store,
+        ResolutionTrace* trace);
 
 private:
     struct SessionCacheItem {
