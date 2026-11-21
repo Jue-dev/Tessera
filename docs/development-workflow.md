@@ -74,7 +74,7 @@ Optional configure/build/test presets are available without changing the default
 
 - `x64-analyze`: MSVC static analysis.
 - `x64-bench`: scanner, instruction-decoder, PE, JSON, and RTTI-discovery benchmarks; CTest runs all tests plus benchmark smoke checks.
-- `x64-fuzz-smoke`: standalone fuzz harnesses; CTest replays all checked-in corpora through the shared `LLVMFuzzerTestOneInput` entry points.
+- `x64-fuzz-smoke`: standalone fuzz harnesses; CTest replays all checked-in corpora through the shared `LLVMFuzzerTestOneInput` entry points. The no-RTTI CI configuration also sets `TESSERA_PATTERN_FORCE_SCALAR=ON` to validate the non-SIMD fallback independently of the normal runtime-dispatched builds.
 
 The benchmark executables are `tessera_bench`, `tessera_decoder_bench`, `tessera_pe_bench`, `tessera_json_bench`, and `tessera_rtti_discovery_bench`. The fuzz-smoke preset covers `pattern`, `pe`, `json`, `profile_json`, `python_bridge`, `scanner`, `rtti_discovery`, and (on Windows) `native_hook`.
 
