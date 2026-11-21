@@ -41,7 +41,6 @@ TEST_CASE("Settings Profile layered precedence, atomic snapshot, migration, and 
     using namespace tessera::profile;
 
     constexpr Key<std::int64_t> kTimeoutMs{"network.timeout_ms"};
-    constexpr Key<std::string> kApiToken{"auth.api_token"};
 
     SettingsSchema schema(2, UnknownKeyPolicy::Reject);
     schema.add_definition({
