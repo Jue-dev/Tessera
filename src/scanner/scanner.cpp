@@ -305,6 +305,22 @@ Result<std::vector<ScanResult>> Scanner::scan_batch(
     AddressRange range,
     std::span<const Pattern> patterns,
     const ScanOptions& options) const {
+    return scan_batch_impl(range, patterns, options, nullptr);
+}
+
+Result<std::vector<ScanResult>> Scanner::scan_batch(
+    AddressRange range,
+    std::span<const Pattern> patterns,
+    const ScanOptions& options,
+    ScanWorkspace& workspace) const {
+    return scan_batch_impl(range, patterns, options, &workspace);
+}
+
+Result<std::vector<ScanResult>> Scanner::scan_batch_impl(
+    AddressRange range,
+    std::span<const Pattern> patterns,
+    const ScanOptions& options,
+    ScanWorkspace* workspace) const {
     if (range.empty()) {
         return fail(ErrorCode::InvalidArgument, "Scanner::scan_batch", 0, "AddressRange is empty");
     }
@@ -369,7 +385,9 @@ Result<std::vector<ScanResult>> Scanner::scan_batch(
                     options.on_progress(progress);
                 }
                 return active;
-            });
+            },
+            ScanReadPolicy::BestEffort,
+            workspace ? &workspace->buffer_ : nullptr);
         if (!stats_res) {
             return std::unexpected(stats_res.error());
         }
