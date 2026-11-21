@@ -326,7 +326,7 @@ TEST_CASE("Native x86 relocator expands short JMP and Jcc while preserving tramp
         options.threads = ThreadPolicy::None;
         const auto install_status = hook->install(options);
         if (!install_status.has_value()) {
-            throw std::runtime_error(std::string(case_name) + " hook installation failed");
+            throw std::runtime_error("short branch hook installation failed");
         }
         g_short_branch_original = hook->original();
         REQUIRE(reinterpret_cast<CdeclFn>(code + target_offset)(5) == 142);
@@ -441,7 +441,9 @@ TEST_CASE("Native x86 relocator preserves near JMP, CALL, and Jcc trampoline beh
         HookOptions options{};
         options.threads = ThreadPolicy::None;
         const auto install_status = hook->install(options);
-        REQUIRE(install_status.has_value());
+        if (!install_status.has_value()) {
+            throw std::runtime_error(std::string(case_name) + " hook installation failed");
+        }
         g_short_branch_original = hook->original();
         REQUIRE(reinterpret_cast<CdeclFn>(code + target_offset)(5) == 142);
         REQUIRE(hook->original()(5) == 42);
