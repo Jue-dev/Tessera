@@ -288,31 +288,4 @@ int main(int argc, char** argv) {
     print_metric(11, "Decoder-verified CALL xref (16 KiB)", decoded_xref_metrics, xref_code.size());
 
     return 0;
-    }
-
-    const auto print_metric = [](int index, std::string_view name, const auto& metrics,
-                                  std::size_t bytes) {
-        const double seconds = static_cast<double>(metrics.mean.count()) / 1.0e9;
-        const double mb_per_s = seconds > 0.0
-                                    ? (static_cast<double>(bytes) / seconds) / 1.0e6
-                                    : 0.0;
-        std::cout << "Benchmark " << index << ": " << name << "\\n"
-                  << "  Iterations : " << metrics.iterations << "\\n"
-                  << "  Min (us)   : " << metrics.min.count() / 1000.0 << "\\n"
-                  << "  Mean (us)  : " << metrics.mean.count() / 1000.0 << "\\n"
-                  << "  Max (us)   : " << metrics.max.count() / 1000.0 << "\\n"
-                  << "  Throughput : " << mb_per_s << " MB/s\\n\\n";
-    };
-    print_metric(1, "Masked Pattern::search (4 MiB)", pat_metrics, buffer.size());
-    print_metric(2, "Exact literal Pattern::search (4 MiB)", exact_metrics, buffer.size());
-    print_metric(3, "Common x64 prolog Pattern::search (4 MiB)", prolog_metrics, buffer.size());
-    print_metric(4, "Leading wildcard Pattern::search (4 MiB)", leading_metrics, buffer.size());
-    print_metric(5, "Dense nibble mask Pattern::search (4 MiB)", nibble_metrics, buffer.size());
-    print_metric(6, "50 patterns scanned separately (4 MiB each)", fifty_separate_metrics,
-                 buffer.size() * fifty_patterns.size());
-    print_metric(7, "50 patterns scanned in one batch (4 MiB)", fifty_batch_metrics, buffer.size());
-    print_metric(8, "Raw byte-pattern CALL xref (16 KiB)", raw_xref_metrics, xref_code.size());
-    print_metric(9, "Decoder-verified CALL xref (16 KiB)", decoded_xref_metrics, xref_code.size());
-
-    return 0;
 }
