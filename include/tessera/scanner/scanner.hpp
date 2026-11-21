@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <stop_token>
+#include <span>
 #include <vector>
 
 #include "tessera/core/result.hpp"
@@ -57,6 +58,14 @@ public:
     [[nodiscard]] Result<ScanResult> scan(AddressRange range,
                                           const Pattern& pattern,
                                           const ScanOptions& options = {}) const;
+
+    // Scans several signatures over each memory chunk after a single remote read.
+    // The result vector preserves the input pattern order and each pattern has
+    // its own max_results quota.
+    [[nodiscard]] Result<std::vector<ScanResult>> scan_batch(
+        AddressRange range,
+        std::span<const Pattern> patterns,
+        const ScanOptions& options = {}) const;
 
     [[nodiscard]] Result<Address> find_first(AddressRange range,
                                              const Pattern& pattern,
