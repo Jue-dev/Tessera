@@ -53,3 +53,8 @@ The decoder rejects unsupported encodings and bounds every instruction to the ar
 
 `Scanner::scan_batch` accepts a stable span of `Pattern` objects and reuses one chunk read for all patterns. Result entries preserve input order, and `ScanOptions::max_results` is enforced independently for each entry. Each pattern retains the same masked full-match verification used by single-pattern scanning. The current implementation intentionally keeps the existing memory-region policy and chunk-overlap behavior shared with `Scanner::scan`. `ScanWorkspace` allows callers to retain the `chunk_size + max_pattern_len - 1` scratch allocation across calls; workspaces are caller-owned and must not be shared concurrently. `scan_streaming` skips hit-vector accumulation and supports callback-driven early stop. `ScanReadPolicy::Strict` rejects inaccessible/guard regions and partial reads; `BestEffort` retains the recovery behavior.
 
+
+
+## Resolution diagnostics
+
+`ResolutionTrace` can be passed to the additive `AddressResolver::resolve_entry` overload to record the resolution stage and terminal status without changing the target-profile JSON schema. The original `resolve_entry` overload remains available and does not allocate trace records.
