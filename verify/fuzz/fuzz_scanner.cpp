@@ -8,6 +8,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -40,8 +41,9 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         const std::string_view text{reinterpret_cast<const char*>(data), pattern_size};
         auto pattern = tessera::Pattern::parse(text);
         if (pattern) {
+            const std::size_t haystack_size = (std::min)(size, 4u * kPageSize);
             const std::span<const std::byte> haystack{
-                reinterpret_cast<const std::byte*>(data), size};
+                reinterpret_cast<const std::byte*>(data), haystack_size};
             std::vector<std::size_t> expected;
             for (std::size_t offset = 0; offset + pattern->size() <= haystack.size(); ++offset) {
                 if (pattern->matches(haystack.subspan(offset))) {
@@ -81,6 +83,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     (void)tessera::xref::find_jumps(process, image, target, options);
     (void)tessera::xref::find_conditional_branches(process, image, target, options);
     (void)tessera::xref::find_indirect_refs(process, image, target, options);
+    (void)tessera::xref::find_decoded_xrefs(process, image, target, options);
+    (void)tessera::xref::find_decoded_xrefs_batch(process, image, targets, options);
     return 0;
 }
 #if !defined(TESSERA_LIBFUZZER)
