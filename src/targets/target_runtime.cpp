@@ -513,7 +513,42 @@ ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
                                                  std::string_view entry_id,
                                                  PersistPolicy persist_policy,
                                                  TargetProfileStore* store) {
+    return resolve_entry(profile, entry_id, persist_policy, store, nullptr);
+}
+
+ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
+                                                 std::string_view entry_id,
+                                                 PersistPolicy persist_policy,
+                                                 TargetProfileStore* store,
+                                                 ResolutionTrace* trace) {
     ResolutionOutcome outcome{};
+    if (trace != nullptr) {
+        trace->steps.clear();
+    }
+    const auto begin_stage = [&](std::string_view name) {
+        if (trace == nullptr) {
+            return;
+        }
+        if (!trace->steps.empty()) {
+            trace->steps.back().status = ResolutionStatus::CandidateFound;
+            trace->steps.back().detail = "Stage completed";
+        }
+        trace->steps.push_back(ResolutionTraceStep{
+            .stage = std::string(name),
+            .status = ResolutionStatus::NotFound,
+            .detail = "Stage started",
+        });
+    };
+    const auto finish = [&]() {
+        if (trace != nullptr && !trace->steps.empty()) {
+            trace->steps.back().status = outcome.status;
+            trace->steps.back().detail =
+                outcome.from_session_cache ? "Resolved from verified session cache"
+                                           : "Resolution ended at this stage";
+        }
+        return finish();
+    };
+    begin_stage("Architecture compatibility");
     const TargetArch proc_arch =
         (process_.architecture() == Architecture::X64) ? TargetArch::X64 : TargetArch::X86;
 
@@ -524,9 +559,10 @@ ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
                   proc_arch) != profile.application.supported_architectures.end();
     if (!arch_supported) {
         outcome.status = ResolutionStatus::IncompatibleTarget;
-        return outcome;
+        return finish();
     }
 
+    begin_stage("Verified session cache");
     // 2. Check session cache first (valid only if PID, profile revision, module base, and SHA256 match)
     for (const auto& cached : session_cache_) {
         if (cached.entry_id == entry_id && cached.pid == process_.pid() &&
@@ -540,11 +576,12 @@ ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
                 outcome.candidate_rva = cached.verified.rva();
                 outcome.from_session_cache = true;
                 outcome.verified_ = cached.verified;
-                return outcome;
+                return finish();
             }
         }
     }
 
+    begin_stage("Build and module selection");
     // 3. Find matching exact build or compatible build of the same architecture
     const TargetBuild* exact_build = nullptr;
     const TargetBuild* fallback_build = nullptr;
@@ -577,27 +614,28 @@ ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
         for (const auto& b : profile.builds) {
             if (b.find_address(entry_id) != nullptr) {
                 outcome.status = ResolutionStatus::IncompatibleTarget;
-                return outcome;
+                return finish();
             }
         }
         outcome.status = ResolutionStatus::NotFound;
-        return outcome;
+        return finish();
     }
 
     const AddressEntry* entry = selected_build->find_address(entry_id);
     const TargetModuleContext* mod_ctx = find_loaded_module(entry->module_id);
     if (mod_ctx == nullptr) {
         outcome.status = ResolutionStatus::IncompatibleTarget;
-        return outcome;
+        return finish();
     }
 
+    begin_stage("Exact-build primary recipe");
     // 4. If exact build matched, try primary recipe first and validate
     if (exact_build != nullptr) {
         auto primary_cands = execute_recipe(process_, *mod_ctx, entry->primary);
         if (primary_cands && !primary_cands->empty()) {
             if (primary_cands->size() > 1) {
                 outcome.status = ResolutionStatus::Ambiguous;
-                return outcome;
+                return finish();
             }
             const Address cand = primary_cands->front();
             outcome.candidate_address = cand;
@@ -623,36 +661,37 @@ ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
                     .verified = *outcome.verified_,
                     .report = outcome.report,
                 });
-                return outcome;
+                return finish();
             }
             // Exact build primary RVA failed required checks -> Stale if no fallback, or try fallback
             if (!entry->fallback.has_value()) {
                 outcome.status = ResolutionStatus::Stale;
-                return outcome;
+                return finish();
             }
         } else if (!entry->fallback.has_value()) {
             outcome.status = ResolutionStatus::Stale;
-            return outcome;
+            return finish();
         }
     }
 
+    begin_stage("Fallback and compatible-build recipe");
     // 5. Fallback / compatible-build resolution
     const ResolutionRecipe& compat_recipe =
         entry->fallback.has_value() ? *entry->fallback : entry->primary;
     if (compat_recipe.strategy == ResolutionStrategy::Rva && exact_build == nullptr) {
         // Raw RVA cannot be trusted on a different build without a pattern/export fallback
         outcome.status = ResolutionStatus::Stale;
-        return outcome;
+        return finish();
     }
 
     auto compat_cands = execute_recipe(process_, *mod_ctx, compat_recipe);
     if (!compat_cands || compat_cands->empty()) {
         outcome.status = (exact_build != nullptr) ? ResolutionStatus::Stale : ResolutionStatus::NotFound;
-        return outcome;
+        return finish();
     }
     if (compat_cands->size() > 1) {
         outcome.status = ResolutionStatus::Ambiguous;
-        return outcome;
+        return finish();
     }
 
     const Address cand = compat_cands->front();
@@ -669,14 +708,14 @@ ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
     }
     if (!outcome.report.all_required_passed) {
         outcome.status = (exact_build != nullptr) ? ResolutionStatus::Stale : ResolutionStatus::CandidateFound;
-        return outcome;
+        return finish();
     }
 
     // §17.4 Rule: On a new/compatible build, a single pattern match alone is never sufficient;
     // at least one independent secondary/semantic check must pass, otherwise result is at most NeedsReview.
     if (!outcome.report.has_independent_check || !entry->validation.allow_compatible_build) {
         outcome.status = ResolutionStatus::NeedsReview;
-        return outcome;
+        return finish();
     }
 
     outcome.status = ResolutionStatus::VerifiedCompatibleBuild;
@@ -698,6 +737,7 @@ ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
         .report = outcome.report,
     });
 
+    begin_stage("Verified compatible-build persistence");
     // 6. Auto-persist new TargetBuild if policy is AutoPersistVerified
     if (persist_policy == PersistPolicy::AutoPersistVerified && exact_build == nullptr) {
         TargetBuild new_build{};
@@ -731,7 +771,7 @@ ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
         }
     }
 
-    return outcome;
+    return finish();
 }
 
 Result<AddressEntry> DiscoverySession::capture_and_verify(
