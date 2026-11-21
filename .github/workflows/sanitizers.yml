@@ -39,7 +39,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes g++-13 libstdc++-13-dev
           g++-13 --version
-                    printf '#include <expected>\n#include <bit>\nint main(){std::expected<int,int> x=1; return std::byteswap(1u)==1u && x.value()==1 ? 0 : 1;}\n' | g++-13 -std=c++23 -x c++ -fsyntax-only -
+          printf '#include <expected>\n#include <bit>\nint main(){std::expected<int,int> x=1; return std::byteswap(1u)==1u && x.value()==1 ? 0 : 1;}\n' | g++-13 -std=c++23 -x c++ -fsyntax-only -
 
       - name: Build and run portable Windows-backend mock tests under sanitizer
         env:
