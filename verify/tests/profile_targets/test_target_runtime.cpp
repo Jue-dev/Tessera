@@ -133,8 +133,8 @@ TEST_CASE("Targets verification engine: exact build, stale, compatible build, ne
     REQUIRE(out_fallback.status == ResolutionStatus::VerifiedCompatibleBuild);
     REQUIRE(out_fallback.verified().has_value());
     REQUIRE(out_fallback.candidate_address == Address{0x140001000ULL});
-    REQUIRE(fallback_trace.steps.size() >= 2);
-    REQUIRE(fallback_trace.steps[1].stage == "Exact-build primary recipe");
+    REQUIRE(fallback_trace.steps.size() >= 5);
+    REQUIRE(fallback_trace.steps[3].stage == "Exact-build primary recipe");
     REQUIRE(fallback_trace.steps.back().stage == "Fallback and compatible-build recipe");
     REQUIRE(fallback_trace.steps.back().status == ResolutionStatus::VerifiedCompatibleBuild);
 
