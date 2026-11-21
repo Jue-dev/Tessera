@@ -49,10 +49,6 @@ if(TESSERA_ENABLE_COVERAGE)
     endif()
 endif()
 
-if(TESSERA_PATTERN_FORCE_SCALAR)
-    add_compile_definitions(TESSERA_PATTERN_FORCE_SCALAR=1)
-endif()
-
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/TesseraCompilerOptions.cmake")
@@ -138,6 +134,10 @@ tessera_add_module(
     PUBLIC_DEPS
         tessera::core
 )
+
+if(TESSERA_PATTERN_FORCE_SCALAR)
+    target_compile_definitions(tessera_pattern PRIVATE TESSERA_PATTERN_FORCE_SCALAR=1)
+endif()
 
 tessera_add_module(
     NAME utility
