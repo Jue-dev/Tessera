@@ -1,0 +1,32 @@
+name: Clang-Tidy
+
+on:
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  clang-tidy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Install Clang-Tidy
+        run: sudo apt-get update && sudo apt-get install --yes clang clang-tidy ninja-build
+
+      - name: Configure compile commands
+        run: |
+          CC=clang CXX=clang++ cmake -S . -B build-tidy -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF
+
+      - name: Run clang-tidy over library sources
+        run: run-clang-tidy -p build-tidy -quiet -j 2 -header-filter='.*include/tessera/.*' 'src/.*\\.cpp'
