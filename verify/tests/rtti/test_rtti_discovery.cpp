@@ -156,7 +156,7 @@ TEST_CASE("RTTI discovery rejects a vftable whose first virtual target escapes t
     constexpr std::uint64_t base = 0x150000000ULL;
     auto backend = std::make_shared<testing::FakeMemoryBackend>();
     auto& image = backend->map_region(
-        Address{base}, 0x5000, MemoryProtection::ReadWrite | MemoryProtection::Execute);
+        Address{base}, 0x5000, MemoryProtection::ExecuteReadWrite);
 
     // TypeDescriptor and its mangled name.
     write_cstr(image.storage, 0x2100 + 16, ".?AVBrokenVftable@Game@@");
