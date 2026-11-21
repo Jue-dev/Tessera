@@ -486,3 +486,16 @@ HLOCAL LocalFree(HLOCAL memory) noexcept {
 int WideCharToMultiByte(UINT, DWORD, LPCWCH, int, LPSTR, int, LPCCH, BOOL*) noexcept {
     return 0;
 }
+
+HANDLE GetStdHandle(DWORD) noexcept { return nullptr; }
+BOOL WriteFile(HANDLE, LPCVOID, DWORD count, DWORD* written, void*) noexcept {
+    if (written != nullptr) { *written = count; }
+    return TRUE;
+}
+void OutputDebugStringW(LPCWSTR) noexcept {}
+HANDLE CreateFileW(LPCWSTR, DWORD, DWORD, void*, DWORD, DWORD, HANDLE) noexcept {
+    SetLastError(ERROR_ACCESS_DENIED);
+    return INVALID_HANDLE_VALUE;
+}
+BOOL SetFilePointerEx(HANDLE, LARGE_INTEGER, LARGE_INTEGER*, DWORD) noexcept { return TRUE; }
+BOOL FlushFileBuffers(HANDLE) noexcept { return TRUE; }

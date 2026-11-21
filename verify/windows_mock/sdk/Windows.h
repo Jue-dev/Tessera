@@ -16,12 +16,14 @@ using HMODULE = void*;
 using LPVOID = void*;
 using LPCVOID = const void*;
 using LPCWCH = const wchar_t*;
+using LPCWSTR = const wchar_t*;
 using HLOCAL = void*;
 using UINT = std::uint32_t;
 using LPSTR = char*;
 using LPCCH = const char*;
 using LPWSTR = wchar_t*;
 using WCHAR = wchar_t;
+struct LARGE_INTEGER { std::int64_t QuadPart{}; };
 struct SYSTEM_INFO { WORD wProcessorArchitecture; WORD wReserved; DWORD dwPageSize; LPVOID lpMinimumApplicationAddress; LPVOID lpMaximumApplicationAddress; std::uintptr_t dwActiveProcessorMask; DWORD dwNumberOfProcessors; DWORD dwProcessorType; DWORD dwAllocationGranularity; WORD wProcessorLevel; WORD wProcessorRevision; };
 struct MEMORY_BASIC_INFORMATION { LPVOID BaseAddress; LPVOID AllocationBase; DWORD AllocationProtect; WORD PartitionId; SIZE_T RegionSize; DWORD State; DWORD Protect; DWORD Type; };
 struct MODULEINFO { LPVOID lpBaseOfDll; DWORD SizeOfImage; LPVOID EntryPoint; };
@@ -39,6 +41,14 @@ struct THREADENTRY32 { DWORD dwSize; DWORD cntUsage; DWORD th32ThreadID; DWORD t
 #define SUBLANG_DEFAULT 0x01u
 #define MAKELANGID(primary, sub) ((static_cast<WORD>(sub) << 10u) | static_cast<WORD>(primary))
 #define CP_UTF8 65001u
+#define OPEN_ALWAYS 4u
+#define CREATE_ALWAYS 2u
+#define FILE_APPEND_DATA 0x00000004u
+#define GENERIC_WRITE 0x40000000u
+#define FILE_SHARE_READ 0x00000001u
+#define FILE_ATTRIBUTE_NORMAL 0x00000080u
+#define FILE_END 2u
+#define STD_OUTPUT_HANDLE static_cast<DWORD>(-11)
 #define ERROR_SUCCESS 0u
 #define STILL_ACTIVE 259u
 #define INFINITE 0xFFFFFFFFu
@@ -128,3 +138,10 @@ BOOL ReleaseMutex(HANDLE) noexcept;
 DWORD FormatMessageW(DWORD, LPCVOID, DWORD, DWORD, LPWSTR, DWORD, va_list*) noexcept;
 HLOCAL LocalFree(HLOCAL) noexcept;
 int WideCharToMultiByte(UINT, DWORD, LPCWCH, int, LPSTR, int, LPCCH, BOOL*) noexcept;
+
+HANDLE GetStdHandle(DWORD) noexcept;
+BOOL WriteFile(HANDLE, LPCVOID, DWORD, DWORD*, void*) noexcept;
+void OutputDebugStringW(LPCWSTR) noexcept;
+HANDLE CreateFileW(LPCWSTR, DWORD, DWORD, void*, DWORD, DWORD, HANDLE) noexcept;
+BOOL SetFilePointerEx(HANDLE, LARGE_INTEGER, LARGE_INTEGER*, DWORD) noexcept;
+BOOL FlushFileBuffers(HANDLE) noexcept;
