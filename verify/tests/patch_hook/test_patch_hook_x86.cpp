@@ -299,9 +299,9 @@ TEST_CASE("Native x86 relocator rejects branches into the middle of a displaced 
     std::memset(code, 0x90, 4096);
 
     constexpr std::size_t target_offset = 64;
-    // The short JMP targets byte 67, inside the immediate of the MOV at byte 66.
+    // The short Jcc targets byte 67, inside the immediate of the MOV at byte 66.
     const std::array<std::byte, 8> target_code{
-        std::byte{0xEB}, std::byte{0x01},
+        std::byte{0x74}, std::byte{0x01},
         std::byte{0xB8}, std::byte{0x2A}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
         std::byte{0xC3}};
     std::memcpy(code + target_offset, target_code.data(), target_code.size());
