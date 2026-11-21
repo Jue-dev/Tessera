@@ -1,5 +1,110 @@
 #include "patch_hook_test_support.hpp"
 
+#include <array>
+#include <atomic>
+#include <barrier>
+#include <mutex>
+#include <thread>
+#include <unordered_set>
+
+namespace {
+int concurrency_hook_target(int value) { return value + 1; }
+int concurrency_hook_detour(int value) { return value + 2; }
+
+class ConcurrentRegistryBackend final : public tessera::HookBackend {
+public:
+    [[nodiscard]] bool available() const noexcept override { return true; }
+
+    [[nodiscard]] tessera::Result<tessera::HookToken> attach(
+        tessera::Address target,
+        void* detour,
+        const tessera::HookOptions& options) override {
+        std::lock_guard lock(mutex_);
+        if (!active_.insert(target.value()).second) {
+            return tessera::fail(tessera::ErrorCode::Conflict, "ConcurrentRegistryBackend::attach");
+        }
+        attach_calls.fetch_add(1, std::memory_order_relaxed);
+        return tessera::HookToken{
+            .target = reinterpret_cast<void*>(static_cast<std::uintptr_t>(target.value())),
+            .detour = detour,
+            .trampoline = reinterpret_cast<void*>(static_cast<std::uintptr_t>(target.value())),
+            .threads = options.threads,
+            .observer = options.observer,
+        };
+    }
+
+    [[nodiscard]] tessera::Status detach(tessera::HookToken& token) override {
+        std::lock_guard lock(mutex_);
+        const auto address = reinterpret_cast<std::uintptr_t>(token.target);
+        if (active_.erase(address) != 1u) {
+            return tessera::fail(tessera::ErrorCode::Conflict, "ConcurrentRegistryBackend::detach");
+        }
+        detach_calls.fetch_add(1, std::memory_order_relaxed);
+        token.trampoline = nullptr;
+        return tessera::ok();
+    }
+
+    std::atomic<unsigned> attach_calls{0};
+    std::atomic<unsigned> detach_calls{0};
+
+private:
+    std::mutex mutex_{};
+    std::unordered_set<std::uint64_t> active_{};
+};
+} // namespace
+
+TEST_CASE("Hook registry serializes concurrent duplicate installs and releases ownership",
+          "[hook][concurrency][registry]") {
+    using namespace tessera;
+
+    constexpr std::size_t worker_count = 8;
+    constexpr std::uint64_t target_address = 0x6F0000;
+    ConcurrentRegistryBackend backend;
+    std::barrier gate{static_cast<std::ptrdiff_t>(worker_count)};
+    std::array<std::jthread, worker_count> workers{};
+    std::atomic<unsigned> installed{0};
+    std::atomic<unsigned> conflicts{0};
+    std::atomic<unsigned> unexpected{0};
+    std::atomic<unsigned> remove_failures{0};
+
+    HookOptions options{};
+    options.threads = ThreadPolicy::None;
+    for (auto& worker : workers) {
+        worker = std::jthread([&] {
+            auto hook = Hook<int (*)(int)>::create(
+                Address{target_address}, &concurrency_hook_detour, &backend);
+            if (!hook) {
+                unexpected.fetch_add(1, std::memory_order_relaxed);
+                gate.arrive_and_wait();
+                return;
+            }
+            auto status = hook->install(options);
+            if (status) {
+                installed.fetch_add(1, std::memory_order_relaxed);
+            } else if (status.error().code == ErrorCode::Conflict) {
+                conflicts.fetch_add(1, std::memory_order_relaxed);
+            } else {
+                unexpected.fetch_add(1, std::memory_order_relaxed);
+            }
+
+            gate.arrive_and_wait();
+            if (status && !hook->remove()) {
+                remove_failures.fetch_add(1, std::memory_order_relaxed);
+            }
+        });
+    }
+    for (auto& worker : workers) {
+        worker.join();
+    }
+
+    REQUIRE(installed.load(std::memory_order_relaxed) == 1);
+    REQUIRE(conflicts.load(std::memory_order_relaxed) == worker_count - 1);
+    REQUIRE(unexpected.load(std::memory_order_relaxed) == 0);
+    REQUIRE(remove_failures.load(std::memory_order_relaxed) == 0);
+    REQUIRE(backend.attach_calls.load(std::memory_order_relaxed) == 1);
+    REQUIRE(backend.detach_calls.load(std::memory_order_relaxed) == 1);
+}
+
 TEST_CASE("Native hook address range helpers remain correct at uintptr limits",
           "[hook][native][address-range]") {
     using tessera::detail::address_range_contains;
