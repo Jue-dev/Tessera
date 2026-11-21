@@ -26,7 +26,8 @@ Result<ScanStats> for_each_readable_chunk(const Process& process,
                                           const ScanOptions& options,
                                           bool& out_cancelled,
                                           ChunkCallback&& on_chunk,
-                                          ScanReadPolicy read_policy = ScanReadPolicy::BestEffort) {
+                                          ScanReadPolicy read_policy = ScanReadPolicy::BestEffort,
+                                          std::vector<std::byte>* workspace = nullptr) {
     out_cancelled = false;
     if (range.empty()) {
         return fail(ErrorCode::InvalidArgument, "Scanner::scan", 0, "Scan range is empty");
@@ -110,7 +111,9 @@ Result<ScanStats> for_each_readable_chunk(const Process& process,
             return fail(ErrorCode::OutOfRange, "Scanner::scan", 0,
                         "Chunk size plus pattern overlap overflowed");
         }
-        std::vector<std::byte> buffer(*buffer_size);
+        std::vector<std::byte> local_buffer;
+        std::vector<std::byte>& buffer = workspace ? *workspace : local_buffer;
+        buffer.resize(*buffer_size);
         bool keep_going = true;
 
         for (const auto& run : runs) {
@@ -184,13 +187,45 @@ Result<ScanStats> for_each_readable_chunk(const Process& process,
 Result<ScanResult> Scanner::scan(AddressRange range,
                                  const Pattern& pattern,
                                  const ScanOptions& options) const {
-    return scan(range, pattern, options, ScanReadPolicy::BestEffort);
+    return scan_impl(range, pattern, options, ScanReadPolicy::BestEffort, nullptr, {});
 }
 
 Result<ScanResult> Scanner::scan(AddressRange range,
                                  const Pattern& pattern,
                                  const ScanOptions& options,
                                  ScanReadPolicy read_policy) const {
+    return scan_impl(range, pattern, options, read_policy, nullptr, {});
+}
+
+Result<ScanResult> Scanner::scan(AddressRange range,
+                                 const Pattern& pattern,
+                                 const ScanOptions& options,
+                                 ScanWorkspace& workspace,
+                                 ScanReadPolicy read_policy) const {
+    return scan_impl(range, pattern, options, read_policy, &workspace, {});
+}
+
+Result<ScanResult> Scanner::scan_streaming(
+    AddressRange range,
+    const Pattern& pattern,
+    const ScanOptions& options,
+    FunctionRef<bool(Address)> on_match,
+    ScanWorkspace* workspace,
+    ScanReadPolicy read_policy) const {
+    if (!on_match) {
+        return fail(ErrorCode::InvalidArgument, "Scanner::scan_streaming",
+                    0, "Match callback is empty");
+    }
+    return scan_impl(range, pattern, options, read_policy, workspace, on_match);
+}
+
+Result<ScanResult> Scanner::scan_impl(
+    AddressRange range,
+    const Pattern& pattern,
+    const ScanOptions& options,
+    ScanReadPolicy read_policy,
+    ScanWorkspace* workspace,
+    FunctionRef<bool(Address)> on_match) const {
     if (pattern.empty()) {
         return fail(ErrorCode::InvalidPattern, "Scanner::scan", 0, "Pattern is empty");
     }
@@ -223,7 +258,13 @@ Result<ScanResult> Scanner::scan(AddressRange range,
                     if (align > 1 && (hit_addr % align) != 0) {
                         return true;
                     }
-                    result.hits.emplace_back(hit_addr);
+                    const Address hit{hit_addr};
+                    result.hits.emplace_back(hit);
+                    if (on_match && !on_match(hit)) {
+                        result.cancelled = true;
+                        continue_scan = false;
+                        return false;
+                    }
                     if (options.max_results > 0 && result.hits.size() >= options.max_results) {
                         result.truncated = true;
                         continue_scan = false;
@@ -242,13 +283,14 @@ Result<ScanResult> Scanner::scan(AddressRange range,
                 }
                 return continue_scan;
             },
-            read_policy);
+            read_policy,
+            workspace ? &workspace->buffer_ : nullptr);
 
         if (!stats_res) {
             return std::unexpected(stats_res.error());
         }
         result.stats = *stats_res;
-        result.cancelled = cancelled;
+        result.cancelled = result.cancelled || cancelled;
         return result;
     } catch (const std::bad_alloc&) {
         return fail(ErrorCode::OutOfMemory, "Scanner::scan");
