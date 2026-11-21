@@ -1,5 +1,7 @@
 #include "tessera/pattern/pattern.hpp"
+#include "pattern_simd.hpp"
 
+#include <bit>
 #include <cstring>
 #include <format>
 #include <new>
@@ -235,33 +237,56 @@ void Pattern::search(std::span<const std::byte> data,
 
     if (has_anchor_) {
         const auto secondary = secondary_anchor_index();
-        const int key = static_cast<int>(std::to_integer<unsigned char>(pat_bytes[anchor_]));
-        std::size_t off = 0;
-        while (off < limit) {
-            const void* hit = std::memchr(raw + off + anchor_, key, limit - off);
-            if (hit == nullptr) {
-                return;
-            }
-            const auto hit_idx =
-                static_cast<std::size_t>(static_cast<const std::byte*>(hit) - raw);
-            if (hit_idx < anchor_) {
-                return;
-            }
-            const std::size_t candidate = hit_idx - anchor_;
-            const bool secondary_matches =
-                !secondary.has_value() ||
-                data[candidate + *secondary] == pat_bytes[*secondary];
+        const std::size_t secondary_index = secondary.value_or(anchor_);
+        const std::byte primary_value = pat_bytes[anchor_];
+        const std::byte secondary_value = pat_bytes[secondary_index];
+        const auto report_candidate = [&](std::size_t candidate) -> bool {
             const bool full_match =
-                secondary_matches &&
-                (exact
-                     ? std::memcmp(data.data() + candidate, pat_bytes.data(), size_) == 0
-                     : matches(data.subspan(candidate, size_)));
-            if (full_match) {
-                if (!on_match(candidate)) {
-                    return;
+                exact ? std::memcmp(data.data() + candidate, pat_bytes.data(), size_) == 0
+                      : matches(data.subspan(candidate, size_));
+            return !full_match || on_match(candidate);
+        };
+
+        static const bool avx2_available = detail::cpu_supports_avx2();
+        static const bool sse2_available = detail::cpu_supports_sse2();
+        std::size_t off = 0;
+
+        if (avx2_available) {
+            while (off + 32u <= limit) {
+                std::uint32_t mask = detail::dual_anchor_mask_avx2(
+                    raw, off, anchor_, primary_value, secondary_index, secondary_value);
+                while (mask != 0) {
+                    const unsigned bit = std::countr_zero(mask);
+                    if (!report_candidate(off + bit)) {
+                        return;
+                    }
+                    mask &= (mask - 1u);
                 }
+                off += 32u;
             }
-            off = candidate + 1;
+        }
+
+        if (sse2_available) {
+            while (off + 16u <= limit) {
+                std::uint32_t mask = detail::dual_anchor_mask_sse2(
+                    raw, off, anchor_, primary_value, secondary_index, secondary_value);
+                while (mask != 0) {
+                    const unsigned bit = std::countr_zero(mask);
+                    if (!report_candidate(off + bit)) {
+                        return;
+                    }
+                    mask &= (mask - 1u);
+                }
+                off += 16u;
+            }
+        }
+
+        for (; off < limit; ++off) {
+            if (raw[off + anchor_] == primary_value &&
+                raw[off + secondary_index] == secondary_value &&
+                !report_candidate(off)) {
+                return;
+            }
         }
     } else {
         for (std::size_t off = 0; off < limit; ++off) {
