@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <format>
 #include <new>
+#include <utility>
 
 #include "tessera/pattern/pattern.hpp"
 #include "tessera/resolver/resolver.hpp"
