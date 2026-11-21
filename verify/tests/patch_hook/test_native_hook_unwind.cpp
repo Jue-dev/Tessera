@@ -363,7 +363,6 @@ TEST_CASE("Native x64 trampoline remaps unwind offsets and unwinds an exception 
 #endif
 
 #if defined(_M_X64) || defined(__x86_64__)
-#if defined(_M_X64) || defined(__x86_64__)
 
 TEST_CASE("Native x64 trampoline unwinds multiple pushed nonvolatile registers",
           "[hook][native][unwind][integration]") {
