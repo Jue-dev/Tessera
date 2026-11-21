@@ -4,6 +4,7 @@
 #include <cstring>
 #include <format>
 #include <fstream>
+#include <iterator>
 #include <new>
 
 #include "tessera/core/checked_math.hpp"
