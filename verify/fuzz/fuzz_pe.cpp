@@ -32,7 +32,13 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     (void)tessera::PeDiskPatcher::find_code_caves(raw, 1);
     try {
         std::vector<std::byte> owned(raw.begin(), raw.end());
-        (void)tessera::PeFileBackend::from_bytes(std::move(owned));
+        auto backend = tessera::PeFileBackend::from_bytes(std::move(owned));
+        if (backend) {
+            (void)(*backend)->rva_to_file_offset(tessera::Rva{0});
+            (void)(*backend)->rva_to_va(tessera::Rva{0});
+            (void)(*backend)->file_offset_to_rva(raw.size());
+            (void)(*backend)->read((*backend)->base(), raw);
+        }
     } catch (const std::bad_alloc&) {
         // Allocation failure is a normal, fail-closed fuzz outcome.
     }
