@@ -159,6 +159,7 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
 endif()
 target_include_directories(tessera_test_patch_hook PRIVATE
     ${PROJECT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/support
 )
 if(TESSERA_WITH_DETOURS)
     target_compile_definitions(tessera_test_patch_hook PRIVATE TESSERA_TEST_WITH_DETOURS=1)
