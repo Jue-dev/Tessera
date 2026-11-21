@@ -54,6 +54,9 @@ using ScanBatchFn = tessera::Result<std::vector<tessera::ScanResult>> (tessera::
     tessera::AddressRange, std::span<const tessera::Pattern>, const tessera::ScanOptions&) const;
 using XrefCallsFn = tessera::Result<std::vector<tessera::Address>> (*)(
     const tessera::Process&, tessera::AddressRange, tessera::Address, const tessera::ScanOptions&);
+using XrefBatchFn = tessera::Result<std::vector<std::vector<tessera::Address>>> (*)(
+    const tessera::Process&, tessera::AddressRange, std::span<const tessera::Address>,
+    const tessera::ScanOptions&);
 using CursorOffsetFn = tessera::AddressCursor (tessera::AddressCursor::*)(std::int64_t) const noexcept;
 using PatchNopFn = tessera::Result<tessera::Patch> (*)(tessera::ProcessAddress, std::size_t, tessera::PatchOptions);
 using HookCreateFn = tessera::Result<tessera::Hook<HookFn>> (*)(tessera::Address, HookFn, tessera::HookBackend*) noexcept;
@@ -81,6 +84,7 @@ using PythonExportFn = tessera::Status (tessera::rtti::PythonBridgeCatalog::*)(t
 [[maybe_unused]] ScanFn volatile g_scan = &tessera::Scanner::scan;
 [[maybe_unused]] ScanBatchFn volatile g_scan_batch = &tessera::Scanner::scan_batch;
 [[maybe_unused]] XrefCallsFn volatile g_xref_calls = &tessera::xref::find_calls;
+[[maybe_unused]] XrefBatchFn volatile g_xref_batch = &tessera::xref::find_pointer_refs_batch;
 [[maybe_unused]] CursorOffsetFn volatile g_cursor_offset = &tessera::AddressCursor::offset;
 [[maybe_unused]] PatchNopFn volatile g_patch_nop = &tessera::Patch::nop;
 [[maybe_unused]] HookCreateFn volatile g_hook_create =
