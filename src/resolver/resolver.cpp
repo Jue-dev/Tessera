@@ -336,9 +336,11 @@ Result<ProcessAddress> find_next_call_impl(
         if (!decoded) {
             return std::unexpected(decoded.error());
         }
-        if (decoded->has_relative_operand &&
-            ((decoded->opcode == 0xE8u) ||
-             (decoded->opcode == 0xFFu && decoded->modrm_reg == 2u))) {
+        const bool direct_call = decoded->opcode == 0xE8u && decoded->has_relative_operand;
+        const bool indirect_rip_call = decoded->opcode == 0xFFu &&
+                                       decoded->modrm_reg == 2u &&
+                                       decoded->has_rip_relative_operand;
+        if (direct_call || indirect_rip_call) {
             return current;
         }
         if (decoded->length == 0 || decoded->length > max_bytes - offset) {
@@ -387,6 +389,9 @@ Result<ProcessAddress> resolve_operand_target_impl(const ProcessAddress& pa) noe
     }
 
     if (decoded->has_relative_operand) {
+        if (decoded->relative_offset + decoded->relative_size > decoded->length) {
+            return fail(ErrorCode::UnsupportedInstruction, "resolve::resolve_operand_target");
+        }
         std::int64_t displacement = 0;
         if (decoded->relative_size == 1) {
             displacement = static_cast<std::int8_t>(
@@ -449,9 +454,7 @@ Result<ProcessAddress> resolve_thunk_chain_impl(
                 return std::unexpected(decoded.error());
             }
             const bool direct_jump =
-                decoded->opcode == 0xE9u || decoded->opcode == 0xEBu ||
-                (decoded->opcode == 0x0Fu && decoded->opcode2 >= 0x80u &&
-                 decoded->opcode2 <= 0x8Fu);
+                decoded->opcode == 0xE9u || decoded->opcode == 0xEBu;
             const bool indirect_jump =
                 decoded->opcode == 0xFFu && decoded->modrm_reg == 4u;
             if (!direct_jump && !indirect_jump) {
