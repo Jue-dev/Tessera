@@ -73,9 +73,9 @@ jobs:
      shell: pwsh
      env: {ASAN_OPTIONS: halt_on_error=1}
      run: |
-      $d=[int]("${{ inputs.duration_seconds || '60' }}");$e=".\build-fuzz\verify\fuzz${{ matrix.target }}.exe";$c=".\verify\fuzz\corpus${{ matrix.corpus }}"
+      $d=[int]("${{ inputs.duration_seconds || '60' }}");$e=".\build-fuzz\verify\fuzz\${{ matrix.target }}.exe";$c=".\verify\fuzz\corpus\${{ matrix.corpus }}"
       New-Item -ItemType Directory -Force artifacts\fuzz|Out-Null
-      & $e $c "-runs=10000" "-max_total_time=$d" "-timeout=10" "-print_final_stats=1" 2>&1|Tee-Object "artifacts\fuzz${{ matrix.target }}.summary.txt"
+      & $e $c "-runs=10000" "-max_total_time=$d" "-timeout=10" "-print_final_stats=1" 2>&1|Tee-Object "artifacts\fuzz\${{ matrix.target }}.summary.txt"
       if($LASTEXITCODE -ne 0){throw "Fuzz campaign failed"}
    - uses: actions/upload-artifact@v7
      if: always()
