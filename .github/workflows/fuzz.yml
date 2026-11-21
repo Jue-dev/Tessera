@@ -3,6 +3,7 @@ on:
  pull_request:
   branches: ["main"]
   paths: ["CMakeLists.txt","cmake/**","include/**","src/**","verify/fuzz/**","verify/tests/**","src/hook/**","src/platform/windows/**","include/tessera/hook/**",".github/actions/setup-msvc/**",".github/workflows/fuzz.yml",".github/scripts/fuzz-native-hook.ps1"]
+ push: {branches: ["main", "wave-4"]}
  workflow_dispatch:
   inputs:
    duration_seconds: {description: "Per-target duration", required: true, default: "60", type: choice, options: ["30","60","120","300"]}
