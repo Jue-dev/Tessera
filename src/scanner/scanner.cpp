@@ -397,10 +397,16 @@ Result<std::vector<ScanResult>> Scanner::scan_batch_impl(
                     std::size_t offset = 0;
                     while (offset < start_limit &&
                            group.anchor_index < data.size() - offset) {
+                        const std::size_t search_length = (std::min)(
+                            start_limit - offset,
+                            data.size() - offset - group.anchor_index);
+                        if (search_length == 0) {
+                            break;
+                        }
                         const auto* found = static_cast<const std::byte*>(std::memchr(
                             data.data() + offset + group.anchor_index,
                             std::to_integer<unsigned char>(group.anchor_value),
-                            start_limit - offset));
+                            search_length));
                         if (found == nullptr) {
                             break;
                         }
@@ -460,7 +466,7 @@ Result<std::vector<ScanResult>> Scanner::scan_batch_impl(
                     options.on_progress(progress);
                 }
                 return active;
-            }            },
+            },
             ScanReadPolicy::BestEffort,
             workspace ? &workspace->buffer_ : nullptr);
         if (!stats_res) {
