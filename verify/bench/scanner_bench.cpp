@@ -130,15 +130,23 @@ int main(int argc, char** argv) {
     });
 
     if (json) {
-        const double pattern_seconds = static_cast<double>(pat_metrics.mean.count()) / 1.0e9;
-        const double discovery_seconds = static_cast<double>(disc_metrics.mean.count()) / 1.0e9;
-        const double pattern_mb_s = pattern_seconds > 0.0 ? (buffer.size() / pattern_seconds) / 1.0e6 : 0.0;
-        const double discovery_mb_s = discovery_seconds > 0.0 ? (std::size_t{0x10000} / discovery_seconds) / 1.0e6 : 0.0;
-        std::cout << "{\"benchmarks\":["
-                  << "{\"name\":\"pattern_search_4mib\",\"iterations\":" << pat_metrics.iterations
-                  << ",\"ns_per_op\":" << pat_metrics.mean.count() << ",\"mb_per_s\":" << pattern_mb_s << "},"
-                  << "{\"name\":\"rtti_python_discovery_64k\",\"iterations\":" << disc_metrics.iterations
-                  << ",\"ns_per_op\":" << disc_metrics.mean.count() << ",\"mb_per_s\":" << discovery_mb_s << "}] }\n";
+        const auto throughput = [&](std::chrono::nanoseconds duration, std::size_t bytes) {
+            const double seconds = static_cast<double>(duration.count()) / 1.0e9;
+            return seconds > 0.0 ? (static_cast<double>(bytes) / seconds) / 1.0e6 : 0.0;
+        };
+        std::cout << "{\\"benchmarks\\":["
+                  << "{\\"name\\":\\"pattern_search_wildcard_4mib\\",\\"iterations\\":" << pat_metrics.iterations
+                  << ",\\"ns_per_op\\":" << pat_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(pat_metrics.mean, buffer.size()) << "},"
+                  << "{\\"name\\":\\"pattern_search_exact_4mib\\",\\"iterations\\":" << exact_metrics.iterations
+                  << ",\\"ns_per_op\\":" << exact_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(exact_metrics.mean, buffer.size()) << "},"
+                  << "{\\"name\\":\\"pattern_search_nibble_4mib\\",\\"iterations\\":" << nibble_metrics.iterations
+                  << ",\\"ns_per_op\\":" << nibble_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(nibble_metrics.mean, buffer.size()) << "},"
+                  << "{\\"name\\":\\"scanner_chunked_4mib\\",\\"iterations\\":" << scanner_metrics.iterations
+                  << ",\\"ns_per_op\\":" << scanner_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(scanner_metrics.mean, buffer.size()) << "},"
+                  << "{\\"name\\":\\"scanner_batch_four_patterns_4mib\\",\\"iterations\\":" << batch_metrics.iterations
+                  << ",\\"ns_per_op\\":" << batch_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(batch_metrics.mean, buffer.size()) << "},"
+                  << "{\\"name\\":\\"rtti_python_discovery_64k\\",\\"iterations\\":" << disc_metrics.iterations
+                  << ",\\"ns_per_op\\":" << disc_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(disc_metrics.mean, 0x10000u) << "}] }\\n";
         return 0;
     }
 
