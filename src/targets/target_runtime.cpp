@@ -423,9 +423,38 @@ ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
     const auto finish = [&]() {
         if (trace != nullptr && !trace->steps.empty()) {
             trace->steps.back().status = outcome.status;
-            trace->steps.back().detail =
-                outcome.from_session_cache ? "Resolved from verified session cache"
-                                           : "Resolution ended at this stage";
+            if (outcome.from_session_cache) {
+                trace->steps.back().detail = "Resolved from verified session cache";
+            } else {
+                switch (outcome.status) {
+                case ResolutionStatus::VerifiedExactBuild:
+                    trace->steps.back().detail = "Exact-build candidate passed required checks";
+                    break;
+                case ResolutionStatus::VerifiedCompatibleBuild:
+                    trace->steps.back().detail =
+                        "Compatible-build candidate passed required and independent checks";
+                    break;
+                case ResolutionStatus::NeedsReview:
+                    trace->steps.back().detail =
+                        "Candidate needs review because independent verification or policy approval is missing";
+                    break;
+                case ResolutionStatus::Ambiguous:
+                    trace->steps.back().detail = "More than one candidate matched";
+                    break;
+                case ResolutionStatus::Stale:
+                    trace->steps.back().detail = "Candidate recipe was unavailable or failed required validation";
+                    break;
+                case ResolutionStatus::NotFound:
+                    trace->steps.back().detail = "No matching build, module, or candidate was found";
+                    break;
+                case ResolutionStatus::IncompatibleTarget:
+                    trace->steps.back().detail = "Target architecture or loaded module is incompatible";
+                    break;
+                case ResolutionStatus::CandidateFound:
+                    trace->steps.back().detail = "A candidate was found but is not verified";
+                    break;
+                }
+            }
         }
         return outcome;
     };
