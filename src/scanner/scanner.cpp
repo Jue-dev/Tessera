@@ -644,8 +644,12 @@ Result<std::vector<Address>> find_indirect_refs(
                     if (!decoded.has_rip_relative_operand) {
                         continue;
                     }
-                    auto slot_address = checked_offset<std::uint64_t>(
-                        instruction.value() + decoded.length, displacement);
+                    auto next_ip = checked_add<std::uint64_t>(
+                        instruction.value(), static_cast<std::uint64_t>(decoded.length));
+                    if (!next_ip) {
+                        continue;
+                    }
+                    auto slot_address = checked_offset<std::uint64_t>(*next_ip, displacement);
                     if (!slot_address) {
                         continue;
                     }
