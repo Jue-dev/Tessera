@@ -208,7 +208,7 @@ TEST_CASE("Resolver rejects overflowing instruction and operand offsets", "[reso
 TEST_CASE("PE parser rejects malformed headers and reports missing sections and exports", "[module][pe][safety]") {
     using namespace tessera;
 
-    std::vector<std::byte> bytes(0x400);
+    std::vector<std::byte> bytes(0x600);
     const auto put16 = [&](std::size_t offset, std::uint16_t value) {
         bytes[offset] = static_cast<std::byte>(value & 0xFFu);
         bytes[offset + 1] = static_cast<std::byte>((value >> 8u) & 0xFFu);
@@ -228,7 +228,7 @@ TEST_CASE("PE parser rejects malformed headers and reports missing sections and 
     put32(0x3C, 0x80);
     put32(0x80, 0x00004550);
     put16(0x84, 0x8664);
-    put16(0x86, 1);
+    put16(0x86, 2);
     put32(0x88, 0x12345678);
     put16(0x94, 0xF0);
     put16(0x98, 0x020B);
@@ -236,9 +236,11 @@ TEST_CASE("PE parser rejects malformed headers and reports missing sections and 
     put64(0x98 + 24, 0x140000000ull);
     put32(0x98 + 32, 0x1000);
     put32(0x98 + 36, 0x200);
-    put32(0x98 + 56, 0x2000);
+    put32(0x98 + 56, 0x3000);
     put32(0x98 + 60, 0x200);
     put32(0x98 + 108, 16);
+    put32(0x130, 0x2000); // Base relocation directory RVA
+    put32(0x134, 12);     // One relocation block with two entries
 
     constexpr std::size_t section = 0x188;
     bytes[section] = std::byte{'.'};
@@ -252,19 +254,43 @@ TEST_CASE("PE parser rejects malformed headers and reports missing sections and 
     put32(section + 20, 0x200);
     put32(section + 36, 0x60000020);
 
+    constexpr std::size_t reloc_section = section + 40;
+    bytes[reloc_section] = std::byte{'.'};
+    bytes[reloc_section + 1] = std::byte{'r'};
+    bytes[reloc_section + 2] = std::byte{'e'};
+    bytes[reloc_section + 3] = std::byte{'l'};
+    bytes[reloc_section + 4] = std::byte{'o'};
+    bytes[reloc_section + 5] = std::byte{'c'};
+    put32(reloc_section + 8, 0x100);
+    put32(reloc_section + 12, 0x2000);
+    put32(reloc_section + 16, 0x200);
+    put32(reloc_section + 20, 0x400);
+    put32(reloc_section + 36, 0x42000040);
+
+    put64(0x210, 0x140001234ULL); // Pointer at .text RVA 0x1010
+    put32(0x400, 0x1000);          // Relocation page RVA
+    put32(0x404, 12);              // Block size
+    put16(0x408, 0xA010);           // DIR64 at page offset 0x10
+    put16(0x40A, 0x0000);           // ABSOLUTE padding entry
+
     auto image = PeImage::from_raw_bytes(bytes);
     REQUIRE(image.has_value());
     REQUIRE(image->find_section(".text").has_value());
     REQUIRE_FALSE(image->find_section(".missing").has_value());
     REQUIRE_FALSE(image->find_export("MissingExport").has_value());
+    REQUIRE(image->relocations().size() == 1);
+    REQUIRE(image->relocations()[0].location == Rva{0x1010});
+    REQUIRE(image->relocations()[0].type == 10u);
 
     // The same logical image must parse consistently from a raw file and a
     // mapped image after section raw data is placed at its virtual RVA.
     using namespace tessera::testing;
     auto mapped_backend = std::make_shared<FakeMemoryBackend>();
-    mapped_backend->map_region(Address{0x500000}, 0x2000, MemoryProtection::ExecuteReadWrite);
+    mapped_backend->map_region(Address{0x500000}, 0x3000, MemoryProtection::ExecuteReadWrite);
     mapped_backend->poke_bytes(Address{0x500000}, std::span<const std::byte>{bytes}.first(0x200));
     mapped_backend->poke_bytes(Address{0x501000}, std::span<const std::byte>{bytes}.subspan(0x200, 0x200));
+    mapped_backend->poke_bytes(Address{0x502000}, std::span<const std::byte>{bytes}.subspan(0x400, 0x200));
+    mapped_backend->poke_value<std::uint64_t>(Address{0x501010}, 0x501234ULL);
     Process mapped_process = FakeMemoryBackend::make_process(mapped_backend, Architecture::X64);
     auto mapped_image = PeImage::from_memory(mapped_process, Address{0x500000});
     REQUIRE(mapped_image.has_value());
@@ -275,6 +301,13 @@ TEST_CASE("PE parser rejects malformed headers and reports missing sections and 
     REQUIRE(mapped_image->sections().size() == image->sections().size());
     REQUIRE(mapped_image->sections()[0].name == image->sections()[0].name);
     REQUIRE(mapped_image->sections()[0].rva == image->sections()[0].rva);
+    REQUIRE(mapped_image->relocations().size() == 1);
+    REQUIRE(mapped_image->relocations()[0].location == Rva{0x1010});
+    auto relocated_refs = xref::find_relocated_pointer_refs(
+        mapped_process, Address{0x500000}, *mapped_image, Address{0x501234});
+    REQUIRE(relocated_refs.has_value());
+    REQUIRE(relocated_refs->size() == 1);
+    REQUIRE(relocated_refs->front() == Address{0x501010});
 
     auto malformed_lfanew = bytes;
     malformed_lfanew[0x3C] = std::byte{0xF0};
