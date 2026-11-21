@@ -2,12 +2,14 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdint>
 #include <cstdlib>
 #include <exception>
 #include <fstream>
 #include <random>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 #if defined(_MSC_VER)
 #include <crtdbg.h>
