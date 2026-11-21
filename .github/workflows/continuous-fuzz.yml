@@ -1,6 +1,17 @@
 name: Continuous Fuzzing
 
 on:
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - "include/**"
+      - "src/**"
+      - "verify/fuzz/**"
+      - "verify/tests/**"
+      - ".github/actions/**"
+      - ".github/workflows/continuous-fuzz.yml"
   workflow_dispatch:
     inputs:
       duration_seconds:
