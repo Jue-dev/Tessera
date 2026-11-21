@@ -72,6 +72,91 @@ TEST_CASE("ModuleCatalog and PeImage parsing on current process", "[module][pe]"
 
 #endif // !TESSERA_PORTABLE_VALIDATION
 
+TEST_CASE("PE32 HIGHLOW relocations support x86 relocation-aware xrefs", "[pe][relocations][xref][x86]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    std::vector<std::byte> bytes(0x600);
+    auto put16 = [&](std::size_t offset, std::uint16_t value) {
+        std::memcpy(bytes.data() + offset, &value, sizeof(value));
+    };
+    auto put32 = [&](std::size_t offset, std::uint32_t value) {
+        std::memcpy(bytes.data() + offset, &value, sizeof(value));
+    };
+
+    put16(0, 0x5A4D);
+    put32(0x3C, 0x80);
+    put32(0x80, 0x00004550);
+    put16(0x84, 0x014C);
+    put16(0x86, 2);
+    put16(0x94, 0x00E0);
+
+    constexpr std::size_t opt = 0x98;
+    put16(opt, 0x010B);
+    put32(opt + 16, 0x1000);
+    put32(opt + 28, 0x00400000);
+    put32(opt + 32, 0x1000);
+    put32(opt + 36, 0x200);
+    put32(opt + 56, 0x3000);
+    put32(opt + 60, 0x200);
+    put32(opt + 92, 16);
+    put32(opt + 96 + 5 * 8, 0x2000);
+    put32(opt + 96 + 5 * 8 + 4, 12);
+
+    constexpr std::size_t text = 0x178;
+    bytes[text] = std::byte{'.'};
+    bytes[text + 1] = std::byte{'t'};
+    bytes[text + 2] = std::byte{'e'};
+    bytes[text + 3] = std::byte{'x'};
+    bytes[text + 4] = std::byte{'t'};
+    put32(text + 8, 0x1000);
+    put32(text + 12, 0x1000);
+    put32(text + 16, 0x200);
+    put32(text + 20, 0x200);
+    put32(text + 36, 0x60000020);
+
+    constexpr std::size_t reloc = text + 40;
+    bytes[reloc] = std::byte{'.'};
+    bytes[reloc + 1] = std::byte{'r'};
+    bytes[reloc + 2] = std::byte{'e'};
+    bytes[reloc + 3] = std::byte{'l'};
+    bytes[reloc + 4] = std::byte{'o'};
+    bytes[reloc + 5] = std::byte{'c'};
+    put32(reloc + 8, 0x100);
+    put32(reloc + 12, 0x2000);
+    put32(reloc + 16, 0x200);
+    put32(reloc + 20, 0x400);
+    put32(reloc + 36, 0x42000040);
+
+    put32(0x210, 0x00401234);
+    put32(0x400, 0x1000);
+    put32(0x404, 12);
+    put16(0x408, 0x3010);
+    put16(0x40A, 0x0000);
+
+    auto image = PeImage::from_raw_bytes(bytes);
+    REQUIRE(image.has_value());
+    REQUIRE(image->kind() == PeKind::Pe32);
+    REQUIRE(image->relocations().size() == 1);
+    REQUIRE(image->relocations()[0].type == 3u);
+    REQUIRE(image->relocations()[0].location == Rva{0x1010});
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    backend->map_region(Address{0x500000}, 0x3000, MemoryProtection::ExecuteReadWrite);
+    backend->poke_bytes(Address{0x500000}, std::span<const std::byte>{bytes}.first(0x200));
+    backend->poke_bytes(Address{0x501000}, std::span<const std::byte>{bytes}.subspan(0x200, 0x200));
+    backend->poke_bytes(Address{0x502000}, std::span<const std::byte>{bytes}.subspan(0x400, 0x200));
+    backend->poke_value<std::uint32_t>(Address{0x501010}, 0x501234u);
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X86);
+    auto mapped = PeImage::from_memory(process, Address{0x500000});
+    REQUIRE(mapped.has_value());
+    auto refs = xref::find_relocated_pointer_refs(
+        process, Address{0x500000}, *mapped, Address{0x501234});
+    REQUIRE(refs.has_value());
+    REQUIRE(refs->size() == 1);
+    REQUIRE(refs->front() == Address{0x501010});
+}
+
 TEST_CASE("Resolver fluent AddressCursor and pipe/monadic adapters", "[resolver]") {
     using namespace tessera;
     using namespace tessera::literals;
