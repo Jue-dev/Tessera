@@ -86,6 +86,15 @@ tessera_add_module(
 )
 
 # ------------------------------------------------------------------------------
+# Internal low-level x86/x64 instruction decoder shared by hook, scanner and resolver
+# ------------------------------------------------------------------------------
+tessera_add_module(
+    NAME disasm
+    SOURCES
+        src/disasm/x86_instruction_decoder.cpp
+)
+
+# ------------------------------------------------------------------------------
 # L1 (Process/Memory independent): pattern, utility, filesystem, json, logging, profiling
 # ------------------------------------------------------------------------------
 tessera_add_module(
@@ -214,6 +223,8 @@ tessera_add_module(
         tessera::process
         tessera::memory
         tessera::pattern
+    PRIVATE_DEPS
+        tessera::disasm
 )
 
 tessera_add_module(
@@ -246,6 +257,8 @@ tessera_add_module(
         tessera::process
         tessera::memory
         tessera::scanner
+    PRIVATE_DEPS
+        tessera::disasm
 )
 
 tessera_add_module(
@@ -312,7 +325,6 @@ tessera_add_module(
         src/hook/backends/native_trampoline.cpp
         src/hook/backends/native_relocation.cpp
         src/hook/backends/native_unwind.cpp
-        src/hook/backends/x86_instruction_decoder.cpp
     PUBLIC_HEADERS
         include/tessera/hook/hook.hpp
     PUBLIC_DEPS
@@ -321,6 +333,7 @@ tessera_add_module(
     PRIVATE_DEPS
         tessera::process
         tessera::memory
+        tessera::disasm
     PRIVATE_DEFS
         ${TESSERA_HOOK_PRIVATE_DEFS}
     SYSTEM_LIBS
