@@ -120,6 +120,57 @@ TEST_CASE("Targets verification engine: exact build, stale, compatible build, ne
     REQUIRE(exact_trace.steps.back().stage == "Exact-build primary recipe");
     REQUIRE(exact_trace.steps.back().status == ResolutionStatus::VerifiedExactBuild);
 
+    // 1b. A failed exact-build primary recipe must continue to a successful fallback.
+    TargetProfile fallback_profile = profile;
+    auto& fallback_entry = fallback_profile.builds[0].addresses[0];
+    fallback_entry.primary.rva = Rva{0x5000};
+    fallback_entry.fallback = entry.fallback;
+    fallback_entry.validation.allow_compatible_build = true;
+    resolver.invalidate_session_cache();
+    ResolutionTrace fallback_trace;
+    auto out_fallback = resolver.resolve_entry(
+        fallback_profile, "player.update_fn", PersistPolicy::AskBeforePersist, nullptr, &fallback_trace);
+    REQUIRE(out_fallback.status == ResolutionStatus::VerifiedCompatibleBuild);
+    REQUIRE(out_fallback.verified().has_value());
+    REQUIRE(out_fallback.candidate_address == Address{0x140001000ULL});
+    REQUIRE(fallback_trace.steps.size() >= 5);
+    REQUIRE(fallback_trace.steps[3].stage == "Exact-build primary recipe");
+    REQUIRE(fallback_trace.steps.back().stage == "Fallback and compatible-build recipe");
+    REQUIRE(fallback_trace.steps.back().status == ResolutionStatus::VerifiedCompatibleBuild);
+
+    // A second lookup caches that verified fallback; rebinding the module at a new base invalidates it.
+    auto cached_fallback = resolver.resolve_entry(fallback_profile, "player.update_fn");
+    REQUIRE(cached_fallback.from_session_cache);
+    constexpr std::uint64_t rebound_base = 0x160000000ULL;
+    backend->map_region(Address{rebound_base}, 0x4000, MemoryProtection::ExecuteReadWrite);
+    backend->poke_bytes(Address{rebound_base + 0x1000}, sig_bytes);
+    TargetModuleContext rebound_ctx = mod_ctx;
+    rebound_ctx.range = AddressRange{Address{rebound_base}, 0x4000};
+    rebound_ctx.custom_sections[0].module_base = Address{rebound_base};
+    resolver.set_modules({rebound_ctx});
+    ResolutionTrace rebound_trace;
+    auto rebound = resolver.resolve_entry(
+        fallback_profile, "player.update_fn", PersistPolicy::AskBeforePersist, nullptr, &rebound_trace);
+    REQUIRE_FALSE(rebound.from_session_cache);
+    REQUIRE(rebound.status == ResolutionStatus::VerifiedCompatibleBuild);
+    REQUIRE(rebound.candidate_address == Address{rebound_base + 0x1000});
+    REQUIRE(rebound_trace.steps.back().stage == "Fallback and compatible-build recipe");
+
+    // All recipes failing must leave a complete, terminal resolution trace.
+    fallback_entry.fallback->pattern = "FF EE DD CC";
+    resolver.invalidate_session_cache();
+    ResolutionTrace failed_fallback_trace;
+    auto failed_fallback = resolver.resolve_entry(
+        fallback_profile, "player.update_fn", PersistPolicy::AskBeforePersist, nullptr, &failed_fallback_trace);
+    REQUIRE(failed_fallback.status == ResolutionStatus::Stale);
+    REQUIRE_FALSE(failed_fallback.verified().has_value());
+    REQUIRE(failed_fallback_trace.steps.back().status == ResolutionStatus::Stale);
+    REQUIRE(failed_fallback_trace.steps.back().detail.find("unavailable") != std::string::npos);
+
+    // Restore the original module context and leave the original profile untouched for later cases.
+    resolver.set_modules({mod_ctx});
+    resolver.invalidate_session_cache();
+
     // 2. Corrupt bytes at RVA 0x1000 on exact build (without fallback) -> Stale (no VerifiedAddress!)
     resolver.invalidate_session_cache();
     profile.builds[0].addresses[0].fallback.reset();

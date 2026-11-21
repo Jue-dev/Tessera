@@ -142,3 +142,82 @@ TEST_CASE("Settings Profile layered precedence, atomic snapshot, migration, and 
 
     std::filesystem::remove_all(temp_dir, ec);
 }
+
+
+TEST_CASE("Profile JSON rejects secret-reference and schema boundary violations", "[profile][json][schema]") {
+    using namespace tessera;
+    using namespace tessera::profile;
+
+    class SecretStore final : public ISecretStore {
+    public:
+        Result<std::string> store_secret(std::string_view, std::string_view value) override {
+            stored = std::string(value);
+            return std::string("secret:token");
+        }
+        Result<std::string> load_secret(std::string_view ref) const override {
+            if (ref != "secret:token") {
+                return fail(ErrorCode::NotFound, "SecretStore::load_secret");
+            }
+            return stored;
+        }
+        std::string stored{};
+    } secret_store;
+
+    SettingsSchema schema{3, UnknownKeyPolicy::Reject};
+    schema.add_definition(SettingDefinition{
+        .key = "service.token", .type = SettingValueType::String, .required = true, .is_secret = true});
+    schema.add_definition(SettingDefinition{
+        .key = "service.timeout", .type = SettingValueType::UInt64,
+        .default_value = SettingValue{std::uint64_t{1000}}, .required = true,
+        .min_numeric = 10.0, .max_numeric = 60000.0});
+
+    Profile profile{};
+    profile.id = "boundary-profile";
+    profile.schema_version = 3;
+    profile.set("service.token", SettingValue{std::string("do-not-persist")});
+    profile.set("service.timeout", SettingValue{std::uint64_t{60000}});
+    profile.set("service.labels", SettingValue{StringList{"one", "two", "three"}});
+
+    auto encoded = serialize_profile_to_json(profile, &schema, &secret_store);
+    REQUIRE(encoded.has_value());
+    auto decoded = deserialize_profile_from_json(*encoded, &schema, &secret_store);
+    REQUIRE(decoded.has_value());
+    REQUIRE(std::get<std::string>(*decoded->find("service.token")) == "do-not-persist");
+    REQUIRE(std::get<std::uint64_t>(*decoded->find("service.timeout")) == 60000);
+    REQUIRE(std::get<StringList>(*decoded->find("service.labels")).size() == 3);
+
+    auto missing_store = deserialize_profile_from_json(*encoded, &schema, nullptr);
+    REQUIRE_FALSE(missing_store.has_value());
+    REQUIRE(missing_store.error().code == ErrorCode::ValidationFailed);
+
+    auto invalid_secret_ref = *encoded;
+    auto* values = invalid_secret_ref.find("values");
+    REQUIRE(values != nullptr);
+    auto* secret_value = values->find("service.token");
+    REQUIRE(secret_value != nullptr);
+    secret_value->set("$secretRef", "secret:missing");
+    auto unresolved = deserialize_profile_from_json(invalid_secret_ref, &schema, &secret_store);
+    REQUIRE_FALSE(unresolved.has_value());
+    REQUIRE(unresolved.error().code == ErrorCode::NotFound);
+
+    auto plaintext_secret = *encoded;
+    auto* plaintext_values = plaintext_secret.find("values");
+    REQUIRE(plaintext_values != nullptr);
+    plaintext_values->set("service.token", "plaintext");
+    auto leaked_secret = deserialize_profile_from_json(plaintext_secret, &schema, &secret_store);
+    REQUIRE_FALSE(leaked_secret.has_value());
+    REQUIRE(leaked_secret.error().code == ErrorCode::ValidationFailed);
+
+    auto incompatible_format = *encoded;
+    incompatible_format.set("formatVersion", std::uint64_t{0});
+    REQUIRE_FALSE(deserialize_profile_from_json(incompatible_format, &schema, &secret_store).has_value());
+
+    Profile invalid_schema{};
+    invalid_schema.id = "invalid";
+    invalid_schema.schema_version = 3;
+    invalid_schema.set("service.timeout", SettingValue{std::string("not-an-integer")});
+    invalid_schema.set("service.unknown", SettingValue{true});
+    const auto report = schema.validate_and_normalize(invalid_schema);
+    REQUIRE_FALSE(report.valid);
+    REQUIRE(report.issues.size() >= 2);
+}

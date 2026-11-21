@@ -1,0 +1,88 @@
+name: Tessera Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Existing version tag to build and publish (for example v1.2.3)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build, verify and publish SDK release
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref }}
+          persist-credentials: false
+
+      - name: Export x86 and x64 SDK packages
+        shell: pwsh
+        run: .\scripts\export_sdk.ps1 -AllArch -OutputDir .\dist\TesseraSDK
+
+      - name: Verify installed SDK with standalone consumer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $generator = "Visual Studio 18 2026"
+          $consumerSource = Join-Path $env:GITHUB_WORKSPACE "verify/tests/consumers/installed"
+          foreach ($arch in @("x64", "x86")) {
+            $platform = if ($arch -eq "x64") { "x64" } else { "Win32" }
+            foreach ($configuration in @("Release", "Debug")) {
+              $sdkPrefix = Join-Path $env:GITHUB_WORKSPACE "dist/TesseraSDK/$arch/$configuration"
+              $buildDirectory = Join-Path $env:GITHUB_WORKSPACE "build-installed-consumer/$arch/$configuration"
+              cmake -S $consumerSource -B $buildDirectory -G $generator -A $platform "-DCMAKE_PREFIX_PATH=$sdkPrefix"
+              if ($LASTEXITCODE -ne 0) { throw "Installed consumer configure failed: $arch/$configuration" }
+              cmake --build $buildDirectory --config $configuration --parallel
+              if ($LASTEXITCODE -ne 0) { throw "Installed consumer build failed: $arch/$configuration" }
+              $consumerExe = Join-Path $buildDirectory "$configuration/tessera_installed_consumer.exe"
+              if (-not (Test-Path $consumerExe)) { throw "Installed consumer executable missing: $consumerExe" }
+              & $consumerExe
+              if ($LASTEXITCODE -ne 0) { throw "Installed consumer execution failed: $arch/$configuration" }
+            }
+          }
+
+      - name: Create SDK archive and SHA256SUMS
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $archive = "Tessera-SDK-$env:RELEASE_TAG.zip"
+          Compress-Archive -Path ".\dist\TesseraSDK\*" -DestinationPath $archive -CompressionLevel Optimal -Force
+          $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $archive" | Out-File -LiteralPath "SHA256SUMS.txt" -Encoding ascii
+          if (-not (Test-Path $archive) -or (Get-Item $archive).Length -eq 0) {
+            throw "SDK archive was not created."
+          }
+          Write-Host "Created $archive and SHA256SUMS.txt"
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: Tessera-SDK-${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+          path: |
+            Tessera-SDK-${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}.zip
+            SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+          files: |
+            Tessera-SDK-${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}.zip
+            SHA256SUMS.txt
+          generate_release_notes: true
+          overwrite_files: true

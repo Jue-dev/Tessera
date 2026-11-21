@@ -1,8 +1,7 @@
 name: Tessera CI & SDK Release
 
+# Version-tag SDK packaging and publication live in release.yml; this workflow owns PR validation.
 on:
-  # Full validation automatically runs for pull requests and relevant main pushes.
-  # Release publication remains restricted to version-tag pushes.
   pull_request:
     branches: [ "main" ]
     paths:
@@ -21,8 +20,6 @@ on:
       - ".github/workflows/**"
       - ".github/actions/**"
       - ".github/scripts/**"
-  # Full validation on main and manually on any selected branch.
-  # Tag pushes still run the release pipeline; path filters do not apply to tags.
   push:
     branches: [ "main" ]
     tags: [ "v*" ]
@@ -42,7 +39,6 @@ on:
       - ".github/workflows/**"
       - ".github/actions/**"
       - ".github/scripts/**"
-  # Select the develop branch in the Actions UI for manual development validation.
   workflow_dispatch:
   schedule:
     - cron: "17 3 * * 1" # Weekly full validation (Monday, 03:17 UTC).
@@ -101,19 +97,7 @@ jobs:
       - name: Run safe example smoke (x64 Release)
         if: matrix.preset == 'x64-release'
         shell: pwsh
-        run: |
-          $examples = @(
-            "artifacts/x64/Release/build/examples/tessera_example_01_scan_and_pe.exe",
-            "artifacts/x64/Release/build/examples/tessera_example_03_rtti_and_reflection.exe",
-            "artifacts/x64/Release/build/examples/tessera_example_04_blind_discovery.exe",
-            "artifacts/x64/Release/build/examples/tessera_example_05_python_bridge.exe",
-            "artifacts/x64/Release/build/examples/tessera_example_06_profiles_and_targets.exe"
-          )
-          foreach ($example in $examples) {
-            if (-not (Test-Path $example)) { throw "Missing safe example executable: $example" }
-            & $example
-            if ($LASTEXITCODE -ne 0) { throw "Safe example smoke failed: $example" }
-          }
+        run: .\.github\scripts\ci\run-safe-example-smoke.ps1
 
       - name: Stage Installed SDK (${{ matrix.preset }})
         run: cmake --install artifacts/${{ matrix.arch }}/${{ matrix.config }}/build --prefix dist/TesseraSDK/${{ matrix.arch }}/${{ matrix.config }}
@@ -147,14 +131,9 @@ jobs:
       - name: Install pinned test-only decoder oracle
         run: python -m pip install --disable-pip-version-check iced-x86==1.21.0
 
-      - name: Configure independent decoder differential test
-        run: cmake -S . -B build-decoder-oracle -G Ninja -DCMAKE_BUILD_TYPE=Release -DTESSERA_BUILD_TESTS=ON -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_ENABLE_DECODER_ORACLE=ON
-
-      - name: Build decoder probe
-        run: cmake --build build-decoder-oracle --target tessera_decoder_probe --parallel
-
-      - name: Compare instruction boundaries against iced-x86
-        run: ctest --test-dir build-decoder-oracle -R tessera_decoder_differential --output-on-failure
+      - name: Configure, build and compare decoder boundaries against iced-x86
+        shell: pwsh
+        run: .\.github\scripts\ci\run-decoder-differential.ps1
 
   windows-backend-mock:
     name: Windows Backend Mock (Linux)
@@ -165,14 +144,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Run deterministic Windows backend mock tests
-        run: bash ./verify/windows_mock/run_windows_mock_tests.sh
-      - name: Run Windows backend mock tests with ASan and UBSan
-        env:
-          EXTRA_CXXFLAGS: -fsanitize=address,undefined -fno-omit-frame-pointer
-          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
-          UBSAN_OPTIONS: halt_on_error=1
-        run: bash ./verify/windows_mock/run_windows_mock_tests.sh
+      - name: Run Windows backend mock tests (normal and ASan/UBSan)
+        run: bash ./.github/scripts/ci/run-windows-mock-validation.sh
 
   detours-integration:
     name: Live Microsoft Detours Hook (${{ matrix.arch }})
@@ -216,11 +189,7 @@ jobs:
         run:  .\.github\scripts\ci\detours.ps1 -Action Verify -Architecture "${{ matrix.arch }}"
       - name: Build Tessera and run the live Detours test
         shell: pwsh
-        run: |
-          .\verify\windows\run_detours_integration.ps1 `
-            -DetoursRoot "$env:GITHUB_WORKSPACE\dependencies\Detours" `
-            -Architecture "${{ matrix.arch }}" `
-            -Configuration Release
+        run: .\.github\scripts\ci\detours-integration.ps1 -DetoursRoot "$env:GITHUB_WORKSPACE\dependencies\Detours" -Architecture "${{ matrix.arch }}" -Configuration Release
 
   no-rtti-and-packaging-gate:
     name: Quality Gate (/GR- No-RTTI, .bench & .fuzz Smoke)
@@ -277,73 +246,9 @@ jobs:
         shell: pwsh
         run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
 
-      - name: Configure optional preset
-        run: cmake --preset ${{ matrix.preset }}
-
-      - name: Build optional preset
-        run: cmake --build --preset ${{ matrix.preset }} --parallel
-
-      - name: Run optional preset CTest suite
-        run: ctest --preset ${{ matrix.preset }} --output-on-failure
-
-      - name: Configure forced-scalar benchmark reference
-        if: matrix.preset == 'x64-bench'
-        run: cmake --preset x64-bench-scalar
-
-      - name: Build forced-scalar benchmark reference
-        if: matrix.preset == 'x64-bench'
-        run: cmake --build artifacts/x64/Bench/Scalar/build --config Release --target tessera_bench --parallel
-
-      - name: Compare SIMD-dispatched and scalar benchmark throughput
-        if: matrix.preset == 'x64-bench'
+      - name: Configure, build, test and compare optional preset
         shell: pwsh
-        run: |
-          $simdExe = ".\artifacts\x64\Bench\build\verify\bench\tessera_bench.exe"
-          $scalarExe = ".\artifacts\x64\Bench\Scalar\build\verify\bench\tessera_bench.exe"
-          foreach ($exe in @($simdExe, $scalarExe)) {
-            if (-not (Test-Path $exe)) { throw "Missing benchmark executable: $exe" }
-          }
-
-          $simdJson = & $simdExe --json | Out-String
-          if ($LASTEXITCODE -ne 0) { throw "SIMD benchmark failed ($LASTEXITCODE)." }
-          $scalarJson = & $scalarExe --json | Out-String
-          if ($LASTEXITCODE -ne 0) { throw "Scalar benchmark failed ($LASTEXITCODE)." }
-          $simd = $simdJson | ConvertFrom-Json -ErrorAction Stop
-          $scalar = $scalarJson | ConvertFrom-Json -ErrorAction Stop
-          if (-not $simd.benchmarks -or -not $scalar.benchmarks) {
-            throw "Benchmark JSON must contain non-empty benchmark arrays."
-          }
-
-          $patternNames = @(
-            "pattern_masked_4mib",
-            "pattern_exact_literal_4mib",
-            "pattern_high_frequency_prolog_4mib",
-            "pattern_leading_wildcard_4mib",
-            "pattern_dense_nibble_4mib"
-          )
-          $summary = @(
-            "### x64 Pattern Throughput: SIMD Dispatch vs Scalar",
-            "",
-            "| Workload | Scalar (MB/s) | SIMD dispatch (MB/s) | Speedup |",
-            "|---|---:|---:|---:|"
-          )
-          foreach ($name in $patternNames) {
-            $scalarMetric = @($scalar.benchmarks | Where-Object { $_.name -eq $name })
-            $simdMetric = @($simd.benchmarks | Where-Object { $_.name -eq $name })
-            if ($scalarMetric.Count -ne 1 -or $simdMetric.Count -ne 1) {
-              throw "Missing or duplicate benchmark metric: $name"
-            }
-            $scalarRate = [double]$scalarMetric[0].mb_per_s
-            $simdRate = [double]$simdMetric[0].mb_per_s
-            if ($scalarRate -le 0 -or $simdRate -le 0) {
-              throw "Invalid throughput for $name (scalar=$scalarRate, SIMD=$simdRate)."
-            }
-            $speedup = $simdRate / $scalarRate
-            $delta = ($speedup - 1.0) * 100.0
-            $summary += "| $name | $([math]::Round($scalarRate, 2)) | $([math]::Round($simdRate, 2)) | $([math]::Round($speedup, 3))x ($([math]::Round($delta, 1))%) |"
-            Write-Host ("{0}: scalar={1:N2} MB/s; SIMD={2:N2} MB/s; speedup={3:N3}x ({4:N1}%)" -f $name, $scalarRate, $simdRate, $speedup, $delta)
-          }
-          $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+        run: .\.github\scripts\ci\run-optional-cmake-preset.ps1 -Preset "${{ matrix.preset }}"
 
   msvc-static-analysis:
     name: MSVC Static Analysis (/analyze, x64)
@@ -413,8 +318,6 @@ jobs:
         run:  .\.github\scripts\ci\test-installed-sdk-consumer.ps1 -Options '${{ matrix.options }}'
 
   release-package-dry-run:
-    # Exercise the exact release assembly and checksum path on PRs/manual runs,
-    # without creating a tag or publishing a GitHub Release.
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     name: Release SDK Package (tag-independent dry run)
     needs: [build-and-test]
@@ -432,53 +335,9 @@ jobs:
           path: sdk-Input
           merge-multiple: false
 
-      - name: Assemble unified SDK package
+      - name: Assemble, checksum and validate the unified SDK package
         shell: pwsh
-        run: .\.github\scripts\ci\package-sdk-bundle.ps1
-
-      - name: Generate SDK SHA256SUMS
-        shell: pwsh
-        run: |
-          $hash = (Get-FileHash -Algorithm SHA256 .\Tessera-SDK-Windows.zip).Hash.ToLowerInvariant()
-          "$hash  Tessera-SDK-Windows.zip" | Out-File -FilePath SHA256SUMS.txt -Encoding ascii
-
-      - name: Validate release archive contents and checksum
-        shell: pwsh
-        run: |
-          $zipPath = (Resolve-Path .\Tessera-SDK-Windows.zip).Path
-          $checksumLine = (Get-Content .\SHA256SUMS.txt -Raw).Trim()
-          if ($checksumLine -notmatch '^(?<hash>[0-9a-fA-F]{64})  Tessera-SDK-Windows[.]zip$') {
-            throw "SHA256SUMS.txt has an invalid format."
-          }
-          $declaredHash = $Matches.hash.ToLowerInvariant()
-          $actualHash = (Get-FileHash -Algorithm SHA256 $zipPath).Hash.ToLowerInvariant()
-          if ($declaredHash -ne $actualHash) {
-            throw "SDK archive checksum does not match SHA256SUMS.txt."
-          }
-
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $archive = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
-          try {
-            $entries = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') })
-            $requiredEntries = @(
-              "include/tessera/tessera.hpp",
-              "x64/Release/lib/tessera.lib",
-              "x64/Debug/lib/tessera.lib",
-              "x86/Release/lib/tessera.lib",
-              "x86/Debug/lib/tessera.lib",
-              "x64/Release/lib/cmake/Tessera/TesseraConfig.cmake",
-              "x64/Debug/lib/cmake/Tessera/TesseraConfig.cmake",
-              "x86/Release/lib/cmake/Tessera/TesseraConfig.cmake",
-              "x86/Debug/lib/cmake/Tessera/TesseraConfig.cmake"
-            )
-            $missing = @($requiredEntries | Where-Object { $_ -notin $entries })
-            if ($missing.Count -gt 0) {
-              throw "SDK archive is missing required entries: $($missing -join ', ')"
-            }
-          } finally {
-            $archive.Dispose()
-          }
-          Write-Host "Validated SDK archive and SHA256SUMS.txt."
+        run: .\.github\scripts\ci\package-sdk-release.ps1
 
       - name: Upload validated dry-run package
         uses: actions/upload-artifact@v7
@@ -490,7 +349,6 @@ jobs:
           if-no-files-found: error
 
   publish-sdk-bundle:
-    # Manual validation must not assemble or publish release artifacts.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     name: Bundle Full SDK & Publish GitHub Release
     needs: [build-and-test, no-rtti-and-packaging-gate, detours-integration, msvc-static-analysis]
@@ -508,14 +366,9 @@ jobs:
         with:
           path: sdk-Input
 
-      - name: Assemble Unified Tessera-SDK-Windows Package
+      - name: Assemble, checksum and validate Unified Tessera SDK Package
         shell: pwsh
-        run:  .\.github\scripts\ci\package-sdk-bundle.ps1
-      - name: Generate SDK SHA256SUMS
-        shell: pwsh
-        run: |
-          $hash = (Get-FileHash -Algorithm SHA256 .\Tessera-SDK-Windows.zip).Hash.ToLowerInvariant()
-          "$hash  Tessera-SDK-Windows.zip" | Out-File -FilePath SHA256SUMS.txt -Encoding ascii
+        run: .\.github\scripts\ci\package-sdk-release.ps1
 
       - name: Upload Combined SDK Bundle Artifact (Tessera-SDK-Full)
         uses: actions/upload-artifact@v7

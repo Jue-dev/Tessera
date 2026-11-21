@@ -272,6 +272,8 @@ tessera_add_module(
     NAME scanner
     SOURCES
         src/scanner/scanner.cpp
+        src/scanner/scanner_batch.cpp
+        src/scanner/xref.cpp
     PUBLIC_HEADERS
         include/tessera/scanner/scanner.hpp
         include/tessera/scanner/xref.hpp

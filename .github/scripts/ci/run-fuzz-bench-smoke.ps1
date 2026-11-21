@@ -81,3 +81,10 @@ foreach ($target in $benchmarkTargets) {
         }
     }
 }
+
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../../..")).Path
+$validator = Join-Path $repoRoot "verify/bench/validate_bench_json.py"
+& python $validator @($benchmarkTargets)
+if ($LASTEXITCODE -ne 0) {
+    throw "validate_bench_json.py rejected one or more benchmark executables ($LASTEXITCODE)."
+}

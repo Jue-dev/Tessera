@@ -1,5 +1,7 @@
 #include "pe_image_detail.hpp"
 
+#include <cstring>
+
 namespace tessera {
 
 Result<PeImage> PeImage::from_raw_bytes(std::span<const std::byte> file_bytes, Address load_base) {

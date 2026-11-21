@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -266,11 +267,11 @@ public:
         if (range.empty()) {
             return ok();
         }
-        ++const_cast<FakeMemoryBackend*>(this)->icache_flushes_;
+        const_cast<FakeMemoryBackend*>(this)->icache_flushes_.fetch_add(1, std::memory_order_relaxed);
         return ok();
     }
 
-    [[nodiscard]] std::size_t icache_flushes() const noexcept { return icache_flushes_; }
+    [[nodiscard]] std::size_t icache_flushes() const noexcept { return icache_flushes_.load(std::memory_order_relaxed); }
 
     [[nodiscard]] static Process make_process(
         std::shared_ptr<FakeMemoryBackend> backend,
@@ -292,7 +293,7 @@ public:
 
 private:
     std::vector<std::unique_ptr<VirtualRegion>> regions_{};
-    std::size_t icache_flushes_ = 0;
+    std::atomic<std::size_t> icache_flushes_{0};
 };
 
 } // namespace tessera::testing

@@ -2,6 +2,7 @@
 
 #include "fuzz_corpus_runner.hpp"
 #include "tessera/rtti/discovery.hpp"
+#include "tessera/rtti/rtti.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -27,7 +28,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     backend->map_region(
         tessera::Address{kFuzzBase},
         region_size,
-        tessera::MemoryProtection::ReadWrite);
+        tessera::MemoryProtection::ExecuteReadWrite);
 
     if (bounded_size != 0) {
         const std::span<const std::byte> bytes{
@@ -42,6 +43,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
 
     (void)tessera::rtti::BinaryExplorer::scan_all_type_descriptors(process, range);
     (void)tessera::rtti::BinaryExplorer::scan_strings(process, range);
+    (void)tessera::rtti::RttiCatalog::discover_all(process, range);
 
     // Exercise the 32-bit absolute-VA RTTI layout parser against the same
     // bounded bytes as well as the x64 RVA-based layout.
@@ -49,6 +51,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         backend, tessera::Architecture::X86);
     (void)tessera::rtti::BinaryExplorer::scan_all_type_descriptors(x86_process, range);
     (void)tessera::rtti::BinaryExplorer::scan_strings(x86_process, range);
+    (void)tessera::rtti::RttiCatalog::discover_all(x86_process, range);
     return 0;
 }
 
