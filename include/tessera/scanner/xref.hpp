@@ -17,6 +17,12 @@ namespace tessera::xref {
     Address target,
     const ScanOptions& options = {});
 
+[[nodiscard]] Result<std::vector<std::vector<Address>>> find_pointer_refs_batch(
+    const Process& process,
+    AddressRange range,
+    std::span<const Address> targets,
+    const ScanOptions& options = {});
+
 [[nodiscard]] Result<std::vector<Address>> find_rel32_refs(
     const Process& process,
     AddressRange range,
