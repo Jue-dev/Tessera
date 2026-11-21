@@ -1,0 +1,12 @@
+name: Tessera Workflow Diagnostic
+on:
+  push:
+    branches: ["wave-4"]
+permissions:
+  contents: read
+jobs:
+  diagnostic:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Confirm workflow execution
+        run: echo "Tessera workflow diagnostic passed"
