@@ -232,6 +232,8 @@ tessera_add_test(tessera_test_concurrency
         tessera::core
         tessera::diagnostics
         tessera::logging
+        tessera::utility
+        tessera::module
         tessera::process
         tessera::memory
         tessera::pattern
