@@ -98,6 +98,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "No-RTTI build failed" }
         ctest --test-dir build-final-nortti -C Release --output-on-failure
         if ($LASTEXITCODE -ne 0) { throw "No-RTTI CTest failed" }
+        ctest --test-dir build-final-nortti -C Release --shuffle --output-on-failure
+        if ($LASTEXITCODE -ne 0) { throw "Shuffled no-RTTI CTest failed" }
         $fuzzTargets = @(
             @{ Exe = "build-final-nortti/verify/fuzz/tessera_fuzz_native_hook.exe"; Corpus = "verify/fuzz/corpus/native_hook" },
             @{ Exe = "build-final-nortti/verify/fuzz/tessera_fuzz_pe.exe"; Corpus = "verify/fuzz/corpus/pe" },
