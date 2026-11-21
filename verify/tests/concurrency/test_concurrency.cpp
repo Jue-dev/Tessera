@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -131,7 +132,7 @@ TEST_CASE("Concurrent logger, scanner, patch, hook and protection operations rem
 
     ConcurrentHookBackend hook_backend;
     int detour_storage = 0;
-    std::atomic<bool> failed{false};
+    std::atomic<std::uint32_t> failure_mask{0};
     std::vector<std::thread> workers;
     workers.reserve(kWorkers);
 
@@ -141,7 +142,7 @@ TEST_CASE("Concurrent logger, scanner, patch, hook and protection operations rem
             auto hook_result = detail::HookCore::create(
                 Address{0x40000000ULL + worker * 0x1000ULL}, &detour_storage, &hook_backend);
             if (!hook_result) {
-                failed.store(true, std::memory_order_relaxed);
+                failure_mask.fetch_or(128u, std::memory_order_relaxed);
                 return;
             }
             detail::HookCore worker_hook = std::move(*hook_result);
@@ -155,26 +156,26 @@ TEST_CASE("Concurrent logger, scanner, patch, hook and protection operations rem
 
                 auto scanned = scanner.scan(scan_range, *scan_pattern);
                 if (!scanned || scanned->hits.empty()) {
-                    failed.store(true, std::memory_order_relaxed);
+                    failure_mask.fetch_or(1u, std::memory_order_relaxed);
                 }
                 auto batch = scanner.scan_batch(scan_range, batch_patterns);
                 if (!batch || batch->size() != batch_patterns.size() ||
                     batch->front().hits.empty() || batch->back().hits.empty()) {
-                    failed.store(true, std::memory_order_relaxed);
+                    failure_mask.fetch_or(2u, std::memory_order_relaxed);
                 }
 
                 auto patch = Patch::create(
                     ProcessAddress{process, Address{region_base}},
                     std::vector<std::byte>{std::byte{0x90}, std::byte{0x90}, std::byte{0x90}});
                 if (!patch || !patch->apply() || !patch->restore()) {
-                    failed.store(true, std::memory_order_relaxed);
+                    failure_mask.fetch_or(4u, std::memory_order_relaxed);
                 }
 
                 auto protection = ProtectionScope::create(
                     process, AddressRange{Address{region_base + 0x100}, 0x80},
                     MemoryProtection::ReadWrite);
                 if (!protection) {
-                    failed.store(true, std::memory_order_relaxed);
+                    failure_mask.fetch_or(8u, std::memory_order_relaxed);
                 } else {
                     std::array<std::byte, 4> probe{};
                     MemoryReader reader{process};
@@ -182,16 +183,16 @@ TEST_CASE("Concurrent logger, scanner, patch, hook and protection operations rem
                     if (!reader.read_exact(Address{region_base + 0x100}, probe) ||
                         !writer.write(Address{region_base + 0x100}, probe) ||
                         !protection->restore()) {
-                        failed.store(true, std::memory_order_relaxed);
+                        failure_mask.fetch_or(16u, std::memory_order_relaxed);
                     }
                 }
 
                 if (!worker_hook.install(HookOptions{.threads = ThreadPolicy::None})) {
-                    failed.store(true, std::memory_order_relaxed);
+                    failure_mask.fetch_or(32u, std::memory_order_relaxed);
                 }
                 (void)worker_hook.installed();
                 if (!worker_hook.remove()) {
-                    failed.store(true, std::memory_order_relaxed);
+                    failure_mask.fetch_or(64u, std::memory_order_relaxed);
                 }
             }
         });
@@ -201,7 +202,11 @@ TEST_CASE("Concurrent logger, scanner, patch, hook and protection operations rem
         worker.join();
     }
 
-    REQUIRE_FALSE(failed.load(std::memory_order_relaxed));
+    const auto failures = failure_mask.load(std::memory_order_relaxed);
+    if (failures != 0) {
+        std::fprintf(stderr, "Concurrency failure mask: 0x%02X\\n", failures);
+    }
+    REQUIRE(failures == 0);
     REQUIRE(hook_backend.active_count() == 0);
     REQUIRE(hook_backend.attached_count() == hook_backend.detached_count());
     REQUIRE_FALSE(primary_sink->records().empty());
