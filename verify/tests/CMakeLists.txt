@@ -132,6 +132,8 @@ tessera_add_test(tessera_test_pattern_scanner
         tessera::memory
         tessera::pattern
         tessera::scanner
+        tessera::disasm
+        tessera::module
 )
 target_include_directories(tessera_test_pattern_scanner PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
@@ -147,8 +149,9 @@ tessera_add_test(tessera_test_module_resolver
         tessera::scanner
         tessera::module
         tessera::resolver
+        tessera::disasm
 )
-
+ 
 tessera_add_test(tessera_test_patch_hook
     SOURCES
         patch_hook/test_patch_hook_core.cpp
@@ -168,6 +171,7 @@ tessera_add_test(tessera_test_patch_hook
         tessera::pattern
         tessera::patch
         tessera::hook
+        tessera::disasm
 )
 if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     target_sources(tessera_test_patch_hook PRIVATE patch_hook/test_patch_hook_x86.cpp)
