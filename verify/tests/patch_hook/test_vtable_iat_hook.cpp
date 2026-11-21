@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <vector>
 #include "FakeMemoryBackend.hpp"
 #include "tessera/hook/vtable_hook.hpp"
 #include "tessera/hook/iat_hook.hpp"
@@ -11,7 +12,12 @@
 
 namespace {
 struct VirtualSample { virtual int first(){return 11;} virtual int second(){return 22;} };
-int replacement_first(VirtualSample*){return 99;}
+#if defined(_MSC_VER) && defined(_M_IX86)
+#define TESSERA_TEST_VTABLE_CALL __fastcall
+#else
+#define TESSERA_TEST_VTABLE_CALL
+#endif
+int TESSERA_TEST_VTABLE_CALL replacement_first(VirtualSample*) { return 99; }
 template<class T>void put(std::vector<std::byte>& b,std::size_t off,T v){std::memcpy(b.data()+off,&v,sizeof(v));}
 std::vector<std::byte> mapped_pe_with_import(){
  std::vector<std::byte>b(0x4000,std::byte{0});

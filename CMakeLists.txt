@@ -396,10 +396,10 @@ tessera_add_module(
     PUBLIC_DEPS
         tessera::core
         tessera::diagnostics
-    PRIVATE_DEPS
         tessera::process
         tessera::memory
         tessera::module
+    PRIVATE_DEPS
         tessera::disasm
     PRIVATE_DEFS
         ${TESSERA_HOOK_PRIVATE_DEFS}

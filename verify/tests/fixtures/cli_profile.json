@@ -40,7 +40,10 @@
       "value": { "type": "uint8", "size": 1 },
       "resolution": { "primary": { "strategy": "rva", "rva": "00001000" } },
       "validation": {
-        "required": [{ "rule": "module_range", "required": true }],
+        "required": [
+          { "rule": "module_range", "required": true },
+          { "rule": "section", "required": true, "value": ".text" }
+        ],
         "minimumUniqueCandidates": 1
       }
     }]

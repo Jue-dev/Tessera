@@ -83,6 +83,8 @@ int inspect(const std::filesystem::path& file, bool json) {
               << ",\"machine\":" << pe.machine() << ",\"imageBase\":" << q(hx(pe.image_base()))
               << ",\"entryPointRva\":" << q(hx(pe.entry_point().value()))
               << ",\"sizeOfImage\":" << pe.size_of_image()
+              << ",\"timestamp\":" << pe.timestamp()
+              << ",\"checksum\":" << pe.checksum()
               << ",\"signaturePresent\":" << (is_signed(*raw) ? "true" : "false")
               << ",\"exportCount\":" << pe.exports().size() << ",\"importCount\":" << pe.imports().size()
               << ",\"sections\":[";
