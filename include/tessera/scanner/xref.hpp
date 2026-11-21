@@ -9,6 +9,7 @@
 #include "tessera/pattern/pattern.hpp"
 #include "tessera/process/process.hpp"
 #include "tessera/scanner/scanner.hpp"
+#include "tessera/module/pe_image.hpp"
 
 namespace tessera::xref {
 
@@ -55,5 +56,11 @@ namespace tessera::xref {
     AddressRange range,
     Address target,
     const ScanOptions& options = {});
+
+[[nodiscard]] Result<std::vector<Address>> find_relocated_pointer_refs(
+    const Process& process,
+    Address module_base,
+    const PeImage& image,
+    Address target);
 
 } // namespace tessera::xref
