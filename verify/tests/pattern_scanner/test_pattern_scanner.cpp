@@ -189,6 +189,31 @@ TEST_CASE("Scanner chunk overlap, contiguous region merging, bad page skip, and 
     REQUIRE((*batch)[0].hits.front() == Address{0x200FFD});
     REQUIRE((*batch)[1].hits.front() == Address{0x200FFE});
 
+    ScanWorkspace workspace;
+    workspace.reserve(opts.chunk_size + sig.size() - 1);
+    auto workspace_scan = scanner.scan(scan_range, sig, opts, workspace);
+    REQUIRE(workspace_scan.has_value());
+    REQUIRE(workspace_scan->hits.size() == 2);
+    const std::size_t workspace_capacity = workspace.capacity();
+    auto workspace_scan_again = scanner.scan(scan_range, sig, opts, workspace);
+    REQUIRE(workspace_scan_again.has_value());
+    REQUIRE(workspace.capacity() == workspace_capacity);
+
+    std::vector<Address> streamed_hits;
+    auto streamed = scanner.scan_streaming(
+        scan_range, sig, opts,
+        [&](Address address) {
+            streamed_hits.push_back(address);
+            return false;
+        },
+        &workspace);
+    REQUIRE(streamed.has_value());
+    REQUIRE(streamed->hits.empty());
+    REQUIRE(streamed->cancelled);
+    REQUIRE(streamed_hits.size() == 1);
+    REQUIRE(streamed_hits.front() == Address{0x200FFD});
+    REQUIRE(workspace.capacity() == workspace_capacity);
+
     // find_first succeeds; find_unique returns Ambiguous when > 1 match exists
     REQUIRE(scanner.find_first(scan_range, sig, opts).value() == Address{0x200FFD});
     auto uniq = scanner.find_unique(scan_range, sig, opts);
