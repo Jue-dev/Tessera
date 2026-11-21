@@ -11,6 +11,44 @@
 
 namespace tessera {
 
+namespace {
+constexpr std::uint32_t kRelocationMarkerBegin = 0xFFFFFFFFu;
+constexpr std::uint32_t kRelocationMarkerEnd = 0x52454C4Fu;
+constexpr std::uint32_t kRelocationMarkerUnwind = 0x4D41524Bu;
+
+[[nodiscard]] bool is_relocation_marker(const PeFunctionEntry& entry) noexcept {
+    return entry.begin_rva.value() == kRelocationMarkerBegin &&
+           entry.end_rva.value() == kRelocationMarkerEnd &&
+           entry.unwind_info_rva.value() == kRelocationMarkerUnwind;
+}
+} // namespace
+
+std::span<const PeFunctionEntry> PeImage::exception_functions() const noexcept {
+    const auto marker = std::find_if(
+        exception_functions_.begin(), exception_functions_.end(), is_relocation_marker);
+    const auto count = static_cast<std::size_t>(
+        std::distance(exception_functions_.begin(), marker));
+    return std::span<const PeFunctionEntry>{exception_functions_.data(), count};
+}
+
+std::vector<BaseRelocation> PeImage::relocations() const {
+    std::vector<BaseRelocation> result;
+    const auto marker = std::find_if(
+        exception_functions_.begin(), exception_functions_.end(), is_relocation_marker);
+    if (marker == exception_functions_.end()) {
+        return result;
+    }
+    result.reserve(static_cast<std::size_t>(
+        std::distance(std::next(marker), exception_functions_.end())));
+    for (auto it = std::next(marker); it != exception_functions_.end(); ++it) {
+        result.push_back(BaseRelocation{
+            .location = it->begin_rva,
+            .type = static_cast<std::uint8_t>(it->end_rva.value()),
+        });
+    }
+    return result;
+}
+
 std::string CodeViewInfo::guid_string() const {
     const std::uint32_t d1 = static_cast<std::uint32_t>(guid[0]) |
                              (static_cast<std::uint32_t>(guid[1]) << 8) |
