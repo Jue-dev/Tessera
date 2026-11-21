@@ -284,8 +284,6 @@ tessera_add_module(
     PRIVATE_DEPS
         tessera::disasm
         tessera::module
-        tessera::disasm
-        tessera::module
 )
 
 
@@ -302,7 +300,6 @@ tessera_add_module(
         tessera::memory
         tessera::scanner
     PRIVATE_DEPS
-        tessera::disasm
         tessera::disasm
 )
 
