@@ -5,6 +5,7 @@
 #include "tessera/scanner/scanner.hpp"
 #include "tessera/scanner/xref.hpp"
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -44,8 +45,11 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
             options.max_results = 64;
             tessera::Scanner scanner{process};
             (void)scanner.scan(image, *pattern, options);
+            (void)scanner.scan(image, *pattern, options, tessera::ScanReadPolicy::Strict);
             (void)scanner.find_first(image, *pattern, options);
             (void)scanner.find_unique(image, *pattern, options);
+            const std::array<tessera::Pattern, 2> batch_patterns{*pattern, *pattern};
+            (void)scanner.scan_batch(image, batch_patterns, options);
         }
     }
     const tessera::Address target{kFuzzBase + (size % kPageSize)};
@@ -53,8 +57,12 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     options.chunk_size = 1u + (size % 1024u);
     options.max_results = 64;
     (void)tessera::xref::find_pointer_refs(process, image, target, options);
+    const std::array<tessera::Address, 2> targets{target, tessera::Address{kFuzzBase}};
+    (void)tessera::xref::find_pointer_refs_batch(process, image, targets, options);
     (void)tessera::xref::find_calls(process, image, target, options);
     (void)tessera::xref::find_jumps(process, image, target, options);
+    (void)tessera::xref::find_conditional_branches(process, image, target, options);
+    (void)tessera::xref::find_indirect_refs(process, image, target, options);
     return 0;
 }
 #if !defined(TESSERA_LIBFUZZER)
