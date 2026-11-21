@@ -19,7 +19,7 @@
 | Manual `Tessera CI & SDK Release` dispatch | Full CI on selected branch; release publication remains tag-push-only |
 | Manual `Native Hook Coverage-Guided Fuzz` dispatch | Bounded 60/300/900-second x64 Clang libFuzzer + ASan/UBSan campaign |
 
-The CI path allowlist covers CMake configuration, `cmake/`, `include/`, `src/`, `verify/`, `examples/`, `scripts/`, dependency manifests, `.clang-tidy`, and GitHub workflow files. Prose-only documentation changes do not start CI. A commit containing documentation and an allowlisted input still starts CI.
+The CI path allowlist covers CMake configuration, `cmake/`, `include/`, `src/`, `verify/`, `examples/`, `scripts/`, dependency manifests, `.clang-tidy`, and GitHub workflow files. Small PowerShell CI helpers are grouped by responsibility: `detours.ps1` handles architecture-specific Detours build/verification, and `configure.ps1` handles no-RTTI/reduced configurations. Prose-only documentation changes do not start CI. A commit containing documentation and an allowlisted input still starts CI.
 
 ## Final validation
 
@@ -103,7 +103,7 @@ The fallback test runner supports deterministic randomization and machine-readab
 ```powershell
 ctest --preset x64-debug --output-on-failure
 # The CMake test graph also registers a shuffled suite with seed 20261121.
-.scriptsun-final-validation.ps1 -RunFuzz -RunDecoderOracle
+.\scripts\run-final-validation.ps1 -RunFuzz -RunDecoderOracle
 ```
 
 When Catch2 is unavailable, `test_main.cpp` accepts `--shuffle`, `--seed N`, `--filter substring`, and `--junit path`. When Catch2 is available, CTest uses Catch2's equivalent randomized-order, fixed-seed and JUnit reporter arguments.
