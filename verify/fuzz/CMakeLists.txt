@@ -5,7 +5,7 @@ target_link_libraries(tessera_fuzz_pattern PRIVATE tessera::pattern)
 tessera_apply_target_options(tessera_fuzz_pattern)
 
 add_executable(tessera_fuzz_pe fuzz_pe.cpp)
-target_link_libraries(tessera_fuzz_pe PRIVATE tessera::tessera)
+target_link_libraries(tessera_fuzz_pe PRIVATE tessera::tessera tessera::module tessera::patch)
 tessera_apply_target_options(tessera_fuzz_pe)
 
 add_executable(tessera_fuzz_json fuzz_json.cpp)
