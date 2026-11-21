@@ -325,6 +325,9 @@ Result<ProcessAddress> find_next_call_impl(
     if (pa.is_null()) {
         return fail(ErrorCode::NullAddress, "resolve::find_next_call");
     }
+    if (max_bytes > static_cast<std::size_t>((std::numeric_limits<std::int64_t>::max)())) {
+        return fail(ErrorCode::OutOfRange, "resolve::find_next_call");
+    }
     std::size_t offset = 0;
     while (offset < max_bytes) {
         auto current = pa.offset(static_cast<std::int64_t>(offset));
@@ -355,6 +358,9 @@ Result<ProcessAddress> find_next_rip_relative_impl(
     const ProcessAddress& pa, std::size_t max_bytes) noexcept {
     if (pa.is_null()) {
         return fail(ErrorCode::NullAddress, "resolve::find_next_rip_relative");
+    }
+    if (max_bytes > static_cast<std::size_t>((std::numeric_limits<std::int64_t>::max)())) {
+        return fail(ErrorCode::OutOfRange, "resolve::find_next_rip_relative");
     }
     if (pa.process().pointer_size() != 8) {
         return fail(ErrorCode::UnsupportedArchitecture, "resolve::find_next_rip_relative");
