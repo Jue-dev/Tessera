@@ -262,7 +262,7 @@ TEST_CASE("Native x64 unwind rejects an unreadable extra unwind-code slot withou
     auto hook = Hook<NativeHookFn>::create(
         Address{static_cast<std::uint64_t>(
             reinterpret_cast<std::uintptr_t>(code + target_offset))},
-        reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(&native_hook_detour)),
+        &native_hook_detour,
         &backend);
     REQUIRE(hook.has_value());
     HookOptions options{};
@@ -314,7 +314,7 @@ TEST_CASE("Native inline backend suspends and resumes a real worker thread under
     const auto base = reinterpret_cast<std::uintptr_t>(region.address);
     HookBackend& backend = native_inline_hook_backend();
     auto hook = Hook<NativeHookFn>::create(
-        Address{static_cast<std::uint64_t>(base + 64)}, reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(&native_hook_detour)), &backend);
+        Address{static_cast<std::uint64_t>(base + 64)}, &native_hook_detour, &backend);
     REQUIRE(hook.has_value());
 
     HookOptions options{};
@@ -358,7 +358,7 @@ TEST_CASE("Native inline backend supports admission-gated concurrent callers acr
 
     const auto target = reinterpret_cast<NativeHookFn>(code + 64);
     HookBackend& backend = native_inline_hook_backend();
-    auto hook = Hook<NativeHookFn>::create(target, reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(&native_hook_detour)), &backend);
+    auto hook = Hook<NativeHookFn>::create(target, &native_hook_detour, &backend);
     REQUIRE(hook.has_value());
 
     // This shared/exclusive gate models the application-level admission and
