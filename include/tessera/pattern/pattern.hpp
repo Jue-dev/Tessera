@@ -153,7 +153,15 @@ public:
         }
         const auto b = bytes();
         const auto m = mask();
-        for (std::size_t i = 0; i < size_; ++i) {
+        std::size_t first = 0;
+        std::size_t last = size_;
+        while (first < last && m[first] == std::byte{0}) {
+            ++first;
+        }
+        while (last > first && m[last - 1] == std::byte{0}) {
+            --last;
+        }
+        for (std::size_t i = first; i < last; ++i) {
             if ((at[i] & m[i]) != b[i]) {
                 return false;
             }
