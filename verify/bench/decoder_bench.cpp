@@ -2,11 +2,13 @@
 #include <cstddef>
 #include <cstdlib>
 #include <iostream>
+#include <string_view>
 
 #include "disasm/x86_instruction_decoder.hpp"
 #include "tessera/profiling/profiling.hpp"
 
-int main() {
+int main(int argc, char** argv) {
+    const bool json = argc > 1 && std::string_view{argv[1]} == "--json";
     using namespace tessera;
 
     constexpr std::array<std::byte, 7> instruction{
@@ -20,6 +22,15 @@ int main() {
             std::abort();
         }
     });
+
+    if (json) {
+        const double seconds = static_cast<double>(metrics.mean.count()) / 1.0e9;
+        const double mb_per_s = seconds > 0.0 ? (instruction.size() / seconds) / 1.0e6 : 0.0;
+        std::cout << "{\"name\":\"decoder_x64_rip_mov\",\"iterations\":" << metrics.iterations
+                  << ",\"ns_per_op\":" << metrics.mean.count()
+                  << ",\"mb_per_s\":" << mb_per_s << "}\n";
+        return 0;
+    }
 
     std::cout << "Benchmark: x64 instruction decoder (RIP-relative MOV)\n"
               << "  Iterations : " << metrics.iterations << "\n"
