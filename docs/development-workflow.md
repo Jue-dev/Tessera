@@ -95,3 +95,20 @@ The independent decoder differential job builds `verify/tests/decoder_oracle/dec
 - `include/tessera/**`: public SDK headers; `src/**`: private module implementations.
 - `verify/tests/**`: deterministic tests and decoder oracle; `verify/fuzz/**`: fuzz harnesses and seed corpora; `verify/bench/**`: opt-in benchmarks.
 - Reduced SDK variants install the package and compile a separate `find_package(Tessera CONFIG REQUIRED)` consumer; run the full CI matrix before merging.
+
+## Wave 3 validation commands
+
+The fallback test runner supports deterministic randomization and machine-readable results:
+
+```powershell
+ctest --preset x64-debug --output-on-failure
+# The CMake test graph also registers a shuffled suite with seed 20261121.
+.scriptsun-final-validation.ps1 -RunFuzz -RunDecoderOracle
+```
+
+When Catch2 is unavailable, `test_main.cpp` accepts `--shuffle`, `--seed N`, `--filter substring`, and `--junit path`. When Catch2 is available, CTest uses Catch2's equivalent randomized-order, fixed-seed and JUnit reporter arguments.
+
+All five benchmark executables support `--json`; `verify/bench/validate_bench_json.py` checks their output in CTest when Python is available. Coverage can be enabled on GCC/Clang with `TESSERA_ENABLE_COVERAGE=ON`. CI runs ASan+UBSan and TSan as separate configurations, and CodeQL and continuous fuzz campaigns are scheduled/manual workflows.
+
+Release tags (`v*`) use the SDK packaging job and publish the SDK ZIP with `SHA256SUMS.txt`. See [SECURITY.md](../SECURITY.md) for vulnerability reporting and the native-memory/inline-hook threat model.
+
