@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <span>
+#include <vector>
 #include <vector>
 
 #include "tessera/core/result.hpp"
