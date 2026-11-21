@@ -85,3 +85,4 @@ jobs:
             Tessera-SDK-${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}.zip
             SHA256SUMS.txt
           generate_release_notes: true
+          overwrite_files: true

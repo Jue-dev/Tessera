@@ -8,8 +8,6 @@
 namespace tessera::scanner_detail {
 namespace { constexpr std::uint64_t kPageSize = 0x1000ULL; }
 
-constexpr std::uint64_t kPageSize = 0x1000ULL;
-
 Result<ScanStats> for_each_readable_chunk(const Process& process, AddressRange range, std::size_t overlap,
                                           const ScanOptions& options, bool& out_cancelled,
                                           FunctionRef<bool(std::span<const std::byte>, std::size_t, Address, std::uint64_t, std::uint64_t)> on_chunk,
