@@ -107,6 +107,42 @@ TEST_CASE("Pattern parsing, nibble wildcards, consteval literal, and PatternValu
     REQUIRE(bytes_pat->matches(raw_b));
 }
 
+TEST_CASE("Pattern SIMD dispatch matches scalar results for overlapping signatures", "[pattern][simd]") {
+    using namespace tessera;
+    using namespace tessera::literals;
+
+    std::array<std::byte, 256> data{};
+    for (std::size_t i = 0; i < data.size(); ++i) {
+        data[i] = static_cast<std::byte>((i * 37u + 11u) & 0xFFu);
+    }
+    constexpr Pattern pattern = "AA BB ?? 4? ?F 90"_sig;
+    const std::array<std::size_t, 7> offsets{0, 15, 16, 31, 32, 63, 127};
+    for (const std::size_t offset : offsets) {
+        data[offset] = std::byte{0xAA};
+        data[offset + 1] = std::byte{0xBB};
+        data[offset + 2] = std::byte{0x12};
+        data[offset + 3] = std::byte{0x4C};
+        data[offset + 4] = std::byte{0x2F};
+        data[offset + 5] = std::byte{0x90};
+    }
+
+    std::vector<std::size_t> expected;
+    for (std::size_t offset = 0; offset + pattern.size() <= data.size(); ++offset) {
+        if (pattern.matches(std::span<const std::byte>{data}.subspan(offset))) {
+            expected.push_back(offset);
+        }
+    }
+    std::vector<std::size_t> actual;
+    pattern.search(data, data.size(), [&](std::size_t offset) {
+        actual.push_back(offset);
+        return true;
+    });
+    REQUIRE(actual == expected);
+    for (const std::size_t offset : offsets) {
+        REQUIRE(std::find(actual.begin(), actual.end(), offset) != actual.end());
+    }
+}
+
 TEST_CASE("Scanner chunk overlap, contiguous region merging, bad page skip, and xref", "[scanner]") {
     using namespace tessera;
     using namespace tessera::literals;
