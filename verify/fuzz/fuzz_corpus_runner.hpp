@@ -13,11 +13,10 @@
 
 namespace tessera::fuzz {
 
-using InputCallback = int (*)(const std::uint8_t*, std::size_t);
-
 // Deterministic standalone corpus replay. Coverage-guided runtimes own their
 // corpus scheduling and do not compile this standalone entry point.
-inline int run_corpus(int argc, char** argv, InputCallback callback) {
+template <typename Callback>
+inline int run_corpus(int argc, char** argv, Callback callback) {
     if (argc < 2 || argv[1] == nullptr || callback == nullptr) {
         return 0;
     }
