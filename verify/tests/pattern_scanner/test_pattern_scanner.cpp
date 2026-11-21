@@ -169,7 +169,26 @@ TEST_CASE("Scanner chunk overlap, contiguous region merging, bad page skip, and 
     REQUIRE(jumps->size() == 1);
     REQUIRE(jumps->front() == Address{0x200120});
 
+    // Conditional near Jcc (0F 85 rel32) to the same target.
+    const std::int32_t jcc_disp = 0x202000 - (0x200140 + 6);
+    backend->poke_value<std::uint8_t>(Address{0x200140}, 0x0Fu);
+    backend->poke_value<std::uint8_t>(Address{0x200141}, 0x85u);
+    backend->poke_value<std::int32_t>(Address{0x200142}, jcc_disp);
+    auto conditional = xref::find_conditional_branches(proc, scan_range, Address{0x202000});
+    REQUIRE(conditional.has_value());
+    REQUIRE(conditional->size() == 1);
+    REQUIRE(conditional->front() == Address{0x200140});
+
     backend->poke_value<std::uint64_t>(Address{0x200600}, 0x202000ULL);
+    // RIP-relative indirect CALL [rip+disp32] whose slot contains the target.
+    const std::int32_t slot_disp = 0x200600 - (0x200180 + 6);
+    backend->poke_value<std::uint8_t>(Address{0x200180}, 0xFFu);
+    backend->poke_value<std::uint8_t>(Address{0x200181}, 0x15u);
+    backend->poke_value<std::int32_t>(Address{0x200182}, slot_disp);
+    auto indirect = xref::find_indirect_refs(proc, scan_range, Address{0x202000});
+    REQUIRE(indirect.has_value());
+    REQUIRE(indirect->size() == 1);
+    REQUIRE(indirect->front() == Address{0x200180});
     const std::array<Address, 2> xref_targets{Address{0x202000}, Address{0x203000}};
     auto batched_refs = xref::find_pointer_refs_batch(proc, scan_range, xref_targets);
     REQUIRE(batched_refs.has_value());
