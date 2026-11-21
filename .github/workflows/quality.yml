@@ -9,8 +9,8 @@ on:
   - {cron: "11 5 * * 2"}
   - {cron: "23 3 * * 3"}
 concurrency:
- group: tessera-quality-\${{ github.ref }}
- cancel-in-progress: \${{ github.ref != 'refs/heads/main' }}
+ group: tessera-quality-${{ github.ref }}
+ cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 permissions: {contents: read}
 jobs:
  format:
@@ -21,8 +21,8 @@ jobs:
    - run: sudo apt-get update && sudo apt-get install --yes clang-format-18
    - name: Check changed C++ files
      env:
-      BASE_SHA: \${{ github.event.pull_request.base.sha || github.event.before }}
-      HEAD_SHA: \${{ github.sha }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+      HEAD_SHA: ${{ github.sha }}
      shell: bash
      run: |
       set -euo pipefail
@@ -62,14 +62,14 @@ jobs:
    - run: sudo apt-get update && sudo apt-get install --yes g++-13 libstdc++-13-dev
    - name: Run mock and concurrency sanitizer checks
      env:
-      SANITIZER_FLAGS: \${{ matrix.flags }}
-      ASAN_OPTIONS: \${{ matrix.asan }}
-      UBSAN_OPTIONS: \${{ matrix.ubsan }}
-      TSAN_OPTIONS: \${{ matrix.tsan }}
+      SANITIZER_FLAGS: ${{ matrix.flags }}
+      ASAN_OPTIONS: ${{ matrix.asan }}
+      UBSAN_OPTIONS: ${{ matrix.ubsan }}
+      TSAN_OPTIONS: ${{ matrix.tsan }}
      run: CXX=g++-13 EXTRA_CXXFLAGS="$SANITIZER_FLAGS -fno-omit-frame-pointer" bash ./verify/windows_mock/run_windows_mock_tests.sh
    - uses: actions/upload-artifact@v7
      if: always()
-     with: {name: sanitizer-\${{ matrix.name }}, path: verify/windows_mock/windows_mock_tests.log, if-no-files-found: ignore}
+     with: {name: sanitizer-${{ matrix.name }}, path: verify/windows_mock/windows_mock_tests.log, if-no-files-found: ignore}
  coverage:
   runs-on: windows-latest
   timeout-minutes: 60

@@ -6,7 +6,7 @@ on:
   inputs:
    tag_name: {description: "Existing version tag to release", required: true, type: string}
 concurrency:
- group: tessera-release-\${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref }}
+ group: tessera-release-${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref }}
  cancel-in-progress: false
 permissions: {contents: read}
 jobs:
@@ -15,12 +15,12 @@ jobs:
   permissions: {contents: write}
   steps:
    - uses: actions/checkout@v5
-     with: {ref: \${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref }}, persist-credentials: false}
+     with: {ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref }}, persist-credentials: false}
    - uses: ./.github/actions/setup-msvc
      with: {arch: x64}
    - name: Export SDK, checksum and validate
      shell: pwsh
-     env: {RELEASE_TAG: \${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}}
+     env: {RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}}
      run: .\.github\scripts\ci-sdk.ps1 -Task package-release -ReleaseTag "$env:RELEASE_TAG"
    - name: Verify installed SDK consumers
      shell: pwsh
@@ -34,16 +34,16 @@ jobs:
       }}
    - uses: actions/upload-artifact@v7
      with:
-      name: Tessera-SDK-\${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+      name: Tessera-SDK-${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
       path: |
-       Tessera-SDK-\${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}.zip
+       Tessera-SDK-${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}.zip
        SHA256SUMS.txt
       if-no-files-found: error
    - uses: softprops/action-gh-release@v2
      with:
-      tag_name: \${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+      tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
       files: |
-       Tessera-SDK-\${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}.zip
+       Tessera-SDK-${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}.zip
        SHA256SUMS.txt
       generate_release_notes: true
       overwrite_files: true

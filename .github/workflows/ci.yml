@@ -8,8 +8,8 @@ on:
   paths: [".clang-tidy","*.cmake","CMakeLists.txt","CMakePresets.json","cmake/**","include/**","src/**","verify/**","examples/**","scripts/**","vcpkg.json","vcpkg-configuration.json",".github/workflows/**",".github/actions/**",".github/scripts/**"]
  workflow_dispatch:
 concurrency:
- group: tessera-ci-\${{ github.workflow }}-\${{ github.ref }}
- cancel-in-progress: \${{ github.ref != 'refs/heads/main' }}
+ group: tessera-ci-${{ github.workflow }}-${{ github.ref }}
+ cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 permissions:
  contents: read
 jobs:
@@ -27,22 +27,22 @@ jobs:
    - uses: actions/checkout@v5
      with: {persist-credentials: false}
    - uses: ./.github/actions/setup-msvc
-     with: {arch: \${{ matrix.arch }}}
+     with: {arch: ${{ matrix.arch }}}
    - name: Generate PE fixtures
      shell: pwsh
      run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
-   - run: cmake --preset \${{ matrix.preset }}
-   - run: cmake --build --preset \${{ matrix.preset }}
-   - run: ctest --preset \${{ matrix.preset }} --output-on-failure
+   - run: cmake --preset ${{ matrix.preset }}
+   - run: cmake --build --preset ${{ matrix.preset }}
+   - run: ctest --preset ${{ matrix.preset }} --output-on-failure
    - name: Safe examples smoke
      if: matrix.preset == 'x64-release'
      shell: pwsh
      run: .\.github\scripts\ci-verify.ps1 -Task examples
-   - run: cmake --install artifacts/\${{ matrix.arch }}/\${{ matrix.config }}/build --prefix dist/TesseraSDK/\${{ matrix.arch }}/\${{ matrix.config }}
+   - run: cmake --install artifacts/${{ matrix.arch }}/${{ matrix.config }}/build --prefix dist/TesseraSDK/${{ matrix.arch }}/${{ matrix.config }}
    - uses: actions/upload-artifact@v7
      with:
-      name: Tessera-SDK-\${{ matrix.preset }}
-      path: dist/TesseraSDK/\${{ matrix.arch }}/\${{ matrix.config }}
+      name: Tessera-SDK-${{ matrix.preset }}
+      path: dist/TesseraSDK/${{ matrix.arch }}/${{ matrix.config }}
       if-no-files-found: error
  linux-portable:
   runs-on: ubuntu-24.04
@@ -74,14 +74,14 @@ jobs:
    - uses: actions/checkout@v5
      with: {repository: microsoft/Detours, ref: v4.0.1, path: dependencies/Detours, persist-credentials: false}
    - uses: ./.github/actions/setup-msvc
-     with: {arch: \${{ matrix.arch }}}
+     with: {arch: ${{ matrix.arch }}}
    - shell: pwsh
      working-directory: dependencies/Detours/src
-     run: '& "$env:GITHUB_WORKSPACE\.github\scripts\ci-build.ps1" -Task detours -Action Build -Architecture "\${{ matrix.arch }}"'
+     run: '& "$env:GITHUB_WORKSPACE\.github\scripts\ci-build.ps1" -Task detours -Action Build -Architecture "${{ matrix.arch }}"'
    - shell: pwsh
-     run: .\.github\scripts\ci-build.ps1 -Task detours -Action Verify -Architecture "\${{ matrix.arch }}"
+     run: .\.github\scripts\ci-build.ps1 -Task detours -Action Verify -Architecture "${{ matrix.arch }}"
    - shell: pwsh
-     run: .\.github\scripts\ci-build.ps1 -Task detours-integration -DetoursRoot "$env:GITHUB_WORKSPACE\dependencies\Detours" -Architecture "\${{ matrix.arch }}" -Configuration Release
+     run: .\.github\scripts\ci-build.ps1 -Task detours-integration -DetoursRoot "$env:GITHUB_WORKSPACE\dependencies\Detours" -Architecture "${{ matrix.arch }}" -Configuration Release
  no-rtti-gate:
   runs-on: windows-latest
   steps:
@@ -110,7 +110,7 @@ jobs:
    - shell: pwsh
      run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
    - shell: pwsh
-     run: .\.github\scripts\ci-build.ps1 -Task preset -Preset "\${{ matrix.preset }}"
+     run: .\.github\scripts\ci-build.ps1 -Task preset -Preset "${{ matrix.preset }}"
  msvc-analysis:
   runs-on: windows-latest
   steps:
@@ -135,8 +135,8 @@ jobs:
    - uses: ./.github/actions/setup-msvc
      with: {arch: x64}
    - shell: pwsh
-     run: .\.github\scripts\ci-build.ps1 -Task configure -Mode Reduced -Options '\${{ matrix.options }}'
+     run: .\.github\scripts\ci-build.ps1 -Task configure -Mode Reduced -Options '${{ matrix.options }}'
    - run: cmake --build build-reduced --parallel
    - run: cmake --install build-reduced --prefix install-reduced
    - shell: pwsh
-     run: .\.github\scripts\ci-sdk.ps1 -Task consumer -Options '\${{ matrix.options }}' -SdkPrefix "$env:GITHUB_WORKSPACE\install-reduced"
+     run: .\.github\scripts\ci-sdk.ps1 -Task consumer -Options '${{ matrix.options }}' -SdkPrefix "$env:GITHUB_WORKSPACE\install-reduced"
