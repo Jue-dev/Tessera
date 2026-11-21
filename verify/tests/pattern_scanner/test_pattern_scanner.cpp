@@ -169,6 +169,15 @@ TEST_CASE("Scanner chunk overlap, contiguous region merging, bad page skip, and 
     REQUIRE(jumps->size() == 1);
     REQUIRE(jumps->front() == Address{0x200120});
 
+    backend->poke_value<std::uint64_t>(Address{0x200600}, 0x202000ULL);
+    const std::array<Address, 2> xref_targets{Address{0x202000}, Address{0x203000}};
+    auto batched_refs = xref::find_pointer_refs_batch(proc, scan_range, xref_targets);
+    REQUIRE(batched_refs.has_value());
+    REQUIRE(batched_refs->size() == 2);
+    REQUIRE((*batched_refs)[0].size() == 1);
+    REQUIRE((*batched_refs)[0].front() == Address{0x200600});
+    REQUIRE((*batched_refs)[1].empty());
+
     // Typed value scan via Pattern::from_value<uint32_t>
     backend->poke_value<std::uint32_t>(Address{0x200500}, 0xCAFEBABEu);
     ScanOptions val_opts{};
