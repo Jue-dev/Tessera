@@ -49,6 +49,10 @@ struct WriteReport {
 };
 
 // Thread-safety: const member functions are re-entrant.
+// Writes to disjoint memory regions may be performed concurrently when the
+// backend supports concurrent access. Callers must externally serialize writes
+// or temporary protection changes that touch the same page; restoration
+// tickets are per operation and do not coordinate overlapping protection scopes.
 class MemoryWriter {
 public:
     explicit MemoryWriter(Process process) noexcept : process_(std::move(process)) {}
