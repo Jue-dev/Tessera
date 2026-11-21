@@ -105,7 +105,7 @@ TEST_CASE("RTTI parses x86 absolute-VA and x64 RVA layouts and rejects malformed
     using namespace tessera::testing;
 
     const auto make_image = [](Architecture architecture) {
-        constexpr std::uint64_t base = 0x140000000ULL;
+        constexpr std::uint64_t base = 0x10000000ULL;
         const bool x64 = architecture == Architecture::X64;
         const std::size_t pointer_size = x64 ? 8u : 4u;
         std::vector<std::byte> image(0x300, std::byte{0});
@@ -165,7 +165,7 @@ TEST_CASE("RTTI parses x86 absolute-VA and x64 RVA layouts and rejects malformed
     };
 
     for (const Architecture architecture : {Architecture::X86, Architecture::X64}) {
-        constexpr std::uint64_t base = 0x140000000ULL;
+        constexpr std::uint64_t base = 0x10000000ULL;
         auto backend = std::make_shared<FakeMemoryBackend>();
         auto image = make_image(architecture);
         backend->map_region(Address{base}, image.size(), MemoryProtection::ExecuteReadWrite);
@@ -194,7 +194,7 @@ TEST_CASE("RTTI parses x86 absolute-VA and x64 RVA layouts and rejects malformed
 
     // Corrupt x86 absolute-VA COL references and x64 COL signature values.
     for (const Architecture architecture : {Architecture::X86, Architecture::X64}) {
-        constexpr std::uint64_t base = 0x140000000ULL;
+        constexpr std::uint64_t base = 0x10000000ULL;
         auto image = make_image(architecture);
         const bool x64 = architecture == Architecture::X64;
         write_u32(image, 0x100, x64 ? 0u : 1u);
@@ -212,7 +212,7 @@ TEST_CASE("RTTI parses x86 absolute-VA and x64 RVA layouts and rejects malformed
 
     // An unaligned COL is not accepted by the four-byte structure sweep.
     {
-        constexpr std::uint64_t base = 0x140000000ULL;
+        constexpr std::uint64_t base = 0x10000000ULL;
         auto image = make_image(Architecture::X86);
         std::array<std::byte, 20> col{};
         std::memcpy(col.data(), image.data() + 0x100, col.size());
@@ -230,7 +230,7 @@ TEST_CASE("RTTI parses x86 absolute-VA and x64 RVA layouts and rejects malformed
 
     // Truncated COL/CHD/BCA data and unreadable backing memory fail closed.
     {
-        constexpr std::uint64_t base = 0x140000000ULL;
+        constexpr std::uint64_t base = 0x10000000ULL;
         auto full_image = make_image(Architecture::X86);
         auto backend = std::make_shared<FakeMemoryBackend>();
         backend->map_region(Address{base}, 0x110, MemoryProtection::ExecuteReadWrite);
@@ -244,7 +244,7 @@ TEST_CASE("RTTI parses x86 absolute-VA and x64 RVA layouts and rejects malformed
         REQUIRE_FALSE(inspected.has_value());
     }
     {
-        constexpr std::uint64_t base = 0x140000000ULL;
+        constexpr std::uint64_t base = 0x10000000ULL;
         auto backend = std::make_shared<FakeMemoryBackend>();
         auto& region = backend->map_region(Address{base}, 0x300, MemoryProtection::ExecuteReadWrite);
         const auto image = make_image(Architecture::X86);
@@ -256,6 +256,35 @@ TEST_CASE("RTTI parses x86 absolute-VA and x64 RVA layouts and rejects malformed
         REQUIRE(catalog->classes().empty());
     }
 
+
+    // A TypeDescriptor name that starts inside the range but is truncated before its terminator.
+    {
+        constexpr std::uint64_t base = 0x10000000ULL;
+        auto image = make_image(Architecture::X86);
+        auto backend = std::make_shared<FakeMemoryBackend>();
+        backend->map_region(Address{base}, 0x50, MemoryProtection::ExecuteReadWrite);
+        backend->poke_bytes(Address{base}, std::span<const std::byte>{image}.first(0x50));
+        auto process = FakeMemoryBackend::make_process(backend, Architecture::X86);
+        auto catalog = RttiCatalog::discover_all(process, AddressRange{Address{base}, 0x50});
+        REQUIRE(catalog.has_value());
+        REQUIRE(catalog->classes().empty());
+    }
+
+    // An invalid BaseClassArray VA is ignored while a valid COL and vftable remain discoverable.
+    {
+        constexpr std::uint64_t base = 0x10000000ULL;
+        auto image = make_image(Architecture::X86);
+        write_u32(image, 0x9C, 0xF0000000u);
+        auto backend = std::make_shared<FakeMemoryBackend>();
+        backend->map_region(Address{base}, image.size(), MemoryProtection::ExecuteReadWrite);
+        backend->poke_bytes(Address{base}, image);
+        auto process = FakeMemoryBackend::make_process(backend, Architecture::X86);
+        auto catalog = RttiCatalog::discover_all(process, AddressRange{Address{base}, image.size()});
+        REQUIRE(catalog.has_value());
+        REQUIRE(catalog->classes().size() == 1);
+        REQUIRE(catalog->classes().front().base_classes.empty());
+        REQUIRE(catalog->classes().front().virtual_methods.size() == 1);
+    }
     // Checked range-end arithmetic rejects a range that wraps uint64_t.
     {
         auto backend = std::make_shared<FakeMemoryBackend>();
