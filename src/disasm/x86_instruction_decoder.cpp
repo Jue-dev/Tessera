@@ -1,5 +1,7 @@
 #include "x86_instruction_decoder.hpp"
 
+// Internal shared implementation: keep this layer independent of hook/scanner/resolver.
+
 namespace tessera::detail::x86 {
 
 namespace decoder_detail {
