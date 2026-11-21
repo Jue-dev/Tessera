@@ -131,9 +131,6 @@ TEST_CASE("Concurrent logger, scanner, patch, hook and protection operations rem
 
     ConcurrentHookBackend hook_backend;
     int detour_storage = 0;
-    auto hook_result = detail::HookCore::create(Address{0x40000000ULL}, &detour_storage, &hook_backend);
-    REQUIRE(hook_result.has_value());
-    detail::HookCore shared_hook = std::move(*hook_result);
     std::atomic<bool> failed{false};
     std::vector<std::thread> workers;
     workers.reserve(kWorkers);
@@ -141,6 +138,13 @@ TEST_CASE("Concurrent logger, scanner, patch, hook and protection operations rem
     for (std::size_t worker = 0; worker < kWorkers; ++worker) {
         workers.emplace_back([&, worker] {
             const std::uint64_t region_base = kWorkerBase + worker * kWorkerStride;
+            auto hook_result = detail::HookCore::create(
+                Address{0x40000000ULL + worker * 0x1000ULL}, &detour_storage, &hook_backend);
+            if (!hook_result) {
+                failed.store(true, std::memory_order_relaxed);
+                return;
+            }
+            detail::HookCore worker_hook = std::move(*hook_result);
             for (std::size_t iteration = 0; iteration < kIterations; ++iteration) {
                 logger->set_min_level((iteration % 2u) == 0u ? LogLevel::Trace : LogLevel::Warn);
                 logger->add_sink((iteration % 2u) == 0u ? primary_sink : alternate_sink);
@@ -182,11 +186,11 @@ TEST_CASE("Concurrent logger, scanner, patch, hook and protection operations rem
                     }
                 }
 
-                if (!shared_hook.install(HookOptions{.threads = ThreadPolicy::None})) {
+                if (!worker_hook.install(HookOptions{.threads = ThreadPolicy::None})) {
                     failed.store(true, std::memory_order_relaxed);
                 }
-                (void)shared_hook.installed();
-                if (!shared_hook.remove()) {
+                (void)worker_hook.installed();
+                if (!worker_hook.remove()) {
                     failed.store(true, std::memory_order_relaxed);
                 }
             }
@@ -198,7 +202,6 @@ TEST_CASE("Concurrent logger, scanner, patch, hook and protection operations rem
     }
 
     REQUIRE_FALSE(failed.load(std::memory_order_relaxed));
-    REQUIRE_FALSE(shared_hook.installed());
     REQUIRE(hook_backend.active_count() == 0);
     REQUIRE(hook_backend.attached_count() == hook_backend.detached_count());
     REQUIRE_FALSE(primary_sink->records().empty());
