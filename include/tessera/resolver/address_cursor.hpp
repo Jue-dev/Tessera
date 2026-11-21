@@ -84,6 +84,41 @@ public:
         return AddressCursor{resolve::detail::abs32_impl(*state_, operand_off)};
     }
 
+    [[nodiscard]] AddressCursor step_instructions(std::size_t count = 1) const noexcept {
+        if (!state_) {
+            return *this;
+        }
+        return AddressCursor{resolve::detail::step_instructions_impl(*state_, count)};
+    }
+
+    [[nodiscard]] AddressCursor find_next_call(std::size_t max_bytes = 0x1000) const noexcept {
+        if (!state_) {
+            return *this;
+        }
+        return AddressCursor{resolve::detail::find_next_call_impl(*state_, max_bytes)};
+    }
+
+    [[nodiscard]] AddressCursor find_next_rip_relative(std::size_t max_bytes = 0x1000) const noexcept {
+        if (!state_) {
+            return *this;
+        }
+        return AddressCursor{resolve::detail::find_next_rip_relative_impl(*state_, max_bytes)};
+    }
+
+    [[nodiscard]] AddressCursor resolve_operand_target() const noexcept {
+        if (!state_) {
+            return *this;
+        }
+        return AddressCursor{resolve::detail::resolve_operand_target_impl(*state_)};
+    }
+
+    [[nodiscard]] AddressCursor resolve_thunk_chain(std::size_t max_hops = 8) const noexcept {
+        if (!state_) {
+            return *this;
+        }
+        return AddressCursor{resolve::detail::resolve_thunk_chain_impl(*state_, max_hops)};
+    }
+
     // Terminal operations
     [[nodiscard]] Result<ProcessAddress> resolve() const noexcept { return state_; }
 
