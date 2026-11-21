@@ -200,26 +200,53 @@ int main(int argc, char** argv) {
             const double seconds = static_cast<double>(duration.count()) / 1.0e9;
             return seconds > 0.0 ? (static_cast<double>(bytes) / seconds) / 1.0e6 : 0.0;
         };
-        std::cout << "{\\"benchmarks\\":["
-                  << "{\\"name\\":\\"pattern_masked_4mib\\",\\"iterations\\":" << pat_metrics.iterations
-                  << ",\\"ns_per_op\\":" << pat_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(pat_metrics.mean, buffer.size()) << "},"
-                  << "{\\"name\\":\\"pattern_exact_literal_4mib\\",\\"iterations\\":" << exact_metrics.iterations
-                  << ",\\"ns_per_op\\":" << exact_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(exact_metrics.mean, buffer.size()) << "},"
-                  << "{\\"name\\":\\"pattern_high_frequency_prolog_4mib\\",\\"iterations\\":" << prolog_metrics.iterations
-                  << ",\\"ns_per_op\\":" << prolog_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(prolog_metrics.mean, buffer.size()) << "},"
-                  << "{\\"name\\":\\"pattern_leading_wildcard_4mib\\",\\"iterations\\":" << leading_metrics.iterations
-                  << ",\\"ns_per_op\\":" << leading_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(leading_metrics.mean, buffer.size()) << "},"
-                  << "{\\"name\\":\\"pattern_dense_nibble_4mib\\",\\"iterations\\":" << nibble_metrics.iterations
-                  << ",\\"ns_per_op\\":" << nibble_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(nibble_metrics.mean, buffer.size()) << "},"
-                  << "{\\"name\\":\\"scanner_50_patterns_separate_4mib\\",\\"iterations\\":" << fifty_separate_metrics.iterations
-                  << ",\\"ns_per_op\\":" << fifty_separate_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(fifty_separate_metrics.mean, buffer.size() * fifty_patterns.size()) << "},"
-                  << "{\\"name\\":\\"scanner_50_patterns_batch_4mib\\",\\"iterations\\":" << fifty_batch_metrics.iterations
-                  << ",\\"ns_per_op\\":" << fifty_batch_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(fifty_batch_metrics.mean, buffer.size()) << "},"
-                  << "{\\"name\\":\\"xref_raw_pattern_16kib\\",\\"iterations\\":" << raw_xref_metrics.iterations
-                  << ",\\"ns_per_op\\":" << raw_xref_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(raw_xref_metrics.mean, xref_code.size()) << "},"
-                  << "{\\"name\\":\\"xref_decoder_verified_16kib\\",\\"iterations\\":" << decoded_xref_metrics.iterations
-                  << ",\\"ns_per_op\\":" << decoded_xref_metrics.mean.count() << ",\\"mb_per_s\\":" << throughput(decoded_xref_metrics.mean, xref_code.size()) << "}] }\\n";
+        std::cout << "{\"benchmarks\":["
+                  << "{\"name\":\"pattern_masked_4mib\",\"iterations\":" << pat_metrics.iterations
+                  << ",\"ns_per_op\":" << pat_metrics.mean.count() << ",\"mb_per_s\":" << throughput(pat_metrics.mean, buffer.size()) << "},"
+                  << "{\"name\":\"pattern_exact_literal_4mib\",\"iterations\":" << exact_metrics.iterations
+                  << ",\"ns_per_op\":" << exact_metrics.mean.count() << ",\"mb_per_s\":" << throughput(exact_metrics.mean, buffer.size()) << "},"
+                  << "{\"name\":\"pattern_high_frequency_prolog_4mib\",\"iterations\":" << prolog_metrics.iterations
+                  << ",\"ns_per_op\":" << prolog_metrics.mean.count() << ",\"mb_per_s\":" << throughput(prolog_metrics.mean, buffer.size()) << "},"
+                  << "{\"name\":\"pattern_leading_wildcard_4mib\",\"iterations\":" << leading_metrics.iterations
+                  << ",\"ns_per_op\":" << leading_metrics.mean.count() << ",\"mb_per_s\":" << throughput(leading_metrics.mean, buffer.size()) << "},"
+                  << "{\"name\":\"pattern_dense_nibble_4mib\",\"iterations\":" << nibble_metrics.iterations
+                  << ",\"ns_per_op\":" << nibble_metrics.mean.count() << ",\"mb_per_s\":" << throughput(nibble_metrics.mean, buffer.size()) << "},"
+                  << "{\"name\":\"scanner_50_patterns_separate_4mib\",\"iterations\":" << fifty_separate_metrics.iterations
+                  << ",\"ns_per_op\":" << fifty_separate_metrics.mean.count() << ",\"mb_per_s\":" << throughput(fifty_separate_metrics.mean, buffer.size() * fifty_patterns.size()) << "},"
+                  << "{\"name\":\"scanner_50_patterns_batch_4mib\",\"iterations\":" << fifty_batch_metrics.iterations
+                  << ",\"ns_per_op\":" << fifty_batch_metrics.mean.count() << ",\"mb_per_s\":" << throughput(fifty_batch_metrics.mean, buffer.size()) << "},"
+                  << "{\"name\":\"xref_raw_pattern_16kib\",\"iterations\":" << raw_xref_metrics.iterations
+                  << ",\"ns_per_op\":" << raw_xref_metrics.mean.count() << ",\"mb_per_s\":" << throughput(raw_xref_metrics.mean, xref_code.size()) << "},"
+                  << "{\"name\":\"xref_decoder_verified_16kib\",\"iterations\":" << decoded_xref_metrics.iterations
+                  << ",\"ns_per_op\":" << decoded_xref_metrics.mean.count() << ",\"mb_per_s\":" << throughput(decoded_xref_metrics.mean, xref_code.size()) << "}] }\n";
         return 0;
+    }
+
+    const auto print_metric = [](int index, std::string_view name, const auto& metrics,
+                                  std::size_t bytes) {
+        const double seconds = static_cast<double>(metrics.mean.count()) / 1.0e9;
+        const double mb_per_s = seconds > 0.0
+                                    ? (static_cast<double>(bytes) / seconds) / 1.0e6
+                                    : 0.0;
+        std::cout << "Benchmark " << index << ": " << name << "\n"
+                  << "  Iterations : " << metrics.iterations << "\n"
+                  << "  Min (us)   : " << metrics.min.count() / 1000.0 << "\n"
+                  << "  Mean (us)  : " << metrics.mean.count() / 1000.0 << "\n"
+                  << "  Max (us)   : " << metrics.max.count() / 1000.0 << "\n"
+                  << "  Throughput : " << mb_per_s << " MB/s\n\n";
+    };
+    print_metric(1, "Masked Pattern::search (4 MiB)", pat_metrics, buffer.size());
+    print_metric(2, "Exact literal Pattern::search (4 MiB)", exact_metrics, buffer.size());
+    print_metric(3, "Common x64 prolog Pattern::search (4 MiB)", prolog_metrics, buffer.size());
+    print_metric(4, "Leading wildcard Pattern::search (4 MiB)", leading_metrics, buffer.size());
+    print_metric(5, "Dense nibble mask Pattern::search (4 MiB)", nibble_metrics, buffer.size());
+    print_metric(6, "50 patterns scanned separately (4 MiB each)", fifty_separate_metrics,
+                 buffer.size() * fifty_patterns.size());
+    print_metric(7, "50 patterns scanned in one batch (4 MiB)", fifty_batch_metrics, buffer.size());
+    print_metric(8, "Raw byte-pattern CALL xref (16 KiB)", raw_xref_metrics, xref_code.size());
+    print_metric(9, "Decoder-verified CALL xref (16 KiB)", decoded_xref_metrics, xref_code.size());
+
+    return 0;
     }
 
     const auto print_metric = [](int index, std::string_view name, const auto& metrics,
