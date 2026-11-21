@@ -15,12 +15,8 @@ namespace {
         [](const auto& v) -> json::JsonValue {
             using T = std::decay_t<decltype(v)>;
             if constexpr (std::same_as<T, StringList>) {
-                json::JsonValue::Array arr;
-                arr.reserve(v.size());
-                for (const auto& s : v) {
-                    arr.emplace_back(s);
-                }
-                return json::JsonValue{std::move(arr)};
+                return json::JsonValue{json::detail::serialize_array(
+                    v, [](const std::string& text) { return json::JsonValue{text}; })};
             } else {
                 return json::JsonValue{v};
             }
@@ -41,18 +37,21 @@ namespace {
         case json::JsonType::String:
             return SettingValue{std::string(*jv.as_string())};
         case json::JsonType::Array: {
-            StringList list;
-            for (const auto& elem : *jv.as_array()) {
-                auto sv = elem.as_string();
-                if (!sv) {
-                    return fail(ErrorCode::ParseError,
-                                "deserialize_profile_from_json",
-                                0,
-                                "Settings array elements must be strings");
-                }
-                list.emplace_back(*sv);
+            auto list = json::detail::parse_array<std::string>(
+                jv,
+                "deserialize_profile_from_json",
+                "Settings array elements must be strings",
+                [](const json::JsonValue& value) -> std::optional<std::string> {
+                    auto text = value.as_string();
+                    if (!text) {
+                        return std::nullopt;
+                    }
+                    return std::string(*text);
+                });
+            if (!list) {
+                return std::unexpected(list.error());
             }
-            return SettingValue{std::move(list)};
+            return SettingValue{std::move(*list)};
         }
         default:
             return fail(ErrorCode::ParseError,
@@ -76,11 +75,8 @@ Result<json::JsonValue> serialize_profile_to_json(const Profile& profile,
         root.set("name", profile.name);
         root.set("description", profile.description);
 
-        json::JsonValue::Array tags_arr;
-        for (const auto& t : profile.tags) {
-            tags_arr.emplace_back(t);
-        }
-        root.set("tags", json::JsonValue{std::move(tags_arr)});
+        root.set("tags", json::JsonValue{json::detail::serialize_array(
+            profile.tags, [](const std::string& tag) { return json::JsonValue{tag}; })});
 
         json::JsonValue vals_obj = json::JsonValue::make_object();
         for (const auto& [k, v] : profile.values) {
@@ -130,24 +126,26 @@ Result<Profile> deserialize_profile_from_json(const json::JsonValue& root,
     try {
         Profile p{};
         if (const auto* fv = root.find("formatVersion")) {
-            auto v = fv->as_uint64();
+            auto v = json::detail::checked_unsigned<std::uint32_t>(
+                *fv, "deserialize_profile_from_json", "Invalid formatVersion");
             if (!v || *v == 0) {
                 return fail(ErrorCode::ParseError,
                             "deserialize_profile_from_json",
                             0,
                             "Invalid formatVersion");
             }
-            p.format_version = static_cast<std::uint32_t>(*v);
+            p.format_version = *v;
         }
         if (const auto* sv = root.find("schemaVersion")) {
-            auto v = sv->as_uint64();
+            auto v = json::detail::checked_unsigned<std::uint32_t>(
+                *sv, "deserialize_profile_from_json", "Invalid schemaVersion");
             if (!v || *v == 0) {
                 return fail(ErrorCode::ParseError,
                             "deserialize_profile_from_json",
                             0,
                             "Invalid schemaVersion");
             }
-            p.schema_version = static_cast<std::uint32_t>(*v);
+            p.schema_version = *v;
         }
         if (const auto* rev = root.find("revision")) {
             auto v = rev->as_uint64();
@@ -182,12 +180,17 @@ Result<Profile> deserialize_profile_from_json(const json::JsonValue& root,
                 root, "description", [](const json::JsonValue& value) { return value.as_string(); })) {
             p.description = std::string(*description);
         }
-        if (const auto* tags = root.find("tags"); tags != nullptr && tags->is_array()) {
-            for (const auto& t : *tags->as_array()) {
-                if (auto ts = t.as_string()) {
-                    p.tags.emplace_back(*ts);
-                }
-            }
+        if (const auto* tags = root.find("tags")) {
+            json::detail::append_array(
+                *tags,
+                p.tags,
+                [](const json::JsonValue& value) -> std::optional<std::string> {
+                    auto text = value.as_string();
+                    if (!text) {
+                        return std::nullopt;
+                    }
+                    return std::string(*text);
+                });
         }
 
         if (const auto* vals = root.find("values")) {
