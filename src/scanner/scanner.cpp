@@ -275,7 +275,6 @@ Result<std::vector<ScanResult>> Scanner::scan_batch(
                     if (options.max_results > 0 && result.hits.size() >= options.max_results) {
                         continue;
                     }
-                    active = true;
                     patterns[i].search(data, start_limit, [&](std::size_t match_off) -> bool {
                         const std::uint64_t hit_addr = chunk_base.value() + match_off;
                         if (align > 1 && (hit_addr % align) != 0) {
@@ -288,6 +287,9 @@ Result<std::vector<ScanResult>> Scanner::scan_batch(
                         }
                         return true;
                     });
+                    if (options.max_results == 0 || result.hits.size() < options.max_results) {
+                        active = true;
+                    }
                     aggregate_hits += result.hits.size();
                 }
                 if (options.on_progress) {
