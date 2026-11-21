@@ -46,4 +46,18 @@ foreach ($target in $benchmarkTargets) {
     if ($LASTEXITCODE -ne 0) {
         throw "Benchmark smoke failed ($LASTEXITCODE): $target"
     }
+
+    $jsonOutput = & $target --json | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        throw "Benchmark JSON smoke failed ($LASTEXITCODE): $target"
+    }
+    try {
+        $json = $jsonOutput | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        throw "Benchmark emitted invalid JSON: $target"
+    }
+    if ($null -eq $json.benchmarks -or $json.benchmarks.Count -eq 0) {
+        throw "Benchmark JSON payload has no benchmark entries: $target"
+    }
 }
