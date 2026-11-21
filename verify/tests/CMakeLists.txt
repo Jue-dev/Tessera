@@ -133,6 +133,7 @@ tessera_add_test(tessera_test_pattern_scanner
         tessera::pattern
         tessera::scanner
 )
+target_include_directories(tessera_test_pattern_scanner PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
 tessera_add_test(tessera_test_module_resolver
     SOURCES
