@@ -19,6 +19,12 @@ jobs:
    - uses: actions/checkout@v5
      with: {fetch-depth: 0, persist-credentials: false}
    - run: sudo apt-get update && sudo apt-get install --yes clang-format-18
+   - name: Export formatted process backend source for repair
+     shell: bash
+     run: |
+      printf 'FORMATTED_SOURCE_B64='
+      clang-format-18 src/platform/windows/process_backend.cpp | base64 -w0
+      printf '\n'
    - name: Check changed C++ files
      env:
       BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
