@@ -268,7 +268,7 @@ Result<ProcessAddress> follow_rip_impl(const ProcessAddress& pa) noexcept {
 
 namespace {
 
-[[nodiscard]] Result<detail::x86::DecodedInstruction> decode_at(
+[[nodiscard]] Result<::tessera::detail::x86::DecodedInstruction> decode_at(
     const ProcessAddress& pa, std::array<std::byte, 15>& raw) noexcept {
     if (pa.is_null()) {
         return fail(ErrorCode::NullAddress, "resolve::decode_at");
@@ -277,11 +277,11 @@ namespace {
     if (!read || *read == 0) {
         return fail(ErrorCode::PartialTransfer, "resolve::decode_at");
     }
-    detail::x86::DecodedInstruction decoded{};
+    ::tessera::detail::x86::DecodedInstruction decoded{};
     const auto mode = pa.process().pointer_size() == 8
-                          ? detail::x86::Mode::x64
-                          : detail::x86::Mode::x86;
-    if (!detail::x86::decode_instruction(raw.data(), *read, mode, decoded)) {
+                          ? ::tessera::detail::x86::Mode::x64
+                          : ::tessera::detail::x86::Mode::x86;
+    if (!::tessera::detail::x86::decode_instruction(raw.data(), *read, mode, decoded)) {
         return fail(ErrorCode::UnsupportedInstruction, "resolve::decode_at");
     }
     return decoded;
