@@ -89,6 +89,6 @@ Python bridge discovery reports runtime/framework evidence separately from deplo
 - `Scanner::scan_batch(range, patterns, options)` reads each memory chunk once for the full pattern span and returns one `ScanResult` per input pattern in the same order. `max_results` is applied independently to each result.
 - `xref::find_pointer_refs_batch` scans multiple pointer targets through the batch scanner.
 - `xref::find_conditional_branches` resolves near conditional branches (`0F 8x rel32`) to a target.
-- `xref::find_indirect_refs` verifies x86 absolute and x64 RIP-relative indirect CALL/JMP slots by decoding the instruction and dereferencing the pointer operand.
+- `xref::find_indirect_refs` verifies x86 absolute and x64 RIP-relative indirect CALL/JMP slots by decoding the instruction and dereferencing the pointer operand. `PeImage::relocations()` exposes bounds-checked base relocation entries, and `xref::find_relocated_pointer_refs` resolves HIGHLOW/DIR64 data pointers using the loaded module base.
 - `AddressCursor` exposes bounded instruction stepping, call/RIP-relative instruction discovery, operand-target resolution, and cycle/hop-limited thunk following. These operations use the internal shared decoder and return errors for unsupported or unreadable instructions.
 
