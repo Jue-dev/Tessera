@@ -70,6 +70,25 @@ void run_detours_hook_tests() {
           "Detours detach failure aborts the transaction and preserves the native error");
 
     winmock::reset();
+    winmock::detour_commit_error = 5678;
+    auto commit_attach_error =
+        default_hook_backend().attach(Address{0x1000}, reinterpret_cast<void*>(0x2000), hook_options);
+    check(!commit_attach_error &&
+              commit_attach_error.error().operation == "DetourTransactionCommit" &&
+              commit_attach_error.error().native == 5678 &&
+              winmock::detour_abort_calls == 1,
+          "Detours attach commit failure aborts the transaction");
+
+    winmock::reset();
+    winmock::detour_commit_error = 6789;
+    auto commit_detach_error = default_hook_backend().detach(token);
+    check(!commit_detach_error &&
+              commit_detach_error.error().operation == "DetourTransactionCommit" &&
+              commit_detach_error.error().native == 6789 &&
+              winmock::detour_abort_calls == 1,
+          "Detours detach commit failure aborts the transaction");
+
+    winmock::reset();
     auto attached = default_hook_backend().attach(Address{0x1000}, reinterpret_cast<void*>(0x2000), hook_options);
     check(attached.has_value() && attached->trampoline == reinterpret_cast<void*>(0x1000),
           "Detours attach mock success path returns a hook token");
