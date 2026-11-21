@@ -25,6 +25,10 @@ jobs:
         with:
           arch: x64
 
+      - name: Generate PE test fixtures
+        shell: pwsh
+        run: .\verify\windows\generate_test_fixtures.ps1 -OutputDirectory .\verify\tests\fixtures
+
       - name: Install LLVM and Ninja
         shell: pwsh
         run: |
