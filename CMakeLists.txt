@@ -281,6 +281,9 @@ tessera_add_module(
         tessera::process
         tessera::memory
         tessera::pattern
+    PRIVATE_DEPS
+        tessera::disasm
+        tessera::module
         tessera::disasm
         tessera::module
 )
@@ -298,6 +301,8 @@ tessera_add_module(
         tessera::process
         tessera::memory
         tessera::scanner
+    PRIVATE_DEPS
+        tessera::disasm
         tessera::disasm
 )
 
@@ -370,10 +375,10 @@ tessera_add_module(
     PUBLIC_DEPS
         tessera::core
         tessera::diagnostics
-        tessera::disasm
     PRIVATE_DEPS
         tessera::process
         tessera::memory
+        tessera::disasm
     PRIVATE_DEFS
         ${TESSERA_HOOK_PRIVATE_DEFS}
     SYSTEM_LIBS
