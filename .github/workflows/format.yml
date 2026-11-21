@@ -5,14 +5,9 @@ on:
     branches: [ "main" ]
     paths:
       - ".clang-format"
-      - "**/*.c"
-      - "**/*.cc"
-      - "**/*.cpp"
-      - "**/*.cxx"
-      - "**/*.h"
-      - "**/*.hh"
-      - "**/*.hpp"
-      - "**/*.hxx"
+      - "src/**"
+      - "include/**"
+      - "examples/**"
       - ".github/workflows/format.yml"
   workflow_dispatch:
 
@@ -21,7 +16,7 @@ permissions:
 
 jobs:
   clang-format:
-    name: clang-format (changed C/C++ files)
+    name: clang-format (changed production C/C++ files)
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
@@ -35,7 +30,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes clang-format-18
 
-      - name: Check changed C/C++ files
+      - name: Check changed production C/C++ files
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.sha }}
@@ -43,11 +38,14 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t files < <(git diff --name-only --diff-filter=ACMRT "$BASE_SHA" "$HEAD_SHA" -- \
-            '*.c' '*.cc' '*.cpp' '*.cxx' '*.h' '*.hh' '*.hpp' '*.hxx')
+            'src/*.c' 'src/**/*.c' 'src/*.cc' 'src/**/*.cc' 'src/*.cpp' 'src/**/*.cpp' 'src/*.cxx' 'src/**/*.cxx' \
+            'include/*.h' 'include/**/*.h' 'include/*.hh' 'include/**/*.hh' 'include/*.hpp' 'include/**/*.hpp' 'include/*.hxx' 'include/**/*.hxx' \
+            'examples/*.c' 'examples/**/*.c' 'examples/*.cc' 'examples/**/*.cc' 'examples/*.cpp' 'examples/**/*.cpp' 'examples/*.cxx' 'examples/**/*.cxx' \
+            'examples/*.h' 'examples/**/*.h' 'examples/*.hh' 'examples/**/*.hh' 'examples/*.hpp' 'examples/**/*.hpp' 'examples/*.hxx' 'examples/**/*.hxx')
           if (("${#files[@]}" == 0)); then
-            echo "No changed C/C++ files to format-check."
+            echo "No changed production C/C++ files to format-check."
             exit 0
           fi
-          printf 'Checking %s changed C/C++ files with repository .clang-format\n' "${#files[@]}"
+          printf 'Checking %s changed production C/C++ files with repository .clang-format\n' "${#files[@]}"
           printf '%s\n' "${files[@]}"
           clang-format-18 --dry-run --Werror "${files[@]}"
