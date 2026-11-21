@@ -1,20 +1,19 @@
 #include "tessera/hook/iat_hook.hpp"
 
-#include <array>
-#include <cctype>
-#include <cstring>
-#include <utility>
-
 #include "tessera/memory/memory_backend.hpp"
 #include "tessera/memory/memory_reader.hpp"
 #include "tessera/memory/protection_scope.hpp"
 #include "tessera/module/pe_image.hpp"
 
+#include <array>
+#include <cctype>
+#include <cstring>
+#include <utility>
+
 namespace tessera {
 namespace {
 
-bool equal_ascii_case_insensitive(std::string_view lhs,
-                                  std::string_view rhs) noexcept {
+bool equal_ascii_case_insensitive(std::string_view lhs, std::string_view rhs) noexcept {
     if (lhs.size() != rhs.size()) {
         return false;
     }
@@ -35,8 +34,8 @@ Status write_pointer(const Process& process, Address slot, Address value) {
     const std::uint64_t raw = value.value();
     std::memcpy(bytes.data(), &raw, pointer_size);
 
-    auto written = memory_backend(process).write(
-        slot, std::span<const std::byte>{bytes.data(), pointer_size});
+    auto written =
+        memory_backend(process).write(slot, std::span<const std::byte>{bytes.data(), pointer_size});
     if (!written) {
         return std::unexpected(written.error());
     }
@@ -52,8 +51,7 @@ Status write_pointer(const Process& process, Address slot, Address value) {
 } // namespace
 
 IatHook::IatHook(IatHook&& other) noexcept
-    : process_(std::move(other.process_)),
-      slot_(std::exchange(other.slot_, Address{})),
+    : process_(std::move(other.process_)), slot_(std::exchange(other.slot_, Address{})),
       original_(std::exchange(other.original_, Address{})),
       replacement_(std::exchange(other.replacement_, Address{})),
       installed_(std::exchange(other.installed_, false)) {}
@@ -64,13 +62,10 @@ IatHook::~IatHook() noexcept {
     }
 }
 
-Result<IatHook> IatHook::install(const Process& process,
-                                  Address module_base,
-                                  std::string_view imported_module,
-                                  std::string_view function_name,
-                                  Address replacement) {
-    if (module_base.is_null() || replacement.is_null() ||
-        imported_module.empty() || function_name.empty() ||
+Result<IatHook> IatHook::install(const Process& process, Address module_base,
+                                 std::string_view imported_module, std::string_view function_name,
+                                 Address replacement) {
+    if (module_base.is_null() || replacement.is_null() || imported_module.empty() || function_name.empty() ||
         (process.pointer_size() != 4 && process.pointer_size() != 8) ||
         (process.pointer_size() == 4 && replacement.value() > 0xffffffffULL)) {
         return fail(ErrorCode::InvalidArgument, "IatHook::install");
@@ -83,8 +78,7 @@ Result<IatHook> IatHook::install(const Process& process,
 
     const ImportEntry* found = nullptr;
     for (const auto& entry : image->imports()) {
-        if (!entry.by_ordinal &&
-            equal_ascii_case_insensitive(entry.module_name, imported_module) &&
+        if (!entry.by_ordinal && equal_ascii_case_insensitive(entry.module_name, imported_module) &&
             entry.function_name == function_name) {
             found = &entry;
             break;
@@ -110,9 +104,8 @@ Result<IatHook> IatHook::install(const Process& process,
                     "IAT slot already contains the replacement address");
     }
 
-    auto protection = ProtectionScope::create(
-        process, AddressRange{*slot, process.pointer_size()},
-        MemoryProtection::Read | MemoryProtection::Write);
+    auto protection = ProtectionScope::create(process, AddressRange{*slot, process.pointer_size()},
+                                              MemoryProtection::Read | MemoryProtection::Write);
     if (!protection) {
         return std::unexpected(protection.error());
     }
@@ -128,9 +121,9 @@ Result<IatHook> IatHook::install(const Process& process,
 
     auto restored = protection->restore();
     if (!restored) {
-        auto rollback_protection = ProtectionScope::create(
-            process, AddressRange{*slot, process.pointer_size()},
-            MemoryProtection::Read | MemoryProtection::Write);
+        auto rollback_protection =
+            ProtectionScope::create(process, AddressRange{*slot, process.pointer_size()},
+                                    MemoryProtection::Read | MemoryProtection::Write);
         if (rollback_protection) {
             (void)write_pointer(process, *slot, *original);
             (void)rollback_protection->restore();
@@ -159,9 +152,8 @@ Status IatHook::restore() noexcept {
                     "IAT slot no longer contains the address installed by this hook");
     }
 
-    auto protection = ProtectionScope::create(
-        process_, AddressRange{slot_, process_.pointer_size()},
-        MemoryProtection::Read | MemoryProtection::Write);
+    auto protection = ProtectionScope::create(process_, AddressRange{slot_, process_.pointer_size()},
+                                              MemoryProtection::Read | MemoryProtection::Write);
     if (!protection) {
         return std::unexpected(protection.error());
     }

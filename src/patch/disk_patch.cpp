@@ -22,8 +22,7 @@
 namespace tessera {
 namespace {
 
-template <class T>
-bool read_le(std::span<const std::byte> bytes, std::size_t offset, T& value) noexcept {
+template <class T> bool read_le(std::span<const std::byte> bytes, std::size_t offset, T& value) noexcept {
     if (offset > bytes.size() || sizeof(T) > bytes.size() - offset) {
         return false;
     }
@@ -31,8 +30,7 @@ bool read_le(std::span<const std::byte> bytes, std::size_t offset, T& value) noe
     return true;
 }
 
-template <class T>
-bool write_le(std::span<std::byte> bytes, std::size_t offset, T value) noexcept {
+template <class T> bool write_le(std::span<std::byte> bytes, std::size_t offset, T value) noexcept {
     if (offset > bytes.size() || sizeof(T) > bytes.size() - offset) {
         return false;
     }
@@ -52,8 +50,7 @@ struct PeLayout {
 Result<PeLayout> parse_layout(std::span<const std::byte> bytes) noexcept {
     std::uint16_t mz = 0;
     std::uint32_t pe = 0;
-    if (!read_le(bytes, 0, mz) || mz != 0x5a4d ||
-        !read_le(bytes, 0x3c, pe) || pe > bytes.size()) {
+    if (!read_le(bytes, 0, mz) || mz != 0x5a4d || !read_le(bytes, 0x3c, pe) || pe > bytes.size()) {
         return fail(ErrorCode::InvalidPe, "PeDiskPatcher::parse_layout");
     }
     const std::size_t coff = static_cast<std::size_t>(pe) + 4u;
@@ -67,16 +64,15 @@ Result<PeLayout> parse_layout(std::span<const std::byte> bytes) noexcept {
         return fail(ErrorCode::InvalidPe, "PeDiskPatcher::parse_layout");
     }
     const std::size_t directory = optional + (magic == 0x20b ? 112u : magic == 0x10b ? 96u : 0u);
-    if (directory == optional || optional_size < 68u ||
-        optional > bytes.size() || optional_size > bytes.size() - optional) {
+    if (directory == optional || optional_size < 68u || optional > bytes.size() ||
+        optional_size > bytes.size() - optional) {
         return fail(ErrorCode::InvalidPe, "PeDiskPatcher::parse_layout");
     }
     PeLayout layout{};
     layout.optional_header = optional;
     layout.optional_size = optional_size;
     layout.checksum_offset = optional + 64u;
-    if (directory + 5u * 8u <= optional + optional_size &&
-        directory + 5u * 8u <= bytes.size()) {
+    if (directory + 5u * 8u <= optional + optional_size && directory + 5u * 8u <= bytes.size()) {
         layout.security_directory_offset = directory + 4u * 8u;
         (void)read_le(bytes, layout.security_directory_offset, layout.certificate_offset);
         (void)read_le(bytes, layout.security_directory_offset + 4u, layout.certificate_size);
@@ -113,8 +109,7 @@ Status write_file(const std::filesystem::path& path, std::span<const std::byte> 
         return fail(ErrorCode::IoError, "DiskPatchTransaction::write", 0, "Unable to create temporary file");
     }
     if (!bytes.empty()) {
-        out.write(reinterpret_cast<const char*>(bytes.data()),
-                  static_cast<std::streamsize>(bytes.size()));
+        out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
     }
     out.flush();
     if (!out) {
@@ -129,8 +124,7 @@ Status write_file(const std::filesystem::path& path, std::span<const std::byte> 
 
 Status atomic_replace(const std::filesystem::path& temp, const std::filesystem::path& target) {
 #if defined(_WIN32)
-    if (!::MoveFileExW(temp.c_str(), target.c_str(),
-                       MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+    if (!::MoveFileExW(temp.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         return fail(ErrorCode::IoError, "MoveFileExW", ::GetLastError(), "Atomic replacement failed");
     }
 #else
@@ -143,8 +137,7 @@ Status atomic_replace(const std::filesystem::path& temp, const std::filesystem::
 
 } // namespace
 
-Result<std::uint32_t> PeDiskPatcher::calculate_checksum(
-    std::span<const std::byte> file_bytes) {
+Result<std::uint32_t> PeDiskPatcher::calculate_checksum(std::span<const std::byte> file_bytes) {
     auto layout = parse_layout(file_bytes);
     if (!layout) {
         return std::unexpected(layout.error());
@@ -156,8 +149,7 @@ Result<std::uint32_t> PeDiskPatcher::calculate_checksum(
         }
         std::uint16_t word = std::to_integer<std::uint8_t>(file_bytes[i]);
         if (i + 1u < file_bytes.size()) {
-            word |= static_cast<std::uint16_t>(
-                std::to_integer<std::uint8_t>(file_bytes[i + 1u])) << 8u;
+            word |= static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(file_bytes[i + 1u])) << 8u;
         }
         sum += word;
         sum = (sum & 0xffffu) + (sum >> 16u);
@@ -167,9 +159,9 @@ Result<std::uint32_t> PeDiskPatcher::calculate_checksum(
     return static_cast<std::uint32_t>(sum & 0xffffffffu);
 }
 
-Result<std::vector<PeCodeCave>> PeDiskPatcher::find_code_caves(
-    std::span<const std::byte> file_bytes, std::size_t min_size,
-    SectionCharacteristics section_flags) {
+Result<std::vector<PeCodeCave>> PeDiskPatcher::find_code_caves(std::span<const std::byte> file_bytes,
+                                                               std::size_t min_size,
+                                                               SectionCharacteristics section_flags) {
     if (min_size == 0) {
         return fail(ErrorCode::InvalidArgument, "PeDiskPatcher::find_code_caves");
     }
@@ -195,7 +187,8 @@ Result<std::vector<PeCodeCave>> PeDiskPatcher::find_code_caves(
             std::size_t run_start = 0;
             std::size_t run_size = 0;
             for (std::uint64_t offset = padding_start; offset < padding_end; ++offset) {
-                const auto value = std::to_integer<std::uint8_t>(file_bytes[static_cast<std::size_t>(offset)]);
+                const auto value =
+                    std::to_integer<std::uint8_t>(file_bytes[static_cast<std::size_t>(offset)]);
                 const bool padding = value == 0x00u || value == 0x90u || value == 0xccu;
                 if (padding) {
                     if (run_size == 0) {
@@ -204,27 +197,27 @@ Result<std::vector<PeCodeCave>> PeDiskPatcher::find_code_caves(
                     ++run_size;
                 } else {
                     if (run_size >= min_size) {
-                        const std::uint64_t rva = static_cast<std::uint64_t>(section.rva.value()) +
-                                                  run_start - section.raw_offset;
+                        const std::uint64_t rva =
+                            static_cast<std::uint64_t>(section.rva.value()) + run_start - section.raw_offset;
                         if (rva > (std::numeric_limits<std::uint32_t>::max)()) {
                             run_size = 0;
                             continue;
                         }
-                        caves.push_back(PeCodeCave{Rva{static_cast<std::uint32_t>(rva)},
-                                                   run_start, run_size, section.name});
+                        caves.push_back(PeCodeCave{Rva{static_cast<std::uint32_t>(rva)}, run_start, run_size,
+                                                   section.name});
                     }
                     run_size = 0;
                 }
             }
             if (run_size >= min_size) {
-                const std::uint64_t rva = static_cast<std::uint64_t>(section.rva.value()) +
-                                          run_start - section.raw_offset;
+                const std::uint64_t rva =
+                    static_cast<std::uint64_t>(section.rva.value()) + run_start - section.raw_offset;
                 if (rva > (std::numeric_limits<std::uint32_t>::max)()) {
                     run_size = 0;
                     continue;
                 }
-                caves.push_back(PeCodeCave{Rva{static_cast<std::uint32_t>(rva)},
-                                           run_start, run_size, section.name});
+                caves.push_back(
+                    PeCodeCave{Rva{static_cast<std::uint32_t>(rva)}, run_start, run_size, section.name});
             }
         }
     } catch (const std::bad_alloc&) {
@@ -233,15 +226,14 @@ Result<std::vector<PeCodeCave>> PeDiskPatcher::find_code_caves(
     return caves;
 }
 
-Status DiskPatchTransaction::add_patch(std::uint64_t file_offset,
-                                        std::span<const std::byte> replacement,
-                                        std::span<const std::byte> expected_original) {
+Status DiskPatchTransaction::add_patch(std::uint64_t file_offset, std::span<const std::byte> replacement,
+                                       std::span<const std::byte> expected_original) {
     if (applied_ || replacement.empty()) {
         return fail(ErrorCode::InvalidArgument, "DiskPatchTransaction::add_patch");
     }
     if (!expected_original.empty() && expected_original.size() != replacement.size()) {
-        return fail(ErrorCode::InvalidArgument, "DiskPatchTransaction::add_patch",
-                    0, "Expected byte count must equal replacement byte count");
+        return fail(ErrorCode::InvalidArgument, "DiskPatchTransaction::add_patch", 0,
+                    "Expected byte count must equal replacement byte count");
     }
     try {
         StagedPatch patch{};
@@ -273,8 +265,8 @@ Result<DiskPatchReport> DiskPatchTransaction::apply() {
     }
     const bool signed_file = layout->certificate_offset != 0 && layout->certificate_size != 0;
     if (signed_file && !options_.strip_signature && !options_.allow_invalidating_signature) {
-        return fail(ErrorCode::AccessDenied, "DiskPatchTransaction::apply",
-                    0, "Authenticode signature present; explicit signature-invalidating opt-in is required");
+        return fail(ErrorCode::AccessDenied, "DiskPatchTransaction::apply", 0,
+                    "Authenticode signature present; explicit signature-invalidating opt-in is required");
     }
     std::vector<StagedPatch> sorted = patches_;
     std::sort(sorted.begin(), sorted.end(),
@@ -288,21 +280,21 @@ Result<DiskPatchReport> DiskPatchTransaction::apply() {
         for (const auto& patch : sorted) {
             if (patch.offset > updated.size() ||
                 patch.replacement.size() > updated.size() - static_cast<std::size_t>(patch.offset)) {
-                return fail(ErrorCode::OutOfRange, "DiskPatchTransaction::apply",
-                            0, "Patch extends beyond the file");
+                return fail(ErrorCode::OutOfRange, "DiskPatchTransaction::apply", 0,
+                            "Patch extends beyond the file");
             }
             const std::uint64_t end = patch.offset + patch.replacement.size();
             if (!first && patch.offset < previous_end) {
-                return fail(ErrorCode::Conflict, "DiskPatchTransaction::apply",
-                            0, "Overlapping disk patches are not allowed");
+                return fail(ErrorCode::Conflict, "DiskPatchTransaction::apply", 0,
+                            "Overlapping disk patches are not allowed");
             }
             first = false;
             previous_end = end;
             if (!patch.expected.empty() &&
                 !std::equal(patch.expected.begin(), patch.expected.end(),
                             updated.begin() + static_cast<std::ptrdiff_t>(patch.offset))) {
-                return fail(ErrorCode::Conflict, "DiskPatchTransaction::apply",
-                            0, "Expected original bytes do not match the target file");
+                return fail(ErrorCode::Conflict, "DiskPatchTransaction::apply", 0,
+                            "Expected original bytes do not match the target file");
             }
             std::copy(patch.replacement.begin(), patch.replacement.end(),
                       updated.begin() + static_cast<std::ptrdiff_t>(patch.offset));
@@ -316,9 +308,10 @@ Result<DiskPatchReport> DiskPatchTransaction::apply() {
     if (signed_file && options_.strip_signature) {
         if (layout->security_directory_offset == 0 ||
             !write_le(std::span<std::byte>{updated}, layout->security_directory_offset, std::uint32_t{0}) ||
-            !write_le(std::span<std::byte>{updated}, layout->security_directory_offset + 4u, std::uint32_t{0})) {
-            return fail(ErrorCode::InvalidPe, "DiskPatchTransaction::apply",
-                        0, "Unable to clear PE Security Directory");
+            !write_le(std::span<std::byte>{updated}, layout->security_directory_offset + 4u,
+                      std::uint32_t{0})) {
+            return fail(ErrorCode::InvalidPe, "DiskPatchTransaction::apply", 0,
+                        "Unable to clear PE Security Directory");
         }
         directory_cleared = true;
     }
@@ -331,8 +324,8 @@ Result<DiskPatchReport> DiskPatchTransaction::apply() {
         }
         checksum = *calculated;
         if (!write_le(std::span<std::byte>{updated}, layout->checksum_offset, checksum)) {
-            return fail(ErrorCode::InvalidPe, "DiskPatchTransaction::apply",
-                        0, "Unable to update Optional Header checksum");
+            return fail(ErrorCode::InvalidPe, "DiskPatchTransaction::apply", 0,
+                        "Unable to update Optional Header checksum");
         }
     } else {
         (void)read_le(std::span<const std::byte>{updated}, layout->checksum_offset, checksum);
@@ -340,8 +333,8 @@ Result<DiskPatchReport> DiskPatchTransaction::apply() {
 
     auto validated = PeImage::from_raw_bytes(updated);
     if (!validated) {
-        return fail(ErrorCode::ValidationFailed, "DiskPatchTransaction::apply",
-                    0, "Patched PE failed structural validation");
+        return fail(ErrorCode::ValidationFailed, "DiskPatchTransaction::apply", 0,
+                    "Patched PE failed structural validation");
     }
 
     std::filesystem::path temp = file_;
@@ -356,16 +349,15 @@ Result<DiskPatchReport> DiskPatchTransaction::apply() {
     auto written = read_file(temp);
     if (!written || *written != updated) {
         std::filesystem::remove(temp, ec);
-        return fail(ErrorCode::IoError, "DiskPatchTransaction::apply",
-                    0, "Temporary file verification failed");
+        return fail(ErrorCode::IoError, "DiskPatchTransaction::apply", 0,
+                    "Temporary file verification failed");
     }
 
     std::optional<std::filesystem::path> backup;
     if (options_.create_backup) {
         backup = file_;
         *backup += options_.backup_suffix;
-        std::filesystem::copy_file(file_, *backup,
-                                   std::filesystem::copy_options::none, ec);
+        std::filesystem::copy_file(file_, *backup, std::filesystem::copy_options::none, ec);
         if (ec) {
             const auto message = ec.message();
             std::error_code cleanup;

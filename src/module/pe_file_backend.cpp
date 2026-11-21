@@ -9,8 +9,7 @@
 namespace tessera {
 namespace {
 
-template <class T>
-bool read_value(std::span<const std::byte> bytes, std::size_t offset, T& out) noexcept {
+template <class T> bool read_value(std::span<const std::byte> bytes, std::size_t offset, T& out) noexcept {
     if (offset > bytes.size() || sizeof(T) > bytes.size() - offset) {
         return false;
     }
@@ -41,8 +40,8 @@ Result<std::uint32_t> find_headers_size(std::span<const std::byte> bytes) noexce
 
 } // namespace
 
-Result<std::shared_ptr<PeFileBackend>> PeFileBackend::open(
-    const std::filesystem::path& path, Address load_base) {
+Result<std::shared_ptr<PeFileBackend>> PeFileBackend::open(const std::filesystem::path& path,
+                                                           Address load_base) {
     try {
         std::ifstream stream(path, std::ios::binary | std::ios::ate);
         if (!stream) {
@@ -55,8 +54,7 @@ Result<std::shared_ptr<PeFileBackend>> PeFileBackend::open(
         }
         std::vector<std::byte> bytes(static_cast<std::size_t>(end));
         stream.seekg(0, std::ios::beg);
-        if (!stream.read(reinterpret_cast<char*>(bytes.data()),
-                         static_cast<std::streamsize>(bytes.size()))) {
+        if (!stream.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()))) {
             return fail(ErrorCode::IoError, "PeFileBackend::open", 0, "Unable to read PE file");
         }
         return from_bytes(std::move(bytes), load_base);
@@ -67,8 +65,8 @@ Result<std::shared_ptr<PeFileBackend>> PeFileBackend::open(
     }
 }
 
-Result<std::shared_ptr<PeFileBackend>> PeFileBackend::from_bytes(
-    std::vector<std::byte> bytes, Address load_base) {
+Result<std::shared_ptr<PeFileBackend>> PeFileBackend::from_bytes(std::vector<std::byte> bytes,
+                                                                 Address load_base) {
     if (bytes.empty()) {
         return fail(ErrorCode::InvalidArgument, "PeFileBackend::from_bytes", 0, "PE buffer is empty");
     }
@@ -131,25 +129,25 @@ PeFileBackend::mapping_for_rva(std::uint32_t rva) const noexcept {
         const std::uint64_t end = begin + size;
         if (size != 0 && rva >= begin && static_cast<std::uint64_t>(rva) < end) {
             if (match != nullptr) {
-                return fail(ErrorCode::Conflict, "PeFileBackend::mapping_for_rva",
-                            0, "Overlapping raw PE sections make the RVA ambiguous");
+                return fail(ErrorCode::Conflict, "PeFileBackend::mapping_for_rva", 0,
+                            "Overlapping raw PE sections make the RVA ambiguous");
             }
             match = &section;
         }
     }
     if (match == nullptr) {
-        return fail(ErrorCode::OutOfRange, "PeFileBackend::mapping_for_rva",
-                    0, "RVA is not backed by file bytes");
+        return fail(ErrorCode::OutOfRange, "PeFileBackend::mapping_for_rva", 0,
+                    "RVA is not backed by file bytes");
     }
     const std::uint64_t delta = static_cast<std::uint64_t>(rva) - match->rva.value();
     const std::uint64_t offset = static_cast<std::uint64_t>(match->raw_offset) + delta;
     if (offset >= bytes_.size()) {
         return fail(ErrorCode::OutOfRange, "PeFileBackend::mapping_for_rva");
     }
-    return std::pair{static_cast<std::uint32_t>(offset),
-                     static_cast<std::uint32_t>((std::min)(
-                         static_cast<std::uint64_t>(match->raw_size) - delta,
-                         static_cast<std::uint64_t>(bytes_.size()) - offset))};
+    return std::pair{
+        static_cast<std::uint32_t>(offset),
+        static_cast<std::uint32_t>((std::min)(static_cast<std::uint64_t>(match->raw_size) - delta,
+                                              static_cast<std::uint64_t>(bytes_.size()) - offset))};
 }
 
 Result<std::uint32_t> PeFileBackend::rva_to_file_offset(Rva rva) const noexcept {
@@ -184,10 +182,8 @@ Result<Rva> PeFileBackend::file_offset_to_rva(std::uint64_t offset) const noexce
     if (match == nullptr) {
         return fail(ErrorCode::OutOfRange, "PeFileBackend::file_offset_to_rva");
     }
-    const std::uint64_t rva = static_cast<std::uint64_t>(match->rva.value()) +
-                              (offset - match->raw_offset);
-    if (rva > (std::numeric_limits<std::uint32_t>::max)() ||
-        rva >= image_.size_of_image()) {
+    const std::uint64_t rva = static_cast<std::uint64_t>(match->rva.value()) + (offset - match->raw_offset);
+    if (rva > (std::numeric_limits<std::uint32_t>::max)() || rva >= image_.size_of_image()) {
         return fail(ErrorCode::AddressOverflow, "PeFileBackend::file_offset_to_rva");
     }
     return Rva{static_cast<std::uint32_t>(rva)};
@@ -200,8 +196,7 @@ Result<Address> PeFileBackend::rva_to_va(Rva rva) const noexcept {
     return base_.add_rva(rva);
 }
 
-Result<std::size_t> PeFileBackend::read(Address address,
-                                        std::span<std::byte> buffer) const {
+Result<std::size_t> PeFileBackend::read(Address address, std::span<std::byte> buffer) const {
     if (buffer.empty()) {
         return std::size_t{0};
     }
@@ -215,12 +210,12 @@ Result<std::size_t> PeFileBackend::read(Address address,
     std::size_t copied = 0;
     while (copied < buffer.size()) {
         if (copied > (std::numeric_limits<std::uint64_t>::max)() - start) {
-            if (copied != 0) return copied;
+            if (copied != 0)
+                return copied;
             return fail(ErrorCode::AddressOverflow, "PeFileBackend::read");
         }
         const std::uint64_t current = start + copied;
-        if (current >= image_.size_of_image() ||
-            current > (std::numeric_limits<std::uint32_t>::max)()) {
+        if (current >= image_.size_of_image() || current > (std::numeric_limits<std::uint32_t>::max)()) {
             break;
         }
         auto mapping = mapping_for_rva(static_cast<std::uint32_t>(current));
@@ -230,8 +225,8 @@ Result<std::size_t> PeFileBackend::read(Address address,
             }
             return std::unexpected(mapping.error());
         }
-        const std::size_t amount = (std::min)(
-            buffer.size() - copied, static_cast<std::size_t>(mapping->second));
+        const std::size_t amount =
+            (std::min)(buffer.size() - copied, static_cast<std::size_t>(mapping->second));
         if (amount == 0) {
             break;
         }
@@ -242,8 +237,7 @@ Result<std::size_t> PeFileBackend::read(Address address,
 }
 
 Result<std::size_t> PeFileBackend::write(Address, std::span<const std::byte>) const {
-    return fail(ErrorCode::AccessDenied, "PeFileBackend::write",
-                0, "Offline PE backend is read-only");
+    return fail(ErrorCode::AccessDenied, "PeFileBackend::write", 0, "Offline PE backend is read-only");
 }
 
 Result<MemoryRegionInfo> PeFileBackend::query(Address address) const {
@@ -278,8 +272,8 @@ Result<MemoryRegionInfo> PeFileBackend::query(Address address) const {
         }
     }
     if (match == nullptr) {
-        return fail(ErrorCode::OutOfRange, "PeFileBackend::query",
-                    0, "RVA is unmapped or has no file-backed bytes");
+        return fail(ErrorCode::OutOfRange, "PeFileBackend::query", 0,
+                    "RVA is unmapped or has no file-backed bytes");
     }
     MemoryProtection protection = MemoryProtection::None;
     if (match->is_readable()) {
@@ -310,10 +304,9 @@ Result<MemoryRegionInfo> PeFileBackend::query(Address address) const {
     };
 }
 
-Result<MemoryProtection> PeFileBackend::protect(Address, std::uint64_t,
-                                                MemoryProtection) const {
-    return fail(ErrorCode::AccessDenied, "PeFileBackend::protect",
-                0, "Offline PE backend does not support protection changes");
+Result<MemoryProtection> PeFileBackend::protect(Address, std::uint64_t, MemoryProtection) const {
+    return fail(ErrorCode::AccessDenied, "PeFileBackend::protect", 0,
+                "Offline PE backend does not support protection changes");
 }
 
 Status PeFileBackend::flush_instruction_cache(AddressRange) const {

@@ -1,16 +1,16 @@
 #pragma once
 
+#include "tessera/core/result.hpp"
+#include "tessera/module/pe_image.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <span>
 #include <string>
-#include <vector>
 #include <utility>
-
-#include "tessera/core/result.hpp"
-#include "tessera/module/pe_image.hpp"
+#include <vector>
 
 namespace tessera {
 
@@ -47,27 +47,22 @@ struct PeCodeCave {
 
 class PeDiskPatcher {
 public:
-    [[nodiscard]] static Result<std::uint32_t> calculate_checksum(
-        std::span<const std::byte> file_bytes);
-    [[nodiscard]] static Result<std::vector<PeCodeCave>> find_code_caves(
-        std::span<const std::byte> file_bytes, std::size_t min_size,
-        SectionCharacteristics section_flags =
-            SectionCharacteristics::Code | SectionCharacteristics::Execute);
+    [[nodiscard]] static Result<std::uint32_t> calculate_checksum(std::span<const std::byte> file_bytes);
+    [[nodiscard]] static Result<std::vector<PeCodeCave>>
+    find_code_caves(std::span<const std::byte> file_bytes, std::size_t min_size,
+                    SectionCharacteristics section_flags = SectionCharacteristics::Code |
+                                                           SectionCharacteristics::Execute);
 };
 
 class DiskPatchTransaction {
 public:
-    explicit DiskPatchTransaction(std::filesystem::path file,
-                                  DiskPatchOptions options = {})
+    explicit DiskPatchTransaction(std::filesystem::path file, DiskPatchOptions options = {})
         : file_(std::move(file)), options_(std::move(options)) {}
 
-    [[nodiscard]] Status add_patch(std::uint64_t file_offset,
-                                   std::span<const std::byte> replacement,
+    [[nodiscard]] Status add_patch(std::uint64_t file_offset, std::span<const std::byte> replacement,
                                    std::span<const std::byte> expected_original = {});
     [[nodiscard]] Result<DiskPatchReport> apply();
-    [[nodiscard]] std::span<const DiskPatchEdit> staged_edits() const noexcept {
-        return edit_view_;
-    }
+    [[nodiscard]] std::span<const DiskPatchEdit> staged_edits() const noexcept { return edit_view_; }
 
 private:
     struct StagedPatch {
