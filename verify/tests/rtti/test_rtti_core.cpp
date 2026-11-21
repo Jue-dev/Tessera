@@ -312,7 +312,7 @@ TEST_CASE("RTTI discovery rejects empty, truncated, and unreadable input ranges"
         process, AddressRange{Address{0x310000}, 0}).has_value());
     const auto truncated = BinaryExplorer::scan_all_type_descriptors(
         process, AddressRange{Address{0x310000}, 0x1000});
-    REQUIRE(truncated.has_value());
+    REQUIRE_FALSE(truncated.has_value());
 
     auto unreadable = std::make_shared<FakeMemoryBackend>();
     unreadable->map_region(Address{0x320000}, 0x100, MemoryProtection::None);
