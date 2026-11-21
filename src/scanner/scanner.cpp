@@ -10,6 +10,7 @@
 
 #include "tessera/core/checked_math.hpp"
 #include "tessera/memory/memory_backend.hpp"
+#include "tessera/module/pe_image.hpp"
 #include "disasm/x86_instruction_decoder.hpp"
 
 namespace tessera {
