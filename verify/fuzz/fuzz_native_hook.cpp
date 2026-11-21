@@ -1,5 +1,7 @@
 #include "tessera/hook/hook.hpp"
 
+#include "fuzz_corpus_runner.hpp"
+
 #include <Windows.h>
 
 #include <algorithm>
@@ -96,7 +98,14 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
 }
 
 #if !defined(TESSERA_LIBFUZZER)
-int main() {
+int main(int argc, char** argv) {
+    const bool corpus_mode = argc > 1;
+    if (corpus_mode) {
+        const int replay_status = tessera::fuzz::run_corpus(argc, argv, &LLVMFuzzerTestOneInput);
+        if (replay_status != 0) {
+            return replay_status;
+        }
+    }
     const auto stress_started = std::chrono::steady_clock::now();
 
     // Keep a known-good seed first so standalone CI smoke mode proves that the
@@ -162,13 +171,15 @@ int main() {
 
     constexpr std::size_t kRandomSampleCount = 65536;
     std::array<std::uint8_t, kFuzzRegionSize> random_input{};
-    for (std::size_t sample = 0; sample < kRandomSampleCount; ++sample) {
+    if (!corpus_mode) {
+        for (std::size_t sample = 0; sample < kRandomSampleCount; ++sample) {
         const std::size_t length =
             1u + (static_cast<std::size_t>(next_random()) % random_input.size());
         for (std::size_t index = 0; index < length; ++index) {
             random_input[index] = static_cast<std::uint8_t>(next_random() & 0xFFu);
         }
         (void)LLVMFuzzerTestOneInput(random_input.data(), length);
+    }
     }
 
     const auto elapsed = std::chrono::steady_clock::now() - stress_started;
