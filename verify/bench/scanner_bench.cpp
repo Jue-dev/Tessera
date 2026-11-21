@@ -151,7 +151,19 @@ int main(int argc, char** argv) {
     }
 
 
-    std::cout << "Benchmark 2: BinaryExplorer + PythonBridgeScanner (64 KiB module)\n"
+    const auto print_metric = [](int index, std::string_view name, const auto& metrics) {
+        std::cout << "Benchmark " << index << ": " << name << "\\n"
+                  << "  Iterations : " << metrics.iterations << "\\n"
+                  << "  Min (us)   : " << metrics.min.count() / 1000.0 << "\\n"
+                  << "  Mean (us)  : " << metrics.mean.count() / 1000.0 << "\\n"
+                  << "  Max (us)   : " << metrics.max.count() / 1000.0 << "\\n\\n";
+    };
+    print_metric(2, "Pattern::search exact literal (4 MiB)", exact_metrics);
+    print_metric(3, "Pattern::search nibble mask (4 MiB)", nibble_metrics);
+    print_metric(4, "Scanner::scan chunked (4 MiB)", scanner_metrics);
+    print_metric(5, "Scanner::scan_batch four patterns (4 MiB)", batch_metrics);
+
+    std::cout << "Benchmark 6: BinaryExplorer + PythonBridgeScanner (64 KiB module)\\n"
               << "  Iterations : " << disc_metrics.iterations << "\n"
               << "  Min (us)   : " << disc_metrics.min.count() / 1000.0 << "\n"
               << "  Mean (us)  : " << disc_metrics.mean.count() / 1000.0 << "\n"
