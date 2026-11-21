@@ -1,5 +1,6 @@
 name: Tessera CI & SDK Release
 
+# Version-tag SDK packaging and publication live in release.yml; this workflow owns PR validation.
 on:
   pull_request:
     branches: [ "main" ]
