@@ -1,4 +1,4 @@
-name: Linux Clang line and branch coverage
+name: Clang line and branch coverage
 
 on:
   pull_request:
