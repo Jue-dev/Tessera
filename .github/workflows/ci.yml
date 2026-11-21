@@ -357,9 +357,82 @@ jobs:
           find_package(Tessera CONFIG REQUIRED)
           add_executable(tessera_consumer main.cpp)
           target_link_libraries(tessera_consumer PRIVATE tessera::tessera)
+          target_compile_definitions(tessera_consumer PRIVATE
+              TESSERA_CONSUMER_WITH_PROFILE=${TESSERA_CONSUMER_WITH_PROFILE}
+              TESSERA_CONSUMER_WITH_TARGETS=${TESSERA_CONSUMER_WITH_TARGETS})
           '@ | Set-Content -Path consumer/CMakeLists.txt
-          'int main() { return 0; }' | Set-Content -Path consumer/main.cpp
-          cmake -S consumer -B consumer/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$env:GITHUB_WORKSPACE\install-reduced"
+          @'
+          #include <tessera/tessera.hpp>
+          #include <cstddef>
+          #include <span>
+          #include <string_view>
+          
+          using HookFn = void (*)();
+          using MemoryReadFn = tessera::Status (tessera::MemoryReader::*)(
+              tessera::Address, std::span<std::byte>) const noexcept;
+          using ScanFn = tessera::Result<tessera::ScanResult> (tessera::Scanner::*)(
+              tessera::AddressRange, const tessera::Pattern&, const tessera::ScanOptions&) const;
+          using CursorOffsetFn = tessera::AddressCursor (tessera::AddressCursor::*)(
+              std::int64_t) const noexcept;
+          using PatchNopFn = tessera::Result<tessera::Patch> (*)(
+              tessera::ProcessAddress, std::size_t, tessera::PatchOptions);
+          using HookCreateFn = tessera::Result<tessera::Hook<HookFn>> (*)(
+              tessera::Address, HookFn, tessera::HookBackend*) noexcept;
+          using PeParseFn = tessera::Result<tessera::PeImage> (*)(
+              std::span<const std::byte>, tessera::Address);
+          using PatternParseFn = tessera::Result<tessera::Pattern> (*)(std::string_view,
+              tessera::PatternError*);
+          using JsonParseFn = tessera::Result<tessera::json::JsonValue> (*)(
+              std::string_view, const tessera::json::JsonParseOptions&, tessera::json::JsonParseError*);
+          using PythonFindFn = tessera::Result<tessera::rtti::PyMethodEntry> (
+              tessera::rtti::PythonBridgeCatalog::*)(std::string_view) const;
+          
+          [[maybe_unused]] MemoryReadFn volatile g_memory_read = &tessera::MemoryReader::read_exact;
+          [[maybe_unused]] ScanFn volatile g_scan = &tessera::Scanner::scan;
+          [[maybe_unused]] CursorOffsetFn volatile g_cursor_offset = &tessera::AddressCursor::offset;
+          [[maybe_unused]] PatchNopFn volatile g_patch_nop = &tessera::Patch::nop;
+          [[maybe_unused]] HookCreateFn volatile g_hook_create = &tessera::Hook<HookFn>::create;
+          [[maybe_unused]] PeParseFn volatile g_pe_parse = &tessera::PeImage::from_raw_bytes;
+          [[maybe_unused]] PatternParseFn volatile g_pattern_parse = &tessera::Pattern::parse;
+          [[maybe_unused]] JsonParseFn volatile g_json_parse = &tessera::json::parse;
+          [[maybe_unused]] PythonFindFn volatile g_python_find =
+              &tessera::rtti::PythonBridgeCatalog::find_method;
+          
+          static_assert(sizeof(tessera::Process) > 0);
+          static_assert(sizeof(tessera::MemoryReader) > 0);
+          static_assert(sizeof(tessera::PeImage) > 0);
+          static_assert(sizeof(tessera::Scanner) > 0);
+          static_assert(sizeof(tessera::AddressCursor) > 0);
+          static_assert(sizeof(tessera::Patch) > 0);
+          static_assert(sizeof(tessera::Hook<HookFn>) > 0);
+          static_assert(sizeof(tessera::rtti::RttiCatalog) > 0);
+          static_assert(sizeof(tessera::rtti::PythonBridgeScanner) > 0);
+          
+          int main() {
+              const auto pattern = tessera::Pattern::parse("90");
+              const auto pe = tessera::PeImage::from_raw_bytes(std::span<const std::byte>{});
+              const auto json = tessera::json::parse("null");
+              const auto python = tessera::rtti::PythonBridgeCatalog{}.find_method("missing");
+              if (!pattern || pe || !json || python) return 1;
+          
+          #if TESSERA_CONSUMER_WITH_PROFILE
+              tessera::profile::SettingsSchema schema(1);
+              tessera::profile::ProfileManager manager(schema);
+              if (!manager.snapshot()) return 2;
+          #endif
+          
+          #if TESSERA_CONSUMER_WITH_TARGETS
+              tessera::targets::TargetProfile target{};
+              target.application.application_id = "consumer.test";
+              target.application.executables = {"consumer.exe"};
+              if (!tessera::targets::validate_target_profile_schema(target)) return 3;
+          #endif
+              return 0;
+          }
+          '@ | Set-Content -Path consumer/main.cpp
+          $profileEnabled = if ('${{ matrix.options }}' -match 'TESSERA_BUILD_PROFILE=OFF') { 0 } else { 1 }
+          $targetsEnabled = if ('${{ matrix.options }}' -match 'TESSERA_BUILD_TARGETS=OFF') { 0 } else { 1 }
+          cmake -S consumer -B consumer/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$env:GITHUB_WORKSPACE\install-reduced" -DTESSERA_CONSUMER_WITH_PROFILE=$profileEnabled -DTESSERA_CONSUMER_WITH_TARGETS=$targetsEnabled
           cmake --build consumer/build --parallel
 
   publish-sdk-bundle:
