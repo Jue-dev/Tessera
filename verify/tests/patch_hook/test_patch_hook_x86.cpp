@@ -459,7 +459,10 @@ TEST_CASE("Native x86 relocator preserves near JMP, CALL, and Jcc trampoline beh
         std::byte{0xC3}, std::byte{0xC3}};
     run_case(near_call, "near CALL rel32");
 
-    const std::array<std::byte, 11> near_jmp{
+    // Keep the function entry distinct from a pre-existing jump thunk;
+    // the rel32 JMP itself remains part of the displaced prologue.
+    const std::array<std::byte, 13> near_jmp{
+        std::byte{0x31}, std::byte{0xC0},
         std::byte{0xE9}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
         std::byte{0xB8}, std::byte{0x2A}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
         std::byte{0xC3}};
