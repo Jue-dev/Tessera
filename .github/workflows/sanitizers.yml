@@ -40,6 +40,9 @@ jobs:
       - name: Build and run portable Windows-backend mock tests under sanitizer
         env:
           SANITIZER_FLAGS: ${{ matrix.flags }}
+          ASAN_OPTIONS: ${{ matrix.env_asan }}
+          UBSAN_OPTIONS: ${{ matrix.env_ubsan }}
+          TSAN_OPTIONS: ${{ matrix.env_tsan }}
         run: |
           CXX=clang++ EXTRA_CXXFLAGS="$SANITIZER_FLAGS -fno-omit-frame-pointer" ./verify/windows_mock/run_windows_mock_tests.sh
 
