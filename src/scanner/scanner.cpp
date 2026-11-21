@@ -1,18 +1,23 @@
 #include "tessera/scanner/scanner.hpp"
+
 #include "scanner_detail.hpp"
 #include "tessera/core/checked_math.hpp"
 #include "tessera/memory/memory_backend.hpp"
+
 #include <algorithm>
 #include <new>
 #include <utility>
 namespace tessera::scanner_detail {
-namespace { constexpr std::uint64_t kPageSize = 0x1000ULL; }
+namespace {
+constexpr std::uint64_t kPageSize = 0x1000ULL;
+}
 
-Result<ScanStats> for_each_readable_chunk(const Process& process, AddressRange range, std::size_t overlap,
-                                          const ScanOptions& options, bool& out_cancelled,
-                                          FunctionRef<bool(std::span<const std::byte>, std::size_t, Address, std::uint64_t, std::uint64_t)> on_chunk,
-                                          ScanReadPolicy read_policy,
-                                          std::vector<std::byte>* workspace) {
+Result<ScanStats> for_each_readable_chunk(
+    const Process& process, AddressRange range, std::size_t overlap, const ScanOptions& options,
+    bool& out_cancelled,
+    FunctionRef<bool(std::span<const std::byte>, std::size_t, Address, std::uint64_t, std::uint64_t)>
+        on_chunk,
+    ScanReadPolicy read_policy, std::vector<std::byte>* workspace) {
     out_cancelled = false;
     if (range.empty()) {
         return fail(ErrorCode::InvalidArgument, "Scanner::scan", 0, "Scan range is empty");
@@ -163,7 +168,6 @@ Result<ScanStats> for_each_readable_chunk(const Process& process, AddressRange r
     return stats;
 }
 
-
 } // namespace tessera::scanner_detail
 namespace tessera {
 using scanner_detail::for_each_readable_chunk;
@@ -309,6 +313,5 @@ Result<Address> Scanner::find_unique(AddressRange range, const Pattern& pattern,
     }
     return res->hits.front();
 }
-
 
 } // namespace tessera

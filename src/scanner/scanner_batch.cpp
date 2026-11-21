@@ -1,5 +1,6 @@
-#include "tessera/scanner/scanner.hpp"
 #include "scanner_detail.hpp"
+#include "tessera/scanner/scanner.hpp"
+
 #include <algorithm>
 #include <cstring>
 #include <iterator>
@@ -167,6 +168,5 @@ Result<std::vector<ScanResult>> Scanner::scan_batch_impl(AddressRange range,
         return fail(ErrorCode::OutOfMemory, "Scanner::scan_batch");
     }
 }
-
 
 } // namespace tessera

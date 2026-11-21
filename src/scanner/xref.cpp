@@ -1,9 +1,11 @@
 #include "tessera/scanner/xref.hpp"
-#include "scanner_detail.hpp"
+
 #include "disasm/x86_instruction_decoder.hpp"
+#include "scanner_detail.hpp"
 #include "tessera/core/checked_math.hpp"
 #include "tessera/memory/memory_backend.hpp"
 #include "tessera/module/pe_image.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -637,6 +639,5 @@ Result<std::vector<Address>> find_relocated_pointer_refs(const Process& process,
 }
 
 } // namespace xref
-
 
 } // namespace tessera
