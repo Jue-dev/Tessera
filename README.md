@@ -92,7 +92,7 @@ The optional `decoder-differential` CI job installs the test-only `iced-x86==1.2
 ## Wave 3 development and validation
 
 - `Pattern` exposes derived leading/trailing wildcard metadata and a secondary exact-byte anchor without changing its object layout. Search uses both anchors as a cheap candidate filter before the full byte-mask comparison.
-- `Scanner::scan_batch` accepts a span of patterns, reads each process-memory chunk once, preserves input order, and applies an independent `max_results` quota to each pattern.
+- `Scanner::scan_batch` accepts a span of patterns, reads each process-memory chunk once, preserves input order, and applies an independent `max_results` quota to each pattern. `xref::find_pointer_refs_batch` reuses it for multiple targets; conditional near branches and x86/x64 indirect CALL/JMP references have dedicated helpers.
 - `AddressCursor` adds bounded decoder-backed `step_instructions`, `find_next_call`, `find_next_rip_relative`, `resolve_operand_target`, and `resolve_thunk_chain` operations. Unsupported instructions, unreadable bytes, cycles, and hop-limit exhaustion are reported rather than guessed.
 - All five benchmark executables accept `--json` and emit machine-readable `name`, `iterations`, `ns_per_op`, and `mb_per_s` metrics. Human-readable output remains the default.
 - The fallback test shim accepts `--shuffle`, `--seed N`, `--filter substring`, and `--junit path`. CTest registers a deterministic shuffled pass with seed `20261121`.
