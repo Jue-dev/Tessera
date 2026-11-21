@@ -106,6 +106,11 @@ struct PeFunctionEntry {
     }
 };
 
+struct BaseRelocation {
+    Rva location{};
+    std::uint8_t type = 0;
+};
+
 struct CodeViewInfo {
     std::array<std::uint8_t, 16> guid{};
     std::uint32_t age = 0;
@@ -154,6 +159,10 @@ public:
         return exception_functions_;
     }
 
+    [[nodiscard]] std::span<const BaseRelocation> relocations() const noexcept {
+        return relocations_;
+    }
+
     [[nodiscard]] const std::optional<CodeViewInfo>& code_view() const noexcept {
         return code_view_;
     }
@@ -171,6 +180,7 @@ private:
     std::vector<ExportTarget> exports_{};
     std::vector<ImportEntry> imports_{};
     std::vector<PeFunctionEntry> exception_functions_{};
+    std::vector<BaseRelocation> relocations_{};
     std::optional<CodeViewInfo> code_view_{};
 };
 
