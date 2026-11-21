@@ -35,4 +35,18 @@ if(TESSERA_BUILD_TESTS)
     add_test(NAME tessera_bench_pe_smoke COMMAND tessera_pe_bench)
     add_test(NAME tessera_bench_json_smoke COMMAND tessera_json_bench)
     add_test(NAME tessera_bench_rtti_discovery_smoke COMMAND tessera_rtti_discovery_bench)
+
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_test(
+            NAME tessera_bench_json_output_smoke
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/validate_bench_json.py
+                $<TARGET_FILE:tessera_bench>
+                $<TARGET_FILE:tessera_decoder_bench>
+                $<TARGET_FILE:tessera_pe_bench>
+                $<TARGET_FILE:tessera_json_bench>
+                $<TARGET_FILE:tessera_rtti_discovery_bench>
+        )
+    endif()
 endif()
