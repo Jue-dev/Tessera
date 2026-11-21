@@ -34,6 +34,22 @@ TEST_CASE("Pattern parsing, nibble wildcards, consteval literal, and PatternValu
     STATIC_REQUIRE(lit.size() == 9);
     STATIC_REQUIRE(lit.anchor_index().has_value());
 
+    constexpr Pattern trimmed = "?? ?? 48 8B 05 ?? ?? 90 ??"_sig;
+    STATIC_REQUIRE(trimmed.leading_wildcards() == 2);
+    STATIC_REQUIRE(trimmed.trailing_wildcards() == 1);
+    STATIC_REQUIRE(trimmed.secondary_anchor_index().has_value());
+    STATIC_REQUIRE(trimmed.secondary_anchor_index() != trimmed.anchor_index());
+
+    const std::array<std::byte, 8> trimmed_sample{
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x48}, std::byte{0x8B},
+        std::byte{0x05}, std::byte{0x11}, std::byte{0x22}, std::byte{0x90}};
+    std::size_t trimmed_match = 99;
+    trimmed.search(trimmed_sample, trimmed_sample.size(), [&](std::size_t offset) {
+        trimmed_match = offset;
+        return false;
+    });
+    REQUIRE(trimmed_match == 0);
+
     const std::array<std::byte, 9> sample{
         std::byte{0x48}, std::byte{0x8B}, std::byte{0x05},
         std::byte{0x11}, std::byte{0x22}, std::byte{0x33}, std::byte{0x44},
