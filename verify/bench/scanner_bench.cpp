@@ -102,12 +102,6 @@ int main(int argc, char** argv) {
         }
     });
 
-    std::cout << "Benchmark 1: Pattern::search (4 MiB)\n"
-              << "  Iterations : " << pat_metrics.iterations << "\n"
-              << "  Min (us)   : " << pat_metrics.min.count() / 1000.0 << "\n"
-              << "  Mean (us)  : " << pat_metrics.mean.count() / 1000.0 << "\n"
-              << "  Max (us)   : " << pat_metrics.max.count() / 1000.0 << "\n\n";
-
     // 2. RttiCatalog + BinaryExplorer + PythonBridgeScanner over 64 KiB synthetic module
     constexpr std::uint64_t kModBase = 0x140000000ULL;
     auto backend = std::make_shared<testing::FakeMemoryBackend>();
@@ -159,6 +153,7 @@ int main(int argc, char** argv) {
                   << "  Mean (us)  : " << metrics.mean.count() / 1000.0 << "\n"
                   << "  Max (us)   : " << metrics.max.count() / 1000.0 << "\n\n";
     };
+    print_metric(1, "Pattern::search wildcard (4 MiB)", pat_metrics);
     print_metric(2, "Pattern::search exact literal (4 MiB)", exact_metrics);
     print_metric(3, "Pattern::search nibble mask (4 MiB)", nibble_metrics);
     print_metric(4, "Scanner::scan chunked (4 MiB)", scanner_metrics);
