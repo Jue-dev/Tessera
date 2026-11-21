@@ -16,7 +16,7 @@
 
 #include <Windows.h>
 
-#include "hook/backends/x86_instruction_decoder.hpp"
+#include "disasm/x86_instruction_decoder.hpp"
 #include "FakeMemoryBackend.hpp"
 #include "tessera/hook/hook.hpp"
 #include "tessera/memory/memory_writer.hpp"
