@@ -539,13 +539,14 @@ Result<Address> Scanner::find_unique(AddressRange range,
 
 namespace xref {
 
-Result<XrefScanResult> find_decoded_xrefs(
+Result<XrefBatchScanResult> find_decoded_xrefs_batch(
     const Process& process,
     AddressRange instruction_range,
-    Address target,
+    std::span<const Address> targets,
     const ScanOptions& options) {
-    if (instruction_range.empty() || target.is_null()) {
-        return fail(ErrorCode::InvalidArgument, "xref::find_decoded_xrefs");
+    if (instruction_range.empty() || targets.empty() ||
+        std::any_of(targets.begin(), targets.end(), [](Address target) { return target.is_null(); })) {
+        return fail(ErrorCode::InvalidArgument, "xref::find_decoded_xrefs_batch");
     }
     auto range_end = instruction_range.end();
     if (!range_end) {
@@ -554,17 +555,20 @@ Result<XrefScanResult> find_decoded_xrefs(
     auto max_exclusive = checked_add<std::uint64_t>(
         process.info().max_application_address, 1u);
     if (!max_exclusive || range_end->value() > *max_exclusive) {
-        return fail(ErrorCode::OutOfRange, "xref::find_decoded_xrefs");
+        return fail(ErrorCode::OutOfRange, "xref::find_decoded_xrefs_batch");
     }
 
     try {
-        XrefScanResult result{};
+        XrefBatchScanResult batch{};
+        batch.results.resize(targets.size());
         const IMemoryBackend& backend = memory_backend(process);
         std::uint64_t cursor = instruction_range.begin().value();
         std::uint64_t region_end = 0;
         while (cursor < range_end->value()) {
             if (options.stop.stop_requested()) {
-                result.cancelled = true;
+                for (auto& result : batch.results) {
+                    result.cancelled = true;
+                }
                 break;
             }
 
@@ -574,17 +578,19 @@ Result<XrefScanResult> find_decoded_xrefs(
                     return std::unexpected(region.error());
                 }
                 if (!matches_region_filter(*region, options.filter)) {
-                    return fail(ErrorCode::AccessDenied, "xref::find_decoded_xrefs",
+                    return fail(ErrorCode::AccessDenied, "xref::find_decoded_xrefs_batch",
                                 0, "Instruction sweep entered a filtered or inaccessible region");
                 }
                 auto next_region = checked_add<std::uint64_t>(
                     region->base.value(), region->size);
                 if (!next_region || *next_region <= cursor) {
-                    return fail(ErrorCode::OutOfRange, "xref::find_decoded_xrefs",
+                    return fail(ErrorCode::OutOfRange, "xref::find_decoded_xrefs_batch",
                                 0, "Memory-region query returned an invalid range");
                 }
                 region_end = *next_region;
-                ++result.stats.regions_scanned;
+                for (auto& result : batch.results) {
+                    ++result.stats.regions_scanned;
+                }
             }
 
             const std::uint64_t remaining = range_end->value() - cursor;
@@ -593,8 +599,10 @@ Result<XrefScanResult> find_decoded_xrefs(
             std::array<std::byte, 15> raw{};
             auto read = backend.read(Address{cursor}, std::span<std::byte>{raw}.first(available));
             if (!read || *read != available) {
-                ++result.stats.read_errors;
-                return fail(ErrorCode::PartialTransfer, "xref::find_decoded_xrefs",
+                for (auto& result : batch.results) {
+                    ++result.stats.read_errors;
+                }
+                return fail(ErrorCode::PartialTransfer, "xref::find_decoded_xrefs_batch",
                             read ? 0 : read.error().native,
                             "Instruction sweep requires complete bounded reads");
             }
@@ -606,7 +614,7 @@ Result<XrefScanResult> find_decoded_xrefs(
             if (!::tessera::detail::x86::decode_instruction(
                     raw.data(), available, mode, decoded) ||
                 decoded.length == 0 || decoded.length > remaining) {
-                return fail(ErrorCode::UnsupportedInstruction, "xref::find_decoded_xrefs",
+                return fail(ErrorCode::UnsupportedInstruction, "xref::find_decoded_xrefs_batch",
                             0, "Instruction boundary cannot be established at sweep cursor");
             }
 
@@ -628,7 +636,7 @@ Result<XrefScanResult> find_decoded_xrefs(
                 auto next_ip = checked_add<std::uint64_t>(
                     cursor, static_cast<std::uint64_t>(decoded.length));
                 if (!next_ip) {
-                    return fail(ErrorCode::OutOfRange, "xref::find_decoded_xrefs");
+                    return fail(ErrorCode::OutOfRange, "xref::find_decoded_xrefs_batch");
                 }
                 auto destination = checked_offset<std::uint64_t>(*next_ip, displacement);
                 if (destination) {
@@ -674,7 +682,7 @@ Result<XrefScanResult> find_decoded_xrefs(
                 auto next_ip = checked_add<std::uint64_t>(
                     cursor, static_cast<std::uint64_t>(decoded.length));
                 if (!next_ip) {
-                    return fail(ErrorCode::OutOfRange, "xref::find_decoded_xrefs");
+                    return fail(ErrorCode::OutOfRange, "xref::find_decoded_xrefs_batch");
                 }
                 auto slot = checked_offset<std::uint64_t>(*next_ip, displacement);
                 if (slot) {
@@ -709,33 +717,69 @@ Result<XrefScanResult> find_decoded_xrefs(
             }
 
             if (matched) {
-                result.references.push_back(XrefMatch{
-                    .instruction = Address{cursor},
-                    .target = resolved_target,
-                    .kind = kind,
-                });
-                if (options.max_results > 0 &&
-                    result.references.size() >= options.max_results) {
-                    result.truncated = true;
-                    break;
+                const auto target_it = std::find(targets.begin(), targets.end(), resolved_target);
+                if (target_it != targets.end()) {
+                    const std::size_t target_index =
+                        static_cast<std::size_t>(target_it - targets.begin());
+                    auto& result = batch.results[target_index];
+                    result.references.push_back(XrefMatch{
+                        .instruction = Address{cursor},
+                        .target = resolved_target,
+                        .kind = kind,
+                    });
+                    if (options.max_results > 0 &&
+                        result.references.size() >= options.max_results) {
+                        result.truncated = true;
+                    }
                 }
             }
 
             cursor += decoded.length;
-            result.stats.bytes_scanned += decoded.length;
+            for (auto& result : batch.results) {
+                result.stats.bytes_scanned += decoded.length;
+            }
             if (options.on_progress) {
+                std::size_t total_hits = 0;
+                for (const auto& result : batch.results) {
+                    total_hits += result.references.size();
+                }
                 options.on_progress(ScanProgress{
-                    .bytes_scanned = result.stats.bytes_scanned,
+                    .bytes_scanned = batch.results.front().stats.bytes_scanned,
                     .total_bytes = instruction_range.size(),
-                    .hits_found = result.references.size(),
+                    .hits_found = total_hits,
                 });
             }
+            if (options.max_results > 0 &&
+                std::all_of(batch.results.begin(), batch.results.end(),
+                    [&](const XrefScanResult& result) {
+                        return result.references.size() >= options.max_results;
+                    })) {
+                for (auto& result : batch.results) {
+                    result.truncated = true;
+                }
+                break;
+            }
         }
-        return result;
+        return batch;
     } catch (const std::bad_alloc&) {
-        return fail(ErrorCode::OutOfMemory, "xref::find_decoded_xrefs");
+        return fail(ErrorCode::OutOfMemory, "xref::find_decoded_xrefs_batch");
     }
 }
+
+
+Result<XrefScanResult> find_decoded_xrefs(
+    const Process& process,
+    AddressRange instruction_range,
+    Address target,
+    const ScanOptions& options) {
+    const std::array<Address, 1> targets{target};
+    auto batch = find_decoded_xrefs_batch(process, instruction_range, targets, options);
+    if (!batch) {
+        return std::unexpected(batch.error());
+    }
+    return std::move(batch->results.front());
+}
+
 
 namespace {
 
