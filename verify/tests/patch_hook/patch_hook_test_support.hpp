@@ -32,26 +32,26 @@
 
 namespace {
 
-int __cdecl sample_target_function(int x) {
+[[maybe_unused]] int __cdecl sample_target_function(int x) {
     return x + 10;
 }
 
-int __cdecl sample_detour_function(int x) {
+[[maybe_unused]] int __cdecl sample_detour_function(int x) {
     return x + 100;
 }
 
-int __cdecl sample_trampoline_function(int x) {
+[[maybe_unused]] int __cdecl sample_trampoline_function(int x) {
     return x + 10;
 }
 
-int __cdecl sample_alternate_trampoline_function(int x) {
+[[maybe_unused]] int __cdecl sample_alternate_trampoline_function(int x) {
     return x + 20;
 }
 
 std::atomic<bool> g_callable_lease_entered{false};
 std::atomic<bool> g_callable_lease_release{false};
 
-int __cdecl blocking_trampoline_function(int value) {
+[[maybe_unused]] int __cdecl blocking_trampoline_function(int value) {
     g_callable_lease_entered.store(true, std::memory_order_release);
     while (!g_callable_lease_release.load(std::memory_order_acquire)) {
         std::this_thread::yield();
@@ -71,7 +71,7 @@ using NativeHookFn = int(__cdecl*)(int);
 using NativeHookFastFn = std::uintptr_t(__fastcall*)(std::uintptr_t);
 std::atomic<NativeHookFn> g_lease_detour_original{nullptr};
 
-int __cdecl blocking_lease_detour(int value) {
+[[maybe_unused]] int __cdecl blocking_lease_detour(int value) {
     const NativeHookFn original =
         g_lease_detour_original.load(std::memory_order_acquire);
     return original != nullptr ? original(value) : -1;
@@ -94,7 +94,7 @@ constexpr std::size_t kTestUnwindCodeOffset = sizeof(TestUnwindInfo);
 constexpr std::size_t kTestTrampolineEntryPrefixSize = 4u;
 constexpr UCHAR kTestUnwindOpPushNonVol = 0u; // UWOP_PUSH_NONVOL
 constexpr UCHAR kTestUnwindOpAllocSmall = 2u;
-void set_test_unwind_code(
+[[maybe_unused]] void set_test_unwind_code(
     TestUnwindInfo* info,
     std::size_t slot,
     TestUnwindCode code) noexcept {
@@ -104,7 +104,7 @@ void set_test_unwind_code(
     std::memcpy(destination, &code, sizeof(code));
 }
 
-[[nodiscard]] TestUnwindCode get_test_unwind_code(
+[[maybe_unused]] [[nodiscard]] TestUnwindCode get_test_unwind_code(
     const TestUnwindInfo* info,
     std::size_t slot) noexcept {
     TestUnwindCode code{};
@@ -117,7 +117,7 @@ void set_test_unwind_code(
 
 static_assert(sizeof(TestUnwindInfo) == 4u);
 static_assert(sizeof(TestUnwindCode) == 2u);
-DWORD __cdecl invoke_breakpoint_trampoline(NativeHookFn trampoline) noexcept {
+[[maybe_unused]] DWORD __cdecl invoke_breakpoint_trampoline(NativeHookFn trampoline) noexcept {
     __try {
         (void)trampoline(0);
     } __except (GetExceptionCode() == EXCEPTION_BREAKPOINT
@@ -132,7 +132,7 @@ tessera::Hook<NativeHookFn>* g_recursive_lease_hook = nullptr;
 std::atomic<bool> g_remove_from_lease_rejected{false};
 std::atomic<bool> g_release_from_lease_rejected{false};
 
-int __cdecl remove_from_callable_lease_trampoline(int value) {
+[[maybe_unused]] int __cdecl remove_from_callable_lease_trampoline(int value) {
     const auto result = g_recursive_lease_hook->remove();
     g_remove_from_lease_rejected.store(
         !result.has_value() && result.error().code == tessera::ErrorCode::Conflict,
@@ -142,7 +142,7 @@ int __cdecl remove_from_callable_lease_trampoline(int value) {
     return value + 7;
 }
 
-int __cdecl recursive_trampoline_function(int value) {
+[[maybe_unused]] int __cdecl recursive_trampoline_function(int value) {
     if (value <= 0) {
         return 0;
     }
@@ -163,7 +163,7 @@ NativeHookFn g_native_hook_original = nullptr;
 
 // Volatile global reads deliberately exercise x64 RIP-relative relocation in the
 // trampoline, while the function body has a relocatable prologue for the native entry jump.
-TESSERA_TEST_NOINLINE int __cdecl native_hook_target(int value) {
+[[maybe_unused]] TESSERA_TEST_NOINLINE int __cdecl native_hook_target(int value) {
     int result = value;
     result += g_native_hook_terms[0];
     result += g_native_hook_terms[1];
@@ -176,23 +176,23 @@ TESSERA_TEST_NOINLINE int __cdecl native_hook_target(int value) {
     return result;
 }
 
-TESSERA_TEST_NOINLINE int __cdecl native_hook_detour(int value) {
+[[maybe_unused]] TESSERA_TEST_NOINLINE int __cdecl native_hook_detour(int value) {
     return g_native_hook_original(value) + 100;
 }
 
-TESSERA_TEST_NOINLINE std::uintptr_t __fastcall native_hook_fast_detour(std::uintptr_t value) {
+[[maybe_unused]] TESSERA_TEST_NOINLINE std::uintptr_t __fastcall native_hook_fast_detour(std::uintptr_t value) {
     return value + 500;
 }
 
-TESSERA_TEST_NOINLINE int __cdecl native_hook_detour_1000(int value) {
+[[maybe_unused]] TESSERA_TEST_NOINLINE int __cdecl native_hook_detour_1000(int value) {
     return value + 1000;
 }
 
-TESSERA_TEST_NOINLINE int __cdecl native_hook_detour_2000(int value) {
+[[maybe_unused]] TESSERA_TEST_NOINLINE int __cdecl native_hook_detour_2000(int value) {
     return value + 2000;
 }
 
-TESSERA_TEST_NOINLINE int __cdecl native_hook_detour_3000(int value) {
+[[maybe_unused]] TESSERA_TEST_NOINLINE int __cdecl native_hook_detour_3000(int value) {
     return value + 3000;
 }
 
@@ -201,7 +201,7 @@ struct WaitingWorkerSignals {
     HANDLE release = nullptr;
 };
 
-DWORD WINAPI native_hook_waiting_worker(void* context) {
+[[maybe_unused]] DWORD WINAPI native_hook_waiting_worker(void* context) {
     auto* signals = static_cast<WaitingWorkerSignals*>(context);
     ::SetEvent(signals->ready);
     (void)::WaitForSingleObject(signals->release, INFINITE);
@@ -257,11 +257,11 @@ LiveHookFn g_live_hook_original = nullptr;
 
 // A volatile global read keeps a real, sufficiently large function body in both
 // x86 and x64 Release builds, so Detours has instructions to relocate.
-TESSERA_TEST_NOINLINE int __cdecl live_hook_target(int value) {
+[[maybe_unused]] TESSERA_TEST_NOINLINE int __cdecl live_hook_target(int value) {
     return value + g_live_hook_bias;
 }
 
-TESSERA_TEST_NOINLINE int __cdecl live_hook_detour(int value) {
+[[maybe_unused]] TESSERA_TEST_NOINLINE int __cdecl live_hook_detour(int value) {
     return g_live_hook_original(value) + 100;
 }
 #endif
