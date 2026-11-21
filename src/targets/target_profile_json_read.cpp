@@ -1,11 +1,10 @@
+#include "detail/target_profile_json_common.hpp"
+#include "tessera/filesystem/filesystem.hpp"
 #include "tessera/targets/target_profile_json.hpp"
 
 #include <format>
 #include <new>
 #include <optional>
-
-#include "tessera/filesystem/filesystem.hpp"
-#include "detail/target_profile_json_common.hpp"
 
 namespace tessera::targets {
 
@@ -13,9 +12,7 @@ using namespace target_profile_json_detail;
 
 Result<TargetProfile> deserialize_target_profile_from_json(const json::JsonValue& root) {
     if (!root.is_object()) {
-        return fail(ErrorCode::ParseError,
-                    "deserialize_target_profile_from_json",
-                    0,
+        return fail(ErrorCode::ParseError, "deserialize_target_profile_from_json", 0,
                     "Root JSON value must be an object");
     }
 
@@ -32,10 +29,7 @@ Result<TargetProfile> deserialize_target_profile_from_json(const json::JsonValue
         }
 
         auto app_field = json::detail::required_field<const json::JsonValue*>(
-            root,
-            "application",
-            "deserialize_target_profile_from_json",
-            "Missing 'application' object",
+            root, "application", "deserialize_target_profile_from_json", "Missing 'application' object",
             "Missing 'application' object",
             [](const json::JsonValue& value) -> std::optional<const json::JsonValue*> {
                 return value.is_object() ? std::optional<const json::JsonValue*>{&value} : std::nullopt;
@@ -57,16 +51,14 @@ Result<TargetProfile> deserialize_target_profile_from_json(const json::JsonValue
             p.application.publisher = std::string(*publisher);
         }
         if (const auto* exes = app->find("executables")) {
-            json::detail::append_array(
-                *exes,
-                p.application.executables,
-                [](const json::JsonValue& value) -> std::optional<std::string> {
-                    auto text = value.as_string();
-                    if (!text) {
-                        return std::nullopt;
-                    }
-                    return std::string(*text);
-                });
+            json::detail::append_array(*exes, p.application.executables,
+                                       [](const json::JsonValue& value) -> std::optional<std::string> {
+                                           auto text = value.as_string();
+                                           if (!text) {
+                                               return std::nullopt;
+                                           }
+                                           return std::string(*text);
+                                       });
         }
 
         if (const auto* builds = root.find("builds"); builds && builds->is_array()) {
@@ -207,8 +199,7 @@ Result<TargetProfile> deserialize_target_profile_from_json(const json::JsonValue
                             }
                         }
 
-                        if (const auto* val_pol = a_jv.find("validation");
-                            val_pol && val_pol->is_object()) {
+                        if (const auto* val_pol = a_jv.find("validation"); val_pol && val_pol->is_object()) {
                             if (const auto* req = val_pol->find("required"); req && req->is_array()) {
                                 for (const auto& r_jv : *req->as_array()) {
                                     if (!r_jv.is_object()) {
@@ -229,8 +220,7 @@ Result<TargetProfile> deserialize_target_profile_from_json(const json::JsonValue
                                     if (const auto* rv = r_jv.find("value"); rv && rv->as_string()) {
                                         vr.value = std::string(*rv->as_string());
                                     }
-                                    if (const auto* ro = r_jv.find("relativeOffset");
-                                        ro && ro->as_int64()) {
+                                    if (const auto* ro = r_jv.find("relativeOffset"); ro && ro->as_int64()) {
                                         vr.relative_offset = *ro->as_int64();
                                     }
                                     ae.validation.rules.push_back(std::move(vr));

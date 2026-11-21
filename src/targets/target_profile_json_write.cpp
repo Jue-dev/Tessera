@@ -1,10 +1,9 @@
+#include "detail/target_profile_json_common.hpp"
+#include "tessera/filesystem/filesystem.hpp"
 #include "tessera/targets/target_profile_json.hpp"
 
 #include <format>
 #include <new>
-
-#include "tessera/filesystem/filesystem.hpp"
-#include "detail/target_profile_json_common.hpp"
 
 namespace tessera::targets {
 
@@ -27,8 +26,9 @@ Result<json::JsonValue> serialize_target_profile_to_json(const TargetProfile& pr
         app.set("displayName", profile.application.display_name);
         app.set("publisher", profile.application.publisher);
         app.set("executables", json::JsonValue{json::detail::serialize_array(
-            profile.application.executables,
-            [](const std::string& executable) { return json::JsonValue{executable}; })});
+                                   profile.application.executables, [](const std::string& executable) {
+                                       return json::JsonValue{executable};
+                                   })});
         root.set("application", std::move(app));
 
         json::JsonValue::Array builds_arr;
@@ -135,12 +135,9 @@ Status JsonTargetProfileStore::save(TargetProfile& profile) {
         auto on_disk = load(profile.application.application_id);
         if (on_disk) {
             if (on_disk->revision != profile.revision) {
-                return fail(ErrorCode::Conflict,
-                            "JsonTargetProfileStore::save",
-                            0,
+                return fail(ErrorCode::Conflict, "JsonTargetProfileStore::save", 0,
                             std::format("TargetProfile revision conflict: expected {}, found {} on disk",
-                                        profile.revision,
-                                        on_disk->revision));
+                                        profile.revision, on_disk->revision));
             }
             ++profile.revision;
         }
@@ -157,8 +154,8 @@ Status JsonTargetProfileStore::save(TargetProfile& profile) {
         return std::unexpected(text.error());
     }
 
-    return filesystem::AtomicFileWriter::write_utf8(
-        file_path, *text, {.create_backup = true, .write_through = true});
+    return filesystem::AtomicFileWriter::write_utf8(file_path, *text,
+                                                    {.create_backup = true, .write_through = true});
 }
 
 } // namespace tessera::targets

@@ -76,7 +76,8 @@ using PythonExportFn = tessera::Status (tessera::rtti::PythonBridgeCatalog::*)(t
 [[maybe_unused]] ScanFn volatile g_scan = &tessera::Scanner::scan;
 [[maybe_unused]] CursorOffsetFn volatile g_cursor_offset = &tessera::AddressCursor::offset;
 [[maybe_unused]] PatchNopFn volatile g_patch_nop = &tessera::Patch::nop;
-[[maybe_unused]] HookCreateFn volatile g_hook_create = &tessera::Hook<HookFn>::create;
+[[maybe_unused]] HookCreateFn volatile g_hook_create =
+    static_cast<HookCreateFn>(&tessera::Hook<HookFn>::create);
 [[maybe_unused]] NativeBackendFn volatile g_native_backend = &tessera::native_inline_hook_backend;
 [[maybe_unused]] PeMemoryFn volatile g_pe_memory = &tessera::PeImage::from_memory;
 [[maybe_unused]] PeFileFn volatile g_pe_file = &tessera::PeImage::from_file;
