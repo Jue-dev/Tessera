@@ -107,7 +107,7 @@ PeDiskPatcher::find_code_caves reports eligible runs in section alignment paddin
 
 ## Hook and memory analysis helpers
 
-VTableHook owns a per-object shadow-vftable copy and atomically swaps/restores that object's vptr. The caller must supply a valid bounded slot count and keep the object and target functions alive. IatHook changes one named import slot in an already mapped module with page-protection restoration and rollback handling. read_scatter coalesces nearby reads while preserving input result order; MemorySnapshot::capture and diff report contiguous changed byte ranges.
+VTableHook owns a per-object shadow-vftable copy and atomically swaps/restores that object's vptr. The caller must supply a valid bounded slot count, set all shadow slots before installation, and keep the object and target functions alive. IatHook changes one named import slot in an already mapped module with page-protection restoration and rollback handling. read_scatter coalesces nearby reads while preserving input result order; MemorySnapshot::capture and diff report contiguous changed byte ranges.
 
 ## Optional command-line tooling
 

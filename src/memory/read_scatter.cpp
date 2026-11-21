@@ -8,7 +8,7 @@ Result<std::vector<MemoryReadResult>> read_scatter(const Process&p,std::span<con
  if(!max_size)return fail(ErrorCode::InvalidArgument,"read_scatter");
  struct Item{size_t i;uint64_t b,e;};try{
  std::vector<MemoryReadResult> out(req.size());std::vector<Item> q;
- for(size_t i=0;i<req.size();++i){if(!req[i].size)continue;if(req[i].address.is_null()){out[i].error=make_error(ErrorCode::NullAddress,"read_scatter");continue;}auto end=checked_add<uint64_t>(req[i].address.value(),req[i].size);if(!end){out[i].error=end.error();continue;}q.push_back({i,req[i].address.value(),*end});}
+ for(size_t i=0;i<req.size();++i){if(!req[i].size)continue;if(req[i].size>max_size){out[i].error=make_error(ErrorCode::OutOfRange,"read_scatter");continue;}if(req[i].address.is_null()){out[i].error=make_error(ErrorCode::NullAddress,"read_scatter");continue;}auto end=checked_add<uint64_t>(req[i].address.value(),req[i].size);if(!end){out[i].error=end.error();continue;}q.push_back({i,req[i].address.value(),*end});}
  std::sort(q.begin(),q.end(),[](auto&a,auto&b){return a.b<b.b;});const auto& backend=memory_backend(p);size_t cur=0;
  while(cur<q.size()){size_t last=cur+1;uint64_t begin=q[cur].b,end=q[cur].e;
   while(last<q.size()){uint64_t d=q[last].b>end?q[last].b-end:0;if(d>gap||q[last].e-begin>max_size)break;end=std::max(end,q[last].e);++last;}

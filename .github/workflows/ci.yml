@@ -6,7 +6,7 @@ on:
       "tools/**","vcpkg.json","vcpkg-configuration.json",".github/workflows/**",".github/actions/**",".github/scripts/**"]
  push:
   branches: ["main"]
-  paths: [".clang-tidy","*.cmake","CMakeLists.txt","CMakePresets.json","cmake/**","include/**","src/**","verify/**","examples/**","scripts/**","vcpkg.json","vcpkg-configuration.json",".github/workflows/**",".github/actions/**",".github/scripts/**"]
+  paths: [".clang-tidy","*.cmake","CMakeLists.txt","CMakePresets.json","cmake/**","include/**","src/**","verify/**","examples/**","scripts/**","tools/**","vcpkg.json","vcpkg-configuration.json",".github/workflows/**",".github/actions/**",".github/scripts/**"]
  workflow_dispatch:
 concurrency:
  group: tessera-ci-${{ github.workflow }}-${{ github.ref }}

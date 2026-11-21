@@ -19,3 +19,6 @@ Create a typed Hook<Fn>, install it, and explicitly inspect remove() when cleanu
 The four lifecycle workflows retain x86/x64 builds, Detours integration, sanitizer-backed windows_mock, decoder-oracle comparison, and bounded fuzz campaigns. See docs/adr/0002-native-inline-hook-safety-contract.md for the authoritative lifecycle and failure contract, and safety-and-boundaries.md for decoder limits.
 
 Tessera does not implement ARM64/WoW64 cross-architecture hosting, process injection or hosting, DLL loader techniques, VEH hooks, hardware breakpoints, or PAGE_GUARD hooks.
+
+
+The separate `VTableHook` API is a per-object shadow-vftable helper; configure its slots before installation and keep the object/functions alive for the entire hook lifetime.

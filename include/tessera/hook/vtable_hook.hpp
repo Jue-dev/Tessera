@@ -20,8 +20,9 @@ public:
   catch(const std::bad_alloc&){return fail(ErrorCode::OutOfMemory,"VTableHook::create");}
  }
  [[nodiscard]] Result<void*> set_slot(std::size_t i,void* replacement) noexcept{
+  if(active_)return fail(ErrorCode::Conflict,"VTableHook::set_slot",0,"Restore the object before changing shadow slots");
   if(i>=shadow_.size()||!replacement)return fail(ErrorCode::OutOfRange,"VTableHook::set_slot");
-  auto old=originals_[i];std::atomic_ref<void*>{shadow_[i]}.store(replacement,std::memory_order_release);return old;
+  auto old=originals_[i];shadow_[i]=replacement;return old;
  }
  template<class Fn> requires(std::is_pointer_v<Fn>&&std::is_function_v<std::remove_pointer_t<Fn>>)
  [[nodiscard]] Result<Fn> hook(std::size_t i,Fn replacement) noexcept{

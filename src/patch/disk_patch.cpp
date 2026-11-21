@@ -205,6 +205,10 @@ Result<std::vector<PeCodeCave>> PeDiskPatcher::find_code_caves(
                     if (run_size >= min_size) {
                         const std::uint64_t rva = static_cast<std::uint64_t>(section.rva.value()) +
                                                   run_start - section.raw_offset;
+                        if (rva > (std::numeric_limits<std::uint32_t>::max)()) {
+                            run_size = 0;
+                            continue;
+                        }
                         caves.push_back(PeCodeCave{Rva{static_cast<std::uint32_t>(rva)},
                                                    run_start, run_size, section.name});
                     }
@@ -214,6 +218,10 @@ Result<std::vector<PeCodeCave>> PeDiskPatcher::find_code_caves(
             if (run_size >= min_size) {
                 const std::uint64_t rva = static_cast<std::uint64_t>(section.rva.value()) +
                                           run_start - section.raw_offset;
+                if (rva > (std::numeric_limits<std::uint32_t>::max)()) {
+                    run_size = 0;
+                    continue;
+                }
                 caves.push_back(PeCodeCave{Rva{static_cast<std::uint32_t>(rva)},
                                            run_start, run_size, section.name});
             }

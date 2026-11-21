@@ -214,6 +214,10 @@ Result<std::size_t> PeFileBackend::read(Address address,
     }
     std::size_t copied = 0;
     while (copied < buffer.size()) {
+        if (copied > (std::numeric_limits<std::uint64_t>::max)() - start) {
+            if (copied != 0) return copied;
+            return fail(ErrorCode::AddressOverflow, "PeFileBackend::read");
+        }
         const std::uint64_t current = start + copied;
         if (current >= image_.size_of_image() ||
             current > (std::numeric_limits<std::uint32_t>::max)()) {
