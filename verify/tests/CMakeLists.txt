@@ -224,6 +224,25 @@ tessera_add_test(tessera_test_logging_diagnostics
     LIBS tessera::core tessera::diagnostics tessera::logging tessera::profiling tessera::utility
 )
 
+find_package(Threads REQUIRED)
+
+tessera_add_test(tessera_test_concurrency
+    SOURCES concurrency/test_concurrency.cpp
+    LIBS
+        tessera::core
+        tessera::diagnostics
+        tessera::logging
+        tessera::process
+        tessera::memory
+        tessera::pattern
+        tessera::scanner
+        tessera::patch
+        tessera::hook
+        tessera::disasm
+        Threads::Threads
+)
+target_include_directories(tessera_test_concurrency PRIVATE ${PROJECT_SOURCE_DIR}/src)
+
 if(TESSERA_BUILD_PROFILE)
     tessera_add_test(tessera_test_profile
         SOURCES profile_targets/test_profile.cpp
