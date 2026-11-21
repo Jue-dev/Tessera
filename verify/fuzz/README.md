@@ -11,11 +11,19 @@ The native-hook validation workflow has two independent jobs. They are intention
 
 ## Standalone smoke mode
 
-With `TESSERA_BUILD_FUZZ=ON` and `TESSERA_ENABLE_LIBFUZZER=OFF`, the fuzz targets keep standalone entry points and can run without the LLVM libFuzzer runtime. Standalone mode is useful for deterministic regression and stress checks; it is not a substitute for sustained coverage-guided fuzzing.
+With `TESSERA_BUILD_FUZZ=ON` and `TESSERA_ENABLE_LIBFUZZER=OFF`, the fuzz targets keep standalone entry points and can run without the LLVM libFuzzer runtime. Each standalone entry point uses `fuzz_corpus_runner.hpp` to read a file or recursively enumerate a corpus directory in stable path order and invoke the same `LLVMFuzzerTestOneInput` callback for each seed (`-runs=N` repeats each seed). The `x64-fuzz-smoke` configure/build/test presets build all test and fuzz targets and register one CTest corpus-replay test per harness:
+
+```powershell
+cmake --preset x64-fuzz-smoke
+cmake --build --preset x64-fuzz-smoke
+ctest --preset x64-fuzz-smoke --output-on-failure
+```
+
+`scripts/run-fuzz-smoke.ps1` provides the same replay from the repository root. Standalone mode is useful for deterministic regression and stress checks; it is not a substitute for sustained coverage-guided fuzzing.
 
 ## Seed corpus and bounded campaign
 
-Seed corpora are organized by parser/harness under `verify/fuzz/corpus/`: `pe` contains minimal PE32/PE32+ images plus malformed DOS/optional headers, section raw ranges, and import/export directory bounds; `json` and `pattern` contain valid, boundary, and malformed parser inputs; `profile_json` covers both profile schemas, setting value variants, malformed values, and secret references; `native_hook` contains decoder/relocator edge cases. The PE harness is `tessera_fuzz_pe` and invokes the parser's section, export, import, exception-directory, and CodeView accessors for successfully parsed images. The manual workflow supports campaigns of 300, 600, or 900 seconds (300 seconds by default). The weekly schedule runs 300 seconds on each architecture. Both architecture jobs upload logs, corpus, and crash artifacts.
+Seed corpora are organized by parser/harness under `verify/fuzz/corpus/`: `pattern` covers byte-pattern parsing/search; `pe` contains minimal PE32/PE32+ images plus malformed DOS/optional headers, section raw ranges, and import/export directory bounds; `json` and `profile_json` cover generic JSON and both profile schemas, setting value variants, malformed values, and secret references; `python_bridge` and `scanner` cover metadata/table discovery and readable-region scanning; `rtti_discovery` covers type-descriptor and string discovery; `native_hook` contains decoder/relocator edge cases. The PE harness is `tessera_fuzz_pe` and invokes the parser's section, export, import, exception-directory, and CodeView accessors for successfully parsed images. The manual workflow supports campaigns of 300, 600, or 900 seconds (300 seconds by default). The weekly schedule runs 300 seconds on each architecture. Both architecture jobs upload logs, corpus, and crash artifacts.
 
 ## LLVM libFuzzer mode
 
