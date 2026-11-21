@@ -8,6 +8,7 @@
 
 #include "tessera/core/checked_math.hpp"
 #include "tessera/memory/memory_backend.hpp"
+#include "disasm/x86_instruction_decoder.hpp"
 
 namespace tessera {
 
@@ -583,6 +584,108 @@ Result<std::vector<Address>> find_jumps(const Process& process,
         return std::unexpected(pat.error());
     }
     return find_rel32_refs(process, range, target, *pat, 0, options);
+}
+
+Result<std::vector<Address>> find_conditional_branches(
+    const Process& process, AddressRange range, Address target,
+    const ScanOptions& options) {
+    auto prefix = Pattern::parse("0F 8?");
+    if (!prefix) {
+        return std::unexpected(prefix.error());
+    }
+    return find_rel32_refs(process, range, target, *prefix, 0, options);
+}
+
+Result<std::vector<Address>> find_indirect_refs(
+    const Process& process, AddressRange range, Address target,
+    const ScanOptions& options) {
+    if (target.is_null()) {
+        return fail(ErrorCode::NullAddress, "xref::find_indirect_refs");
+    }
+    try {
+        auto call_pattern = Pattern::parse("FF 1? ?? ?? ?? ??");
+        auto jump_pattern = Pattern::parse("FF 2? ?? ?? ?? ??");
+        if (!call_pattern || !jump_pattern) {
+            return fail(ErrorCode::InvalidPattern, "xref::find_indirect_refs");
+        }
+        Scanner scanner{process};
+        std::vector<Address> references;
+        const std::array<Pattern, 2> patterns{*call_pattern, *jump_pattern};
+        for (const auto& pattern : patterns) {
+            auto matches = scanner.scan(range, pattern, options);
+            if (!matches) {
+                return std::unexpected(matches.error());
+            }
+            if (matches->cancelled) {
+                return fail(ErrorCode::Cancelled, "xref::find_indirect_refs");
+            }
+            for (const Address instruction : matches->hits) {
+                std::array<std::byte, 15> raw{};
+                auto read = memory_backend(process).read(instruction, raw);
+                if (!read || *read < 6) {
+                    continue;
+                }
+                ::tessera::detail::x86::DecodedInstruction decoded{};
+                const auto mode = process.pointer_size() == 8
+                                      ? ::tessera::detail::x86::Mode::x64
+                                      : ::tessera::detail::x86::Mode::x86;
+                if (!::tessera::detail::x86::decode_instruction(
+                        raw.data(), *read, mode, decoded) ||
+                    decoded.opcode != 0xFFu ||
+                    (decoded.modrm_reg != 2u && decoded.modrm_reg != 4u) ||
+                    decoded.length != 6) {
+                    continue;
+                }
+
+                std::int32_t displacement = 0;
+                std::memcpy(&displacement, raw.data() + 2, sizeof(displacement));
+                std::uint64_t slot = 0;
+                if (process.pointer_size() == 8) {
+                    if (!decoded.has_rip_relative_operand) {
+                        continue;
+                    }
+                    auto slot_address = checked_offset<std::uint64_t>(
+                        instruction.value() + decoded.length, displacement);
+                    if (!slot_address) {
+                        continue;
+                    }
+                    slot = *slot_address;
+                } else {
+                    slot = static_cast<std::uint32_t>(displacement);
+                }
+
+                std::array<std::byte, sizeof(std::uint64_t)> pointer_bytes{};
+                const std::size_t pointer_size = process.pointer_size();
+                auto pointer_read = memory_backend(process).read(
+                    Address{slot}, std::span<std::byte>{pointer_bytes}.first(pointer_size));
+                if (!pointer_read || *pointer_read != pointer_size) {
+                    continue;
+                }
+                std::uint64_t resolved = 0;
+                if (pointer_size == 8) {
+                    std::memcpy(&resolved, pointer_bytes.data(), sizeof(std::uint64_t));
+                } else {
+                    std::uint32_t pointer32 = 0;
+                    std::memcpy(&pointer32, pointer_bytes.data(), sizeof(pointer32));
+                    resolved = pointer32;
+                }
+                if (resolved == target.value()) {
+                    references.push_back(instruction);
+                    if (options.max_results > 0 && references.size() >= options.max_results) {
+                        break;
+                    }
+                }
+            }
+            if (options.max_results > 0 && references.size() >= options.max_results) {
+                break;
+            }
+        }
+        std::sort(references.begin(), references.end());
+        references.erase(std::unique(references.begin(), references.end()), references.end());
+        return references;
+    } catch (const std::bad_alloc&) {
+        return fail(ErrorCode::OutOfMemory, "xref::find_indirect_refs");
+    }
 }
 
 } // namespace xref
