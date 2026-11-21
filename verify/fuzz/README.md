@@ -1,6 +1,6 @@
 # Tessera fuzz targets
 
-The eight harnesses expose LLVMFuzzerTestOneInput for pattern parsing/search, PE parsing, JSON parsing/writing, profile and target-profile deserialization, Python bridge metadata, scanner input, RTTI discovery, and native-hook instruction decoding/relocation and lifecycle validation.
+The eight harnesses expose LLVMFuzzerTestOneInput for pattern parsing/search, PE parsing (including file backend, checksum, and code-cave boundaries), JSON parsing/writing, profile and target-profile deserialization, Python bridge metadata, scanner input, RTTI discovery, and native-hook instruction decoding/relocation and lifecycle validation.
 
 ## Continuous campaigns
 

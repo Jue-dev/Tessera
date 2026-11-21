@@ -1,10 +1,15 @@
 #include "tessera/module/pe_image.hpp"
+#include "tessera/module/pe_file_backend.hpp"
+#include "tessera/patch/disk_patch.hpp"
 
 #include "fuzz_corpus_runner.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <new>
+#include <utility>
+#include <vector>
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
     if (data == nullptr && size != 0) {
@@ -22,6 +27,14 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         (void)pe->sections();
         (void)pe->exception_functions();
         (void)pe->code_view();
+    }
+    (void)tessera::PeDiskPatcher::calculate_checksum(raw);
+    (void)tessera::PeDiskPatcher::find_code_caves(raw, 1);
+    try {
+        std::vector<std::byte> owned(raw.begin(), raw.end());
+        (void)tessera::PeFileBackend::from_bytes(std::move(owned));
+    } catch (const std::bad_alloc&) {
+        // Allocation failure is a normal, fail-closed fuzz outcome.
     }
     return 0;
 }
