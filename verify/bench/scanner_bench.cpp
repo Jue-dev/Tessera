@@ -1,5 +1,6 @@
 #include "tessera/tessera.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -86,7 +87,8 @@ int main(int argc, char** argv) {
 
     const std::array<Pattern, 4> batch_patterns{
         pat, exact_pat, nibble_pat, "90 90 90 90"_sig};
-    ScanOptions batch_options = scan_options;
+    ScanOptions batch_options{};
+    batch_options.chunk_size = scan_options.chunk_size;
     batch_options.max_results = 8;
     auto batch_metrics = profiling::run_benchmark(10, [&]() {
         auto result = scanner.scan_batch(scan_range, batch_patterns, batch_options);
