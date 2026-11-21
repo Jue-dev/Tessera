@@ -1,0 +1,46 @@
+name: Formatting snapshots
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  formatted-sources:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install clang-format 18
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang-format-18
+
+      - name: Prepare formatted changed source files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git diff --name-only --diff-filter=ACMRT "$BASE_SHA" "$HEAD_SHA" -- \
+            'src/*.c' 'src/**/*.c' 'src/*.cc' 'src/**/*.cc' 'src/*.cpp' 'src/**/*.cpp' 'src/*.cxx' 'src/**/*.cxx')
+          output="$RUNNER_TEMP/formatted-sources"
+          mkdir -p "$output"
+          for file in "${files[@]}"; do
+            destination="$output/$file"
+            mkdir -p "$(dirname "$destination")"
+            clang-format-18 "$file" > "$destination"
+          done
+
+      - name: Upload formatted source snapshots
+        uses: actions/upload-artifact@v7
+        with:
+          name: formatted-source-snapshots
+          path: ${{ runner.temp }}/formatted-sources
+          if-no-files-found: error
