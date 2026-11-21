@@ -58,6 +58,9 @@ using XrefBatchFn = tessera::Result<std::vector<std::vector<tessera::Address>>> 
     const tessera::Process&, tessera::AddressRange, std::span<const tessera::Address>,
     const tessera::ScanOptions&);
 using CursorOffsetFn = tessera::AddressCursor (tessera::AddressCursor::*)(std::int64_t) const noexcept;
+using CursorInstructionStepFn = tessera::AddressCursor (tessera::AddressCursor::*)(std::size_t) const noexcept;
+using CursorResolveOperandFn = tessera::AddressCursor (tessera::AddressCursor::*)() const noexcept;
+using CursorThunkChainFn = tessera::AddressCursor (tessera::AddressCursor::*)(std::size_t) const noexcept;
 using PatchNopFn = tessera::Result<tessera::Patch> (*)(tessera::ProcessAddress, std::size_t, tessera::PatchOptions);
 using HookCreateFn = tessera::Result<tessera::Hook<HookFn>> (*)(tessera::Address, HookFn, tessera::HookBackend*) noexcept;
 using NativeBackendFn = tessera::HookBackend& (*)() noexcept;
@@ -86,6 +89,11 @@ using PythonExportFn = tessera::Status (tessera::rtti::PythonBridgeCatalog::*)(t
 [[maybe_unused]] XrefCallsFn volatile g_xref_calls = &tessera::xref::find_calls;
 [[maybe_unused]] XrefBatchFn volatile g_xref_batch = &tessera::xref::find_pointer_refs_batch;
 [[maybe_unused]] CursorOffsetFn volatile g_cursor_offset = &tessera::AddressCursor::offset;
+[[maybe_unused]] CursorInstructionStepFn volatile g_cursor_step = &tessera::AddressCursor::step_instructions;
+[[maybe_unused]] CursorInstructionStepFn volatile g_cursor_find_call = &tessera::AddressCursor::find_next_call;
+[[maybe_unused]] CursorInstructionStepFn volatile g_cursor_find_rip = &tessera::AddressCursor::find_next_rip_relative;
+[[maybe_unused]] CursorResolveOperandFn volatile g_cursor_operand = &tessera::AddressCursor::resolve_operand_target;
+[[maybe_unused]] CursorThunkChainFn volatile g_cursor_thunks = &tessera::AddressCursor::resolve_thunk_chain;
 [[maybe_unused]] PatchNopFn volatile g_patch_nop = &tessera::Patch::nop;
 [[maybe_unused]] HookCreateFn volatile g_hook_create =
     static_cast<HookCreateFn>(&tessera::Hook<HookFn>::create);
