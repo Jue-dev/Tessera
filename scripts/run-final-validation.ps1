@@ -159,7 +159,7 @@ try {
     }
 
     $safeExamples = @(
-        "artifacts/x64/Release/build/examples/tessera_example_01_scan_and_resolve.exe",
+        "artifacts/x64/Release/build/examples/tessera_example_01_scan_and_pe.exe",
         "artifacts/x64/Release/build/examples/tessera_example_03_rtti_and_reflection.exe",
         "artifacts/x64/Release/build/examples/tessera_example_04_blind_discovery.exe",
         "artifacts/x64/Release/build/examples/tessera_example_05_python_bridge.exe",
