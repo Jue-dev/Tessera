@@ -32,3 +32,10 @@ Tessera is a modular C++23 static library SDK for Windows process, memory, binar
   - `target_profiles`: Pure data model (`TargetProfile`, `TargetBuild`, `AddressEntry`, `ResolutionRecipe` including `RttiVTable`, `StringXref`, and `PythonMethod`).
   - `target_profiles_json`: JSON schema serialization and migration.
   - `target_runtime`: Live process fingerprinting (`TargetFingerprinter`), verified address resolution (`AddressResolver`, `VerifiedAddress`), and `DiscoverySession`.
+
+
+## Private implementation layout
+
+Public headers under `include/tessera/**` define the supported SDK surface. Translation-unit boundaries under `src/**` are private and may be reorganized without changing that API. The Python bridge keeps runtime fingerprinting in `python_environment.cpp`, C-API table readers in `python_bridge_tables.cpp`, `PyTypeObject` inspection in `python_bridge_types.cpp`, method-table/module xref linking in `python_bridge_link.cpp`, and catalog/discovery orchestration in `python_bridge.cpp`. PE parsing keeps mapped-memory and raw-file entry paths in separate private translation units while sharing bounded read adapters through a private detail header. These splits preserve the existing `rtti` and `module` CMake target ownership.
+
+For invariants that constrain implementation changes, see [ADR 0002](adr/0002-native-inline-hook-safety-contract.md) for native-hook lifecycle/unwind safety and [ADR 0003](adr/0003-core-profiling-and-rtti-boundaries.md) for component boundaries.

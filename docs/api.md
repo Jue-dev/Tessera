@@ -51,3 +51,28 @@ auto recon   = tessera::rtti::BinaryExplorer::reconstruct_struct(proc, fn_range,
 auto py_cat  = tessera::rtti::PythonBridgeScanner::discover_all(proc, mod_range);
 auto fn      = py_cat->find_method("net.SendChatPacket");
 ```
+
+
+## Public module entry points
+
+The umbrella header `tessera/tessera.hpp` includes the primary public modules. Applications may include narrower headers when they want an explicit dependency boundary.
+
+| Area | Public entry points |
+| --- | --- |
+| Process and memory | `Process`, `IMemoryBackend`, `MemoryReader`, `MemoryWriter`, `ProtectionScope` |
+| PE/module inspection | `PeImage::from_memory`, `PeImage::from_raw_bytes`, `PeImage::from_file`, export/import and exception-directory accessors |
+| Pattern and scanning | `Pattern::parse`, `Scanner::scan`, `Scanner::find_first`, xref helpers |
+| Resolution | `AddressCursor` fluent operations and `tessera::resolve::*` pipe adapters |
+| Runtime modification | `Patch`, `PatchTransaction`, `Hook<Fn>` |
+| Reflection and discovery | `TypeRegistry`, `RttiCatalog`, `BinaryExplorer`, `ObjectView`, `PythonBridgeScanner` |
+| Persistence | `ProfileManager`, `JsonProfileStore`, `TargetProfile`, `AddressResolver`, `DiscoverySession` |
+
+PE image parsing accepts both mapped process memory and raw file bytes. The two paths share bounded private readers; their translation-unit layout is an implementation detail and does not change the public `PeImage` API.
+
+Python bridge discovery reports runtime/framework evidence separately from deployment certainty. C-API table presence alone does not imply a statically embedded runtime; use `PythonEnvironmentInfo::deployment` and `framework` independently.
+
+## Safety and component boundaries
+
+- Native inline-hook attach/detach, unwind, thread-coordination, and callback-lifetime obligations are defined in [ADR 0002](adr/0002-native-inline-hook-safety-contract.md) and the [native inline-hook guide](native-inline-hooks.md).
+- The compiled `core` and `profiling` components and Python bridge ownership by `rtti` are documented in [ADR 0003](adr/0003-core-profiling-and-rtti-boundaries.md).
+- The independent x86 decoder oracle is test-only (`iced-x86==1.21.0`) and is not part of the public SDK dependency graph. See the [developer workflow](development.md).

@@ -23,6 +23,8 @@ Available presets:
 - `x86-release`
 - `x64-asan` (optional sanitizer configuration)
 - `x64-analyze` (optional MSVC static-analysis configuration)
+- `x64-bench` (opt-in benchmark build)
+- `x64-fuzz-smoke` (standalone fuzz harnesses for deterministic corpus replay)
 
 ## Installing the SDK
 
@@ -117,10 +119,40 @@ cmake --build build-bench --target tessera_bench tessera_decoder_bench tessera_p
 Fuzz harnesses are optional and are excluded from the normal SDK build. Configure a standalone build with:
 
 ```powershell
-cmake -S . -B build-fuzz -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTESSERA_BUILD_TESTS=OFF -DTESSERA_BUILD_EXAMPLES=OFF -DTESSERA_BUILD_FUZZ=ON -DTESSERA_ENABLE_LIBFUZZER=OFF
-cmake --build build-fuzz --target tessera_fuzz_pe tessera_fuzz_json tessera_fuzz_pattern tessera_fuzz_profile_json tessera_fuzz_rtti_discovery
+cmake --preset x64-fuzz-smoke
+cmake --build --preset x64-fuzz-smoke
 ```
 
 This standalone mode is useful for deterministic harness smoke checks; it does not enable coverage-guided fuzzing. For Clang/libFuzzer with ASan/UBSan, configure with a Clang toolchain and set both `TESSERA_ENABLE_LIBFUZZER=ON` and `TESSERA_STATIC_RUNTIME=ON` (the Windows LLVM runtime requires `/MT`). On native MSVC x86, use `TESSERA_ENABLE_MSVC_FUZZER=ON` (and `TESSERA_ENABLE_ASAN=ON`) because the distributed Windows LLVM package does not provide the i386 libFuzzer archive. The exact Windows x86/x64 campaign setup, runtime checks, duration controls, and artifact collection are maintained in [native-hook-fuzz.yml](../.github/workflows/native-hook-fuzz.yml); its PowerShell steps live under [native-hook-fuzz scripts](../.github/scripts/native-hook-fuzz/).
 
 The seed corpora are checked in under `verify/fuzz/corpus/`. See [the fuzz guide](../verify/fuzz/README.md) for target coverage and campaign details.
+
+
+## Benchmark and fuzz-smoke presets
+
+The dedicated presets keep optional tools out of the default SDK build:
+
+```powershell
+# Build the benchmark executables
+cmake --preset x64-bench
+cmake --build --preset x64-bench
+.\artifacts\x64\Bench\build\verify\bench\tessera_bench.exe
+.\artifacts\x64\Bench\build\verify\bench\tessera_decoder_bench.exe
+.\artifacts\x64\Bench\build\verify\bench\tessera_pe_bench.exe
+
+# Build standalone fuzz harnesses (no libFuzzer runtime)
+cmake --preset x64-fuzz-smoke
+cmake --build --preset x64-fuzz-smoke
+```
+
+Replay every checked-in corpus with the helper script (run from the repository root):
+
+```powershell
+.\scripts\run-fuzz-smoke.ps1
+# Optional: longer bounded replay
+.\scripts\run-fuzz-smoke.ps1 -Runs 500
+```
+
+The script checks that each executable and corpus exists, runs every harness with the requested iteration limit, and fails immediately on a non-zero exit code. It skips the native-hook target only when that Windows-only executable is absent.
+
+Run the fuzz executables from the repository root so the corpus paths above resolve. The native-hook harness is generated only on Windows. For coverage-guided campaigns, use the dedicated Clang/libFuzzer or MSVC-fuzzer configuration documented in [the fuzz guide](../verify/fuzz/README.md); the standalone preset is a deterministic smoke/replay configuration, not a substitute for those campaigns.
