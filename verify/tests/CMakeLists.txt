@@ -147,6 +147,7 @@ tessera_add_test(tessera_test_patch_hook
     SOURCES
         patch_hook/test_patch_hook_core.cpp
         patch_hook/test_native_hook_unwind.cpp
+        patch_hook/test_native_hook_unwind_lifecycle.cpp
         patch_hook/test_native_hook_relocation.cpp
         patch_hook/test_native_hook_backend.cpp
         patch_hook/test_native_hook_lifecycle.cpp
@@ -219,7 +220,10 @@ tessera_add_test(tessera_test_profile_targets
 
 tessera_add_test(tessera_test_rtti
     SOURCES
-        rtti/test_rtti.cpp
+        rtti/test_rtti_core.cpp
+        rtti/test_rtti_discovery.cpp
+        rtti/test_object_view.cpp
+        rtti/test_python_bridge.cpp
     LIBS
         tessera::tessera
 )

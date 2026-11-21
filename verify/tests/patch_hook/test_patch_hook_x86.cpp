@@ -287,3 +287,38 @@ TEST_CASE("Native x86 relocator expands short JMP and Jcc while preserving tramp
         std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0xC3}};
     run_case(short_jcc);
 }
+
+
+TEST_CASE("Native x86 relocator rejects branches into the middle of a displaced instruction",
+          "[hook][native][x86][relocation][rejection]") {
+    using namespace tessera;
+
+    ExecutableRegion region{};
+    REQUIRE(region.address != nullptr);
+    auto* code = region.bytes();
+    std::memset(code, 0x90, 4096);
+
+    constexpr std::size_t target_offset = 64;
+    // The short JMP targets byte 67, inside the immediate of the MOV at byte 66.
+    const std::array<std::byte, 8> target_code{
+        std::byte{0xEB}, std::byte{0x01},
+        std::byte{0xB8}, std::byte{0x2A}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0xC3}};
+    std::memcpy(code + target_offset, target_code.data(), target_code.size());
+    REQUIRE(region.protect_read_execute());
+
+    std::array<std::byte, 8> before{};
+    std::memcpy(before.data(), code + target_offset, before.size());
+
+    HookBackend& backend = native_inline_hook_backend();
+    auto hook = Hook<CdeclFn>::create(
+        reinterpret_cast<CdeclFn>(code + target_offset), &unused_detour, &backend);
+    REQUIRE(hook.has_value());
+
+    HookOptions options{};
+    options.threads = ThreadPolicy::None;
+    const auto status = hook->install(options);
+    REQUIRE_FALSE(status.has_value());
+    REQUIRE(status.error().code == ErrorCode::UnsupportedInstruction);
+    REQUIRE(std::memcmp(code + target_offset, before.data(), before.size()) == 0);
+}
