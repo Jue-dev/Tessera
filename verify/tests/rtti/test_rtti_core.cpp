@@ -1,6 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <array>
+#include <cstdint>
 #include <cstring>
+#include <span>
 #include <optional>
 #include <string>
 #include <vector>

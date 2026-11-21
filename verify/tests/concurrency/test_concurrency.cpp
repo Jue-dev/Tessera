@@ -84,8 +84,6 @@ private:
     std::atomic<std::uint32_t> detached_{0};
 };
 
-void hook_detour_stub() {}
-
 } // namespace
 
 TEST_CASE("Concurrent logger, scanner, patch, hook and protection operations remain race-free",
@@ -131,6 +129,10 @@ TEST_CASE("Concurrent logger, scanner, patch, hook and protection operations rem
     logger->add_sink(primary_sink);
 
     ConcurrentHookBackend hook_backend;
+    int detour_storage = 0;
+    auto hook_result = detail::HookCore::create(Address{0x40000000ULL}, &detour_storage, &hook_backend);
+    REQUIRE(hook_result.has_value());
+    detail::HookCore shared_hook = std::move(*hook_result);
     std::atomic<bool> failed{false};
     std::vector<std::thread> workers;
     workers.reserve(kWorkers);
@@ -179,13 +181,11 @@ TEST_CASE("Concurrent logger, scanner, patch, hook and protection operations rem
                     }
                 }
 
-                const Address hook_target{
-                    0x500000ULL + static_cast<std::uint64_t>(worker * kIterations + iteration) * 0x10ULL};
-                auto token = hook_backend.attach(
-                    hook_target,
-                    reinterpret_cast<void*>(&hook_detour_stub),
-                    HookOptions{.threads = ThreadPolicy::None});
-                if (!token || !hook_backend.detach(*token)) {
+                if (!shared_hook.install(HookOptions{.threads = ThreadPolicy::None})) {
+                    failed.store(true, std::memory_order_relaxed);
+                }
+                (void)shared_hook.installed();
+                if (!shared_hook.remove()) {
                     failed.store(true, std::memory_order_relaxed);
                 }
             }
@@ -197,9 +197,9 @@ TEST_CASE("Concurrent logger, scanner, patch, hook and protection operations rem
     }
 
     REQUIRE_FALSE(failed.load(std::memory_order_relaxed));
+    REQUIRE_FALSE(shared_hook.installed());
     REQUIRE(hook_backend.active_count() == 0);
-    REQUIRE(hook_backend.attached_count() == kWorkers * kIterations);
-    REQUIRE(hook_backend.detached_count() == kWorkers * kIterations);
+    REQUIRE(hook_backend.attached_count() == hook_backend.detached_count());
     REQUIRE_FALSE(primary_sink->records().empty());
     REQUIRE_FALSE(alternate_sink->records().empty());
 }
