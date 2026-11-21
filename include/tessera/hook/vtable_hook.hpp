@@ -1,4 +1,5 @@
 #pragma once
+
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -6,46 +7,152 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+
 #include "tessera/core/result.hpp"
+
 namespace tessera {
+
+// Shadow-vftable hook for a caller-owned C++ object. The object must expose
+// the ABI vptr at offset zero and the caller supplies the readable slot count.
+// No code page is written and no executable/RWX allocation is created.
 class VTableHook {
 public:
- VTableHook(const VTableHook&)=delete; VTableHook& operator=(const VTableHook&)=delete; VTableHook& operator=(VTableHook&&)=delete;
- VTableHook(VTableHook&& o) noexcept : object_(std::exchange(o.object_,nullptr)), original_(std::exchange(o.original_,nullptr)), originals_(std::move(o.originals_)), shadow_(std::move(o.shadow_)), active_(std::exchange(o.active_,false)) {}
- ~VTableHook() noexcept { if(active_)(void)restore(); }
- [[nodiscard]] static Result<VTableHook> create(void* object,std::size_t count){
-  if(!object||!count||count>4096)return fail(ErrorCode::InvalidArgument,"VTableHook::create");
-  auto loc=reinterpret_cast<void***>(object);if(!*loc)return fail(ErrorCode::InvalidArgument,"VTableHook::create");
-  try{std::vector<void*> a(*loc,*loc+count);auto b=a;return VTableHook(object,*loc,std::move(a),std::move(b));}
-  catch(const std::bad_alloc&){return fail(ErrorCode::OutOfMemory,"VTableHook::create");}
- }
- [[nodiscard]] Result<void*> set_slot(std::size_t i,void* replacement) noexcept{
-  if(active_)return fail(ErrorCode::Conflict,"VTableHook::set_slot",0,"Restore the object before changing shadow slots");
-  if(i>=shadow_.size()||!replacement)return fail(ErrorCode::OutOfRange,"VTableHook::set_slot");
-  auto old=originals_[i];shadow_[i]=replacement;return old;
- }
- template<class Fn> requires(std::is_pointer_v<Fn>&&std::is_function_v<std::remove_pointer_t<Fn>>)
- [[nodiscard]] Result<Fn> hook(std::size_t i,Fn replacement) noexcept{
-  auto r=set_slot(i,reinterpret_cast<void*>(reinterpret_cast<std::uintptr_t>(replacement)));
-  if(!r)return std::unexpected(r.error());return reinterpret_cast<Fn>(reinterpret_cast<std::uintptr_t>(*r));
- }
- [[nodiscard]] Status install() noexcept{
-  if(!object_||active_)return fail(ErrorCode::InvalidArgument,"VTableHook::install");
-  auto& slot=*reinterpret_cast<void**>(object_);void* expected=original_;
-  if(!std::atomic_ref<void*>{slot}.compare_exchange_strong(expected,shadow_.data(),std::memory_order_acq_rel))
-   return fail(ErrorCode::Conflict,"VTableHook::install",0,"Object vftable changed");
-  active_=true;return ok();
- }
- [[nodiscard]] Status restore() noexcept{
-  if(!active_)return ok();auto& slot=*reinterpret_cast<void**>(object_);void* expected=shadow_.data();
-  if(!std::atomic_ref<void*>{slot}.compare_exchange_strong(expected,original_,std::memory_order_acq_rel))
-   return fail(ErrorCode::Conflict,"VTableHook::restore",0,"Object vftable is no longer owned by this hook");
-  active_=false;return ok();
- }
- [[nodiscard]] Result<void*> original(std::size_t i)const noexcept{if(i>=originals_.size())return fail(ErrorCode::OutOfRange,"VTableHook::original");return originals_[i];}
- [[nodiscard]] bool installed()const noexcept{return active_;} [[nodiscard]] std::size_t slot_count()const noexcept{return shadow_.size();}
+    VTableHook(const VTableHook&) = delete;
+    VTableHook& operator=(const VTableHook&) = delete;
+    VTableHook& operator=(VTableHook&&) = delete;
+
+    VTableHook(VTableHook&& other) noexcept
+        : object_(std::exchange(other.object_, nullptr)),
+          original_table_(std::exchange(other.original_table_, nullptr)),
+          original_slots_(std::move(other.original_slots_)),
+          shadow_slots_(std::move(other.shadow_slots_)),
+          installed_(std::exchange(other.installed_, false)) {}
+
+    ~VTableHook() noexcept {
+        if (installed_) {
+            (void)restore();
+        }
+    }
+
+    [[nodiscard]] static Result<VTableHook> create(void* object,
+                                                    std::size_t slot_count) {
+        if (object == nullptr || slot_count == 0 || slot_count > 4096) {
+            return fail(ErrorCode::InvalidArgument, "VTableHook::create",
+                        0, "Object and bounded non-zero vftable slot count are required");
+        }
+
+        auto** table_location = reinterpret_cast<void***>(object);
+        if (*table_location == nullptr) {
+            return fail(ErrorCode::InvalidArgument, "VTableHook::create",
+                        0, "Object has a null vftable pointer");
+        }
+
+        try {
+            std::vector<void*> originals(*table_location,
+                                          *table_location + slot_count);
+            std::vector<void*> shadow = originals;
+            return VTableHook{object, *table_location,
+                              std::move(originals), std::move(shadow)};
+        } catch (const std::bad_alloc&) {
+            return fail(ErrorCode::OutOfMemory, "VTableHook::create");
+        }
+    }
+
+    // Configure shadow slots before installation. The object and function
+    // targets must remain alive while the hook is installed.
+    [[nodiscard]] Result<void*> set_slot(std::size_t slot,
+                                         void* replacement) noexcept {
+        if (installed_) {
+            return fail(ErrorCode::Conflict, "VTableHook::set_slot", 0,
+                        "Restore the object before changing shadow slots");
+        }
+        if (slot >= shadow_slots_.size() || replacement == nullptr) {
+            return fail(ErrorCode::OutOfRange, "VTableHook::set_slot");
+        }
+
+        void* original = original_slots_[slot];
+        shadow_slots_[slot] = replacement;
+        return original;
+    }
+
+    template <class FunctionPointer>
+        requires(std::is_pointer_v<FunctionPointer> &&
+                 std::is_function_v<std::remove_pointer_t<FunctionPointer>>)
+    [[nodiscard]] Result<FunctionPointer> hook(
+        std::size_t slot, FunctionPointer replacement) noexcept {
+        auto original = set_slot(
+            slot, reinterpret_cast<void*>(
+                      reinterpret_cast<std::uintptr_t>(replacement)));
+        if (!original) {
+            return std::unexpected(original.error());
+        }
+        return reinterpret_cast<FunctionPointer>(
+            reinterpret_cast<std::uintptr_t>(*original));
+    }
+
+    [[nodiscard]] Status install() noexcept {
+        if (object_ == nullptr || installed_) {
+            return fail(ErrorCode::InvalidArgument, "VTableHook::install");
+        }
+
+        auto& vptr = *reinterpret_cast<void**>(object_);
+        void* expected = original_table_;
+        if (!std::atomic_ref<void*>{vptr}.compare_exchange_strong(
+                expected, shadow_slots_.data(), std::memory_order_acq_rel)) {
+            return fail(ErrorCode::Conflict, "VTableHook::install", 0,
+                        "Object vftable changed since the shadow copy was created");
+        }
+
+        installed_ = true;
+        return ok();
+    }
+
+    [[nodiscard]] Status restore() noexcept {
+        if (!installed_) {
+            return ok();
+        }
+
+        auto& vptr = *reinterpret_cast<void**>(object_);
+        void* expected = shadow_slots_.data();
+        if (!std::atomic_ref<void*>{vptr}.compare_exchange_strong(
+                expected, original_table_, std::memory_order_acq_rel)) {
+            return fail(ErrorCode::Conflict, "VTableHook::restore", 0,
+                        "Object vftable is no longer owned by this hook");
+        }
+
+        installed_ = false;
+        return ok();
+    }
+
+    [[nodiscard]] Result<void*> original(std::size_t slot) const noexcept {
+        if (slot >= original_slots_.size()) {
+            return fail(ErrorCode::OutOfRange, "VTableHook::original");
+        }
+        return original_slots_[slot];
+    }
+
+    [[nodiscard]] bool installed() const noexcept {
+        return installed_;
+    }
+
+    [[nodiscard]] std::size_t slot_count() const noexcept {
+        return shadow_slots_.size();
+    }
+
 private:
- VTableHook(void* o,void** v,std::vector<void*> a,std::vector<void*> b)noexcept:object_(o),original_(v),originals_(std::move(a)),shadow_(std::move(b)){}
- void* object_{};void** original_{};std::vector<void*> originals_{},shadow_{};bool active_=false;
+    VTableHook(void* object, void** original_table,
+               std::vector<void*> originals,
+               std::vector<void*> shadow) noexcept
+        : object_(object),
+          original_table_(original_table),
+          original_slots_(std::move(originals)),
+          shadow_slots_(std::move(shadow)) {}
+
+    void* object_ = nullptr;
+    void** original_table_ = nullptr;
+    std::vector<void*> original_slots_{};
+    std::vector<void*> shadow_slots_{};
+    bool installed_ = false;
 };
+
 } // namespace tessera

@@ -1,9 +1,70 @@
 #include "tessera/memory/memory_snapshot.hpp"
-#include <new>
+
+#include <cstddef>
 #include <limits>
+#include <new>
 #include <utility>
+
 #include "tessera/memory/memory_reader.hpp"
+
 namespace tessera {
-Result<MemorySnapshot> MemorySnapshot::capture(const Process&p,AddressRange r){if(r.empty()||r.size()>static_cast<uint64_t>((std::numeric_limits<size_t>::max)()))return fail(ErrorCode::InvalidArgument,"MemorySnapshot::capture");MemoryReader reader{p};auto b=reader.read_bytes(r.begin(),static_cast<size_t>(r.size()));if(!b)return std::unexpected(b.error());return MemorySnapshot{r.begin(),std::move(*b)};}
-Result<std::vector<ChangedRange>> diff(const MemorySnapshot&a,const MemorySnapshot&b){if(a.base!=b.base||a.bytes.size()!=b.bytes.size())return fail(ErrorCode::InvalidArgument,"MemorySnapshot::diff");try{std::vector<ChangedRange> out;size_t i=0;while(i<a.bytes.size()){if(a.bytes[i]==b.bytes[i]){++i;continue;}size_t s=i;while(i<a.bytes.size()&&a.bytes[i]!=b.bytes[i])++i;ChangedRange r{};r.offset=s;r.old_bytes.assign(a.bytes.begin()+static_cast<ptrdiff_t>(s),a.bytes.begin()+static_cast<ptrdiff_t>(i));r.new_bytes.assign(b.bytes.begin()+static_cast<ptrdiff_t>(s),b.bytes.begin()+static_cast<ptrdiff_t>(i));out.push_back(std::move(r));}return out;}catch(const std::bad_alloc&){return fail(ErrorCode::OutOfMemory,"MemorySnapshot::diff");}}
+
+Result<MemorySnapshot> MemorySnapshot::capture(const Process& process,
+                                                AddressRange range) {
+    if (range.empty() ||
+        range.size() >
+            static_cast<std::uint64_t>((std::numeric_limits<std::size_t>::max)())) {
+        return fail(ErrorCode::InvalidArgument, "MemorySnapshot::capture");
+    }
+
+    MemoryReader reader{process};
+    auto bytes = reader.read_bytes(range.begin(),
+                                   static_cast<std::size_t>(range.size()));
+    if (!bytes) {
+        return std::unexpected(bytes.error());
+    }
+
+    return MemorySnapshot{range.begin(), std::move(*bytes)};
+}
+
+Result<std::vector<ChangedRange>> diff(const MemorySnapshot& before,
+                                       const MemorySnapshot& after) {
+    if (before.base != after.base ||
+        before.bytes.size() != after.bytes.size()) {
+        return fail(ErrorCode::InvalidArgument, "MemorySnapshot::diff", 0,
+                    "Snapshots must describe the same base and byte count");
+    }
+
+    try {
+        std::vector<ChangedRange> changes;
+        std::size_t index = 0;
+        while (index < before.bytes.size()) {
+            if (before.bytes[index] == after.bytes[index]) {
+                ++index;
+                continue;
+            }
+
+            const std::size_t begin = index;
+            while (index < before.bytes.size() &&
+                   before.bytes[index] != after.bytes[index]) {
+                ++index;
+            }
+
+            ChangedRange changed{};
+            changed.offset = begin;
+            changed.old_bytes.assign(
+                before.bytes.begin() + static_cast<std::ptrdiff_t>(begin),
+                before.bytes.begin() + static_cast<std::ptrdiff_t>(index));
+            changed.new_bytes.assign(
+                after.bytes.begin() + static_cast<std::ptrdiff_t>(begin),
+                after.bytes.begin() + static_cast<std::ptrdiff_t>(index));
+            changes.push_back(std::move(changed));
+        }
+
+        return changes;
+    } catch (const std::bad_alloc&) {
+        return fail(ErrorCode::OutOfMemory, "MemorySnapshot::diff");
+    }
+}
+
 } // namespace tessera

@@ -1,24 +1,130 @@
 #include "tessera/memory/read_scatter.hpp"
+
 #include <algorithm>
 #include <new>
 #include <utility>
+
 #include "tessera/core/checked_math.hpp"
 #include "tessera/memory/memory_backend.hpp"
+
 namespace tessera {
-Result<std::vector<MemoryReadResult>> read_scatter(const Process&p,std::span<const MemoryReadRequest> req,std::size_t gap,std::size_t max_size){
- if(!max_size)return fail(ErrorCode::InvalidArgument,"read_scatter");
- struct Item{size_t i;uint64_t b,e;};try{
- std::vector<MemoryReadResult> out(req.size());std::vector<Item> q;
- for(size_t i=0;i<req.size();++i){if(!req[i].size)continue;if(req[i].size>max_size){out[i].error=make_error(ErrorCode::OutOfRange,"read_scatter");continue;}if(req[i].address.is_null()){out[i].error=make_error(ErrorCode::NullAddress,"read_scatter");continue;}auto end=checked_add<uint64_t>(req[i].address.value(),req[i].size);if(!end){out[i].error=end.error();continue;}q.push_back({i,req[i].address.value(),*end});}
- std::sort(q.begin(),q.end(),[](auto&a,auto&b){return a.b<b.b;});const auto& backend=memory_backend(p);size_t cur=0;
- while(cur<q.size()){size_t last=cur+1;uint64_t begin=q[cur].b,end=q[cur].e;
-  while(last<q.size()){uint64_t d=q[last].b>end?q[last].b-end:0;if(d>gap||q[last].e-begin>max_size)break;end=std::max(end,q[last].e);++last;}
-  std::vector<std::byte> batch(static_cast<size_t>(end-begin));auto got=backend.read(Address{begin},batch);
-  if(got&&*got==batch.size()){for(size_t j=cur;j<last;++j){auto x=q[j];auto off=static_cast<size_t>(x.b-begin);out[x.i].bytes.assign(batch.begin()+off,batch.begin()+off+req[x.i].size);}}
-  else{for(size_t j=cur;j<last;++j){auto x=q[j];std::vector<std::byte>b(req[x.i].size);auto r=backend.read(req[x.i].address,b);if(!r)out[x.i].error=r.error();else{if(*r<b.size()){b.resize(*r);out[x.i].error=make_error(ErrorCode::PartialTransfer,"read_scatter");}out[x.i].bytes=std::move(b);}}}
-  cur=last;
- }
- return out;
- }catch(const std::bad_alloc&){return fail(ErrorCode::OutOfMemory,"read_scatter");}
+
+Result<std::vector<MemoryReadResult>> read_scatter(
+    const Process& process, std::span<const MemoryReadRequest> requests,
+    std::size_t coalesce_gap, std::size_t max_batch_size) {
+    if (max_batch_size == 0) {
+        return fail(ErrorCode::InvalidArgument, "read_scatter");
+    }
+
+    struct IndexedRequest {
+        std::size_t index = 0;
+        std::uint64_t begin = 0;
+        std::uint64_t end = 0;
+    };
+
+    try {
+        std::vector<MemoryReadResult> results(requests.size());
+        std::vector<IndexedRequest> ordered;
+        ordered.reserve(requests.size());
+
+        for (std::size_t i = 0; i < requests.size(); ++i) {
+            const auto& request = requests[i];
+            if (request.size == 0) {
+                continue;
+            }
+            if (request.size > max_batch_size) {
+                results[i].error = make_error(ErrorCode::OutOfRange,
+                                               "read_scatter");
+                continue;
+            }
+            if (request.address.is_null()) {
+                results[i].error = make_error(ErrorCode::NullAddress,
+                                               "read_scatter");
+                continue;
+            }
+
+            auto end = checked_add<std::uint64_t>(
+                request.address.value(),
+                static_cast<std::uint64_t>(request.size));
+            if (!end) {
+                results[i].error = end.error();
+                continue;
+            }
+
+            ordered.push_back(
+                IndexedRequest{i, request.address.value(), *end});
+        }
+
+        std::sort(ordered.begin(), ordered.end(),
+                  [](const IndexedRequest& lhs, const IndexedRequest& rhs) {
+                      return lhs.begin < rhs.begin;
+                  });
+
+        const auto& backend = memory_backend(process);
+        std::size_t cursor = 0;
+        while (cursor < ordered.size()) {
+            std::size_t last = cursor + 1;
+            const std::uint64_t batch_begin = ordered[cursor].begin;
+            std::uint64_t batch_end = ordered[cursor].end;
+
+            while (last < ordered.size()) {
+                const auto& next = ordered[last];
+                const std::uint64_t gap =
+                    next.begin > batch_end ? next.begin - batch_end : 0;
+                if (gap > coalesce_gap || next.end < batch_begin ||
+                    next.end - batch_begin > max_batch_size) {
+                    break;
+                }
+
+                batch_end = (std::max)(batch_end, next.end);
+                ++last;
+            }
+
+            const auto batch_size =
+                static_cast<std::size_t>(batch_end - batch_begin);
+            std::vector<std::byte> buffer(batch_size);
+            auto read = backend.read(Address{batch_begin}, buffer);
+
+            if (read && *read == batch_size) {
+                for (std::size_t i = cursor; i < last; ++i) {
+                    const auto& item = ordered[i];
+                    const auto offset =
+                        static_cast<std::size_t>(item.begin - batch_begin);
+                    const auto size = requests[item.index].size;
+                    results[item.index].bytes.assign(
+                        buffer.begin() + static_cast<std::ptrdiff_t>(offset),
+                        buffer.begin() +
+                            static_cast<std::ptrdiff_t>(offset + size));
+                }
+            } else {
+                // A failed coalesced read must not hide independent successes.
+                for (std::size_t i = cursor; i < last; ++i) {
+                    const auto& item = ordered[i];
+                    const auto& request = requests[item.index];
+                    std::vector<std::byte> bytes(request.size);
+                    auto individual = backend.read(request.address, bytes);
+
+                    if (!individual) {
+                        results[item.index].error = individual.error();
+                        continue;
+                    }
+                    if (*individual != request.size) {
+                        bytes.resize(*individual);
+                        results[item.index].error =
+                            make_error(ErrorCode::PartialTransfer,
+                                       "read_scatter");
+                    }
+                    results[item.index].bytes = std::move(bytes);
+                }
+            }
+
+            cursor = last;
+        }
+
+        return results;
+    } catch (const std::bad_alloc&) {
+        return fail(ErrorCode::OutOfMemory, "read_scatter");
+    }
 }
+
 } // namespace tessera
