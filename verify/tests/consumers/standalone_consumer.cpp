@@ -61,6 +61,8 @@ using XrefConditionalFn = tessera::Result<std::vector<tessera::Address>> (*)(
     const tessera::Process&, tessera::AddressRange, tessera::Address, const tessera::ScanOptions&);
 using XrefIndirectFn = tessera::Result<std::vector<tessera::Address>> (*)(
     const tessera::Process&, tessera::AddressRange, tessera::Address, const tessera::ScanOptions&);
+using XrefRelocationFn = tessera::Result<std::vector<tessera::Address>> (*)(
+    const tessera::Process&, tessera::Address, const tessera::PeImage&, tessera::Address);
 using CursorOffsetFn = tessera::AddressCursor (tessera::AddressCursor::*)(std::int64_t) const noexcept;
 using CursorInstructionStepFn = tessera::AddressCursor (tessera::AddressCursor::*)(std::size_t) const noexcept;
 using CursorResolveOperandFn = tessera::AddressCursor (tessera::AddressCursor::*)() const noexcept;
@@ -94,6 +96,7 @@ using PythonExportFn = tessera::Status (tessera::rtti::PythonBridgeCatalog::*)(t
 [[maybe_unused]] XrefBatchFn volatile g_xref_batch = &tessera::xref::find_pointer_refs_batch;
 [[maybe_unused]] XrefConditionalFn volatile g_xref_conditional = &tessera::xref::find_conditional_branches;
 [[maybe_unused]] XrefIndirectFn volatile g_xref_indirect = &tessera::xref::find_indirect_refs;
+[[maybe_unused]] XrefRelocationFn volatile g_xref_relocated = &tessera::xref::find_relocated_pointer_refs;
 [[maybe_unused]] CursorOffsetFn volatile g_cursor_offset = &tessera::AddressCursor::offset;
 [[maybe_unused]] CursorInstructionStepFn volatile g_cursor_step = &tessera::AddressCursor::step_instructions;
 [[maybe_unused]] CursorInstructionStepFn volatile g_cursor_find_call = &tessera::AddressCursor::find_next_call;
