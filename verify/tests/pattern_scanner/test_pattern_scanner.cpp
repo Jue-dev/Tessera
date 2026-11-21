@@ -191,6 +191,17 @@ TEST_CASE("Scanner chunk overlap, contiguous region merging, bad page skip, and 
     REQUIRE((*batch)[0].hits.front() == Address{0x200FFD});
     REQUIRE((*batch)[1].hits.front() == Address{0x200FFE});
 
+    ScanOptions quota_options{};
+    quota_options.chunk_size = opts.chunk_size;
+    quota_options.filter.executable_only = true;
+    quota_options.max_results = 1;
+    auto quota_batch = scanner.scan_batch(scan_range, batch_patterns, quota_options);
+    REQUIRE(quota_batch.has_value());
+    REQUIRE((*quota_batch)[0].hits.size() == 1);
+    REQUIRE((*quota_batch)[1].hits.size() == 1);
+    REQUIRE((*quota_batch)[0].truncated);
+    REQUIRE((*quota_batch)[1].truncated);
+
     ScanWorkspace workspace;
     workspace.reserve(opts.chunk_size + sig.size() - 1);
     auto workspace_batch = scanner.scan_batch(scan_range, batch_patterns, opts, workspace);
