@@ -24,6 +24,11 @@ struct ScanProgress {
     std::size_t hits_found = 0;
 };
 
+enum class ScanReadPolicy : std::uint8_t {
+    BestEffort,
+    Strict,
+};
+
 struct ScanOptions {
     std::size_t max_results = 0; // 0 = unlimited
     std::size_t alignment = 1;
@@ -58,6 +63,10 @@ public:
     [[nodiscard]] Result<ScanResult> scan(AddressRange range,
                                           const Pattern& pattern,
                                           const ScanOptions& options = {}) const;
+    [[nodiscard]] Result<ScanResult> scan(AddressRange range,
+                                          const Pattern& pattern,
+                                          const ScanOptions& options,
+                                          ScanReadPolicy read_policy) const;
 
     // Scans several signatures over each memory chunk after a single remote read.
     // The result vector preserves the input pattern order and each pattern has
