@@ -53,4 +53,47 @@ done
 echo "[LINK] windows_mock_backends"
 "$CXX" "${EXTRA_CXXFLAGS_ARRAY[@]}" -pthread "${OBJECTS[@]}" "$OUT/api_stubs.o" "${TEST_OBJECTS[@]}" -o "$OUT/windows_mock_backends"
 "$OUT/windows_mock_backends" | tee "$LOG"
+
+# Build the concurrency test against the same portable Windows backend stubs.
+# This runs in the normal, ASan/UBSan and TSan invocations of this script.
+CONCURRENCY_COMMON=(
+  "${COMMON[@]}"
+  -I"$ROOT/verify/tests/support"
+  -I"$ROOT/verify/tests/support/catch2_shim"
+)
+CONCURRENCY_SOURCES=(
+  src/core/core.cpp
+  src/diagnostics/diagnostics.cpp
+  src/logging/logging.cpp
+  src/pattern/pattern.cpp
+  src/pattern/pattern_simd.cpp
+  src/pattern/pattern_simd_avx2.cpp
+  src/disasm/x86_instruction_decoder.cpp
+  src/module/pe_image.cpp
+  src/module/pe_image_detail.cpp
+  src/module/pe_image_memory.cpp
+  src/module/pe_image_raw.cpp
+  src/scanner/scanner.cpp
+  src/scanner/scanner_batch.cpp
+  src/scanner/xref.cpp
+  src/patch/patch.cpp
+  verify/tests/support/test_main.cpp
+  verify/tests/concurrency/test_concurrency.cpp
+)
+CONCURRENCY_OBJECTS=()
+idx=0
+for src in "${CONCURRENCY_SOURCES[@]}"; do
+  obj="$OUT/concurrency_${idx}.o"
+  echo "[CXX CONCURRENCY] $src"
+  "$CXX" "${CONCURRENCY_COMMON[@]}" -c "$ROOT/$src" -o "$obj"
+  CONCURRENCY_OBJECTS+=("$obj")
+  ((idx+=1))
+done
+
+echo "[LINK] tessera_test_concurrency"
+"$CXX" "${EXTRA_CXXFLAGS_ARRAY[@]}" -pthread "${OBJECTS[@]}" "$OUT/api_stubs.o" \
+  "${CONCURRENCY_OBJECTS[@]}" -o "$OUT/tessera_test_concurrency"
+"$OUT/tessera_test_concurrency" | tee -a "$LOG"
+"$OUT/tessera_test_concurrency" --shuffle --seed 20261121 | tee -a "$LOG"
+echo "CONCURRENCY_VALIDATION_COMPLETE"
 echo "WINDOWS_MOCK_VALIDATION_COMPLETE"
