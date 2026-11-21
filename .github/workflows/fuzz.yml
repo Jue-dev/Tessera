@@ -30,17 +30,22 @@ jobs:
       force-url: https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-win64.exe
       directory: "${{ runner.temp }}/llvm22"
    - uses: ./.github/actions/setup-msvc
-     with: {arch: ${{ matrix.arch }}}
+     with:
+      arch: ${{ matrix.arch }}
    - shell: pwsh
      run: .\.github\scripts\fuzz-native-hook.ps1 -Stage setup -Arch ${{ matrix.arch }}
    - shell: pwsh
      run: .\.github\scripts\fuzz-native-hook.ps1 -Stage build -Arch ${{ matrix.arch }}
    - shell: pwsh
-     env: {CAMPAIGN_SECONDS: ${{ inputs.campaign_seconds || '300' }}}
+     env:
+      CAMPAIGN_SECONDS: ${{ inputs.campaign_seconds || '300' }}
      run: .\.github\scripts\fuzz-native-hook.ps1 -Stage run -Arch ${{ matrix.arch }}
    - uses: actions/upload-artifact@v7
      if: always()
-     with: {name: native-hook-fuzz-${{ matrix.arch }}-${{ github.run_number }}, path: artifacts/native-hook-fuzz/${{ matrix.arch }}/, if-no-files-found: warn}
+     with:
+      name: "native-hook-fuzz-${{ matrix.arch }}-${{ github.run_number }}"
+      path: artifacts/native-hook-fuzz/${{ matrix.arch }}/
+      if-no-files-found: warn
  continuous-fuzz:
   runs-on: windows-latest
   timeout-minutes: 25
@@ -74,4 +79,7 @@ jobs:
       if($LASTEXITCODE -ne 0){throw "Fuzz campaign failed"}
    - uses: actions/upload-artifact@v7
      if: always()
-     with: {name: fuzz-${{ matrix.target }}-summary, path: artifacts/fuzz/*.summary.txt, if-no-files-found: ignore}
+     with:
+      name: "fuzz-${{ matrix.target }}-summary"
+      path: artifacts/fuzz/*.summary.txt
+      if-no-files-found: ignore
