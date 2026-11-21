@@ -39,7 +39,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes clang g++-13 libstdc++-13-dev
           clang++ --version
-          printf '#include <expected>\n#include <functional>\n#include <bit>\nint main(){std::expected<int,int> x=1; std::move_only_function<int()> f=[] { return 1; }; return std::byteswap(1u)==1u && x.value()==1 && f()==1 ? 0 : 1;}\n' | clang++ -std=c++23 -x c++ -fsyntax-only -
+          g++-13 --version
+          printf '#include <expected>\n#include <functional>\n#include <bit>\nint main(){std::expected<int,int> x=1; std::move_only_function<int()> f=[] { return 1; }; return std::byteswap(1u)==1u && x.value()==1 && f()==1 ? 0 : 1;}\n' | clang++ --gcc-toolchain=/usr -stdlib=libstdc++ -std=c++23 -x c++ -fsyntax-only -
 
       - name: Build and run portable Windows-backend mock tests under sanitizer
         env:
@@ -48,7 +49,7 @@ jobs:
           UBSAN_OPTIONS: ${{ matrix.env_ubsan }}
           TSAN_OPTIONS: ${{ matrix.env_tsan }}
         run: |
-          CXX=clang++ EXTRA_CXXFLAGS="$SANITIZER_FLAGS -fno-omit-frame-pointer" bash ./verify/windows_mock/run_windows_mock_tests.sh
+          CXX=clang++ EXTRA_CXXFLAGS="$SANITIZER_FLAGS -fno-omit-frame-pointer --gcc-toolchain=/usr -stdlib=libstdc++" bash ./verify/windows_mock/run_windows_mock_tests.sh
 
       - name: Record sanitizer environment
         if: always()
