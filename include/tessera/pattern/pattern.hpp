@@ -93,6 +93,38 @@ public:
         return n;
     }
 
+    [[nodiscard]] constexpr bool is_exact() const noexcept {
+        if (size_ == 0) {
+            return false;
+        }
+        for (std::size_t i = 0; i < size_; ++i) {
+            if (inline_mask_[i] != std::byte{0xFF}) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] constexpr bool is_byte_mask_only() const noexcept {
+        for (std::size_t i = 0; i < size_; ++i) {
+            if (inline_mask_[i] != std::byte{0} &&
+                inline_mask_[i] != std::byte{0xFF}) {
+                return false;
+            }
+        }
+        return size_ != 0;
+    }
+
+    [[nodiscard]] constexpr bool is_nibble_masked() const noexcept {
+        for (std::size_t i = 0; i < size_; ++i) {
+            if (inline_mask_[i] != std::byte{0} &&
+                inline_mask_[i] != std::byte{0xFF}) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     [[nodiscard]] constexpr std::optional<std::size_t> secondary_anchor_index() const noexcept {
         if (!has_anchor_) {
             return std::nullopt;
