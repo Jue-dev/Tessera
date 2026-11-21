@@ -23,6 +23,7 @@
 
 namespace {
 
+#if defined(_WIN32)
 template <std::size_t Index>
 void concurrency_hook_target() noexcept {
     [[maybe_unused]] volatile std::size_t marker = Index;
@@ -36,6 +37,7 @@ constexpr std::array<HookTarget, 8> kHookTargets{
     &concurrency_hook_target<2>, &concurrency_hook_target<3>,
     &concurrency_hook_target<4>, &concurrency_hook_target<5>,
     &concurrency_hook_target<6>, &concurrency_hook_target<7>};
+#endif
 
 class ConcurrentHookBackend final : public tessera::HookBackend {
 public:
@@ -145,8 +147,13 @@ TEST_CASE("Concurrent logger, scanner, patch, hook and protection operations rem
     logger->add_sink(primary_sink);
 
     ConcurrentHookBackend hook_backend;
+#if defined(_WIN32)
     const auto detour = reinterpret_cast<void*>(
         reinterpret_cast<std::uintptr_t>(&concurrency_hook_detour));
+#else
+    // The portable Windows mock exposes a 64-byte executable region at 0x1000.
+    const auto detour = reinterpret_cast<void*>(std::uintptr_t{0x1030});
+#endif
     std::atomic<std::uint32_t> failure_mask{0};
     std::vector<std::thread> workers;
     workers.reserve(kWorkers);
@@ -154,8 +161,12 @@ TEST_CASE("Concurrent logger, scanner, patch, hook and protection operations rem
     for (std::size_t worker = 0; worker < kWorkers; ++worker) {
         workers.emplace_back([&, worker] {
             const std::uint64_t region_base = kWorkerBase + worker * kWorkerStride;
+#if defined(_WIN32)
             const auto target = Address{static_cast<std::uint64_t>(
                 reinterpret_cast<std::uintptr_t>(kHookTargets[worker]))};
+#else
+            const auto target = Address{0x1001ULL + worker * 4ULL};
+#endif
             auto hook_result = detail::HookCore::create(target, detour, &hook_backend);
             if (!hook_result) {
                 failure_mask.fetch_or(128u, std::memory_order_relaxed);
