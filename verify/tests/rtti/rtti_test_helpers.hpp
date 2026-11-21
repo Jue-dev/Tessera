@@ -1,12 +1,12 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <string_view>
 #include <vector>
 
 namespace rtti_test_support {
-
-using namespace tessera;
 
 inline void write_u32(std::vector<std::byte>& buf, std::size_t off, std::uint32_t val) {
     std::memcpy(buf.data() + off, &val, 4);
