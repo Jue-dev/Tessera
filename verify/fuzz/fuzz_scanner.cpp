@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <span>
 #include <string_view>
+#include <vector>
 namespace {
 constexpr std::uint64_t kFuzzBase = 0x20000000ULL;
 constexpr std::size_t kPageSize = 4096;
@@ -39,6 +40,23 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         const std::string_view text{reinterpret_cast<const char*>(data), pattern_size};
         auto pattern = tessera::Pattern::parse(text);
         if (pattern) {
+            const std::span<const std::byte> haystack{
+                reinterpret_cast<const std::byte*>(data), size};
+            std::vector<std::size_t> expected;
+            for (std::size_t offset = 0; offset + pattern->size() <= haystack.size(); ++offset) {
+                if (pattern->matches(haystack.subspan(offset))) {
+                    expected.push_back(offset);
+                }
+            }
+            std::vector<std::size_t> actual;
+            pattern->search(haystack, haystack.size(), [&](std::size_t offset) {
+                actual.push_back(offset);
+                return true;
+            });
+            if (actual != expected) {
+                std::abort();
+            }
+
             tessera::ScanOptions options{};
             options.chunk_size = 1u + (size % 1024u);
             options.alignment = 1u + (size % 16u);
