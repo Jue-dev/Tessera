@@ -47,7 +47,7 @@ The supporting technical boundaries are recorded in [JSON validation](json-valid
 
 The bounded x86/x64 instruction decoder is an internal L0.75 component at `src/disasm/`. The hook, scanner and resolver object targets consume it through private CMake dependencies. It is deliberately not installed as a public header or exported SDK target. This keeps instruction-boundary and relative/RIP-relative operand interpretation consistent without making scanner or resolver depend on the hook subsystem.
 
-The decoder rejects unsupported encodings and bounds every instruction to the architectural 15-byte maximum. Public `AddressCursor` operations are additive wrappers over this private implementation; callers receive explicit errors for partial reads, unsupported instructions, cycles and hop limits. The independent iced-x86 differential remains test-only.
+The decoder rejects unsupported encodings and bounds every instruction to the architectural 15-byte maximum. `xref::find_decoded_xrefs` uses a strict linear sweep from a caller-supplied known instruction boundary, so opcode-looking bytes inside immediate/displacement bodies are never considered independent instructions. Public `AddressCursor` operations are additive wrappers over this private implementation; callers receive explicit errors for partial reads, unsupported instructions, cycles and hop limits. The independent iced-x86 differential remains test-only.
 
 ## Scanner batch operation
 
