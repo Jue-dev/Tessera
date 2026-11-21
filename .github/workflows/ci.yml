@@ -352,17 +352,9 @@ jobs:
           path: sdk-Input
           merge-multiple: false
 
-      - name: Assemble unified SDK package
+      - name: Assemble, checksum and validate the unified SDK package
         shell: pwsh
-        run: .\.github\scripts\ci\package-sdk-bundle.ps1
-
-      - name: Generate SDK SHA256SUMS
-        shell: pwsh
-        run: .\.github\scripts\ci\create-sdk-checksum.ps1
-
-      - name: Validate release archive contents and checksum
-        shell: pwsh
-        run: .\.github\scripts\ci\validate-sdk-archive.ps1
+        run: .\.github\scripts\ci\package-sdk-release.ps1
 
       - name: Upload validated dry-run package
         uses: actions/upload-artifact@v7
@@ -392,15 +384,9 @@ jobs:
         with:
           path: sdk-Input
 
-      - name: Assemble Unified Tessera-SDK-Windows Package
+      - name: Assemble, checksum and validate Unified Tessera SDK Package
         shell: pwsh
-        run:  .\.github\scripts\ci\package-sdk-bundle.ps1
-      - name: Generate SDK SHA256SUMS
-        shell: pwsh
-        run: .\.github\scripts\ci\create-sdk-checksum.ps1
-      - name: Validate release archive contents and checksum
-        shell: pwsh
-        run: .\.github\scripts\ci\validate-sdk-archive.ps1
+        run: .\.github\scripts\ci\package-sdk-release.ps1
 
       - name: Upload Combined SDK Bundle Artifact (Tessera-SDK-Full)
         uses: actions/upload-artifact@v7
