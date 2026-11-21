@@ -28,6 +28,8 @@ switch($Task){
   if($LASTEXITCODE -ne 0){throw "Preset build failed."}
   & ctest --preset $Preset --output-on-failure
   if($LASTEXITCODE -ne 0){throw "Preset tests failed."}
+  & ctest --preset $Preset --shuffle --output-on-failure
+  if($LASTEXITCODE -ne 0){throw "Shuffled preset tests failed."}
  }
  "detours" {
   if(-not $Action){throw "-Action is required."}
