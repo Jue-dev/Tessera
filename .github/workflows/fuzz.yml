@@ -25,7 +25,10 @@ jobs:
    - name: Install LLVM for x64
      if: matrix.arch == 'x64'
      uses: yezhizhen/install-llvm-action@8000af8f91093e2002004ceab3abd0f56e4cbde0
-     with: {version: "22.1.8", force-url: https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-win64.exe, directory: ${{ runner.temp }}/llvm22}
+     with:
+      version: "22.1.8"
+      force-url: https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-win64.exe
+      directory: "${{ runner.temp }}/llvm22"
    - uses: ./.github/actions/setup-msvc
      with: {arch: ${{ matrix.arch }}}
    - shell: pwsh
