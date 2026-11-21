@@ -5,8 +5,10 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <string_view>
 
-int main() {
+int main(int argc, char** argv) {
+    const bool json = argc > 1 && std::string_view{argv[1]} == "--json";
     std::string payload = R"({"schema":1,"records":[)";
     constexpr std::size_t record_count = 512;
     for (std::size_t i = 0; i < record_count; ++i) {
@@ -39,6 +41,17 @@ int main() {
             std::abort();
         }
     });
+
+    if (json) {
+        const double seconds = static_cast<double>(parse_metrics.mean.count()) / 1.0e9;
+        const double mb_per_s = seconds > 0.0 ? (payload.size() / seconds) / 1.0e6 : 0.0;
+        std::cout << "{\"benchmarks\":["
+                  << "{\"name\":\"json_parse_512_records\",\"iterations\":" << parse_metrics.iterations
+                  << ",\"ns_per_op\":" << parse_metrics.mean.count() << ",\"mb_per_s\":" << mb_per_s << "},"
+                  << "{\"name\":\"json_write_512_records\",\"iterations\":" << write_metrics.iterations
+                  << ",\"ns_per_op\":" << write_metrics.mean.count() << ",\"mb_per_s\":0}] }\n";
+        return 0;
+    }
 
     std::cout << "json parse records=" << record_count
               << " iterations=" << parse_metrics.iterations
