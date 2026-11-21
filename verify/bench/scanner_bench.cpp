@@ -102,14 +102,24 @@ int main(int argc, char** argv) {
         }
     });
 
-    constexpr auto prolog_pat = "48 89 5C 24 ?? 57 48 83 EC ??"_sig;
+    constexpr auto prolog_pat = "48 89 5C 24 08 57 48 83 EC 20"_sig;
+    std::vector<std::byte> prolog_buffer(buffer.size(), std::byte{0x90});
+    const std::array<std::byte, 10> prolog_bytes{
+        std::byte{0x48}, std::byte{0x89}, std::byte{0x5C}, std::byte{0x24}, std::byte{0x08},
+        std::byte{0x57}, std::byte{0x48}, std::byte{0x83}, std::byte{0xEC}, std::byte{0x20}};
+    constexpr std::size_t prolog_stride = 64;
+    for (std::size_t offset = 0; offset + prolog_bytes.size() <= prolog_buffer.size();
+         offset += prolog_stride) {
+        std::memcpy(prolog_buffer.data() + offset, prolog_bytes.data(), prolog_bytes.size());
+    }
+    const std::size_t expected_prologs = (prolog_buffer.size() + prolog_stride - 1) / prolog_stride;
     auto prolog_metrics = profiling::run_benchmark(10, [&]() {
-        bool found = false;
-        prolog_pat.search(buffer, buffer.size(), [&](std::size_t) {
-            found = true;
+        std::size_t found = 0;
+        prolog_pat.search(prolog_buffer, prolog_buffer.size(), [&](std::size_t) {
+            ++found;
             return true;
         });
-        if (found) {
+        if (found != expected_prologs) {
             std::abort();
         }
     });
