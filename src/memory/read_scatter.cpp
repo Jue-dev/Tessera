@@ -1,6 +1,7 @@
 #include "tessera/memory/read_scatter.hpp"
 #include <algorithm>
 #include <new>
+#include <utility>
 #include "tessera/core/checked_math.hpp"
 #include "tessera/memory/memory_backend.hpp"
 namespace tessera {
