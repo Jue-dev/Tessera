@@ -250,24 +250,6 @@ tessera_add_module(
 # L2: scanner, module, resolver, patch, hook, profile
 # ------------------------------------------------------------------------------
 tessera_add_module(
-    NAME scanner
-    SOURCES
-        src/scanner/scanner.cpp
-    PUBLIC_HEADERS
-        include/tessera/scanner/scanner.hpp
-        include/tessera/scanner/xref.hpp
-    PUBLIC_DEPS
-        tessera::core
-        tessera::diagnostics
-        tessera::process
-        tessera::memory
-        tessera::pattern
-        tessera::disasm
-    PRIVATE_DEPS
-        tessera::disasm
-)
-
-tessera_add_module(
     NAME module
     SOURCES
         src/module/pe_image.cpp
@@ -285,6 +267,26 @@ tessera_add_module(
     SYSTEM_LIBS
         Psapi.lib
 )
+
+tessera_add_module(
+    NAME scanner
+    SOURCES
+        src/scanner/scanner.cpp
+    PUBLIC_HEADERS
+        include/tessera/scanner/scanner.hpp
+        include/tessera/scanner/xref.hpp
+    PUBLIC_DEPS
+        tessera::core
+        tessera::diagnostics
+        tessera::process
+        tessera::memory
+        tessera::pattern
+        tessera::disasm
+        tessera::module
+    PRIVATE_DEPS
+        tessera::disasm
+)
+
 
 tessera_add_module(
     NAME resolver
