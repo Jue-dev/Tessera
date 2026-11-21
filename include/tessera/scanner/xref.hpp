@@ -9,7 +9,10 @@
 #include "tessera/pattern/pattern.hpp"
 #include "tessera/process/process.hpp"
 #include "tessera/scanner/scanner.hpp"
-#include "tessera/module/pe_image.hpp"
+
+namespace tessera {
+class PeImage;
+}
 
 namespace tessera::xref {
 
