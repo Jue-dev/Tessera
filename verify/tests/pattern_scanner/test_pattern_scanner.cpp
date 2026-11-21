@@ -2,6 +2,8 @@
 
 #include <array>
 #include <stop_token>
+#include <atomic>
+#include <thread>
 
 #include "FakeMemoryBackend.hpp"
 #include "tessera/pattern/pattern.hpp"
@@ -184,6 +186,37 @@ TEST_CASE("Scanner chunk overlap, contiguous region merging, bad page skip, and 
         xref::find_pointer_refs(proc_x86, scan_range, Address{0x100000000ULL});
     REQUIRE_FALSE(bad_ptr_xref.has_value());
     REQUIRE(bad_ptr_xref.error().code == ErrorCode::OutOfRange);
+}
+
+TEST_CASE("Scanner supports deterministic concurrent read-only scans", "[scanner][concurrency]") {
+    using namespace tessera;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    backend->map_region(Address{0x720000}, 0x4000, MemoryProtection::ExecuteRead);
+    constexpr std::array<std::byte, 4> signature{
+        std::byte{0xDE}, std::byte{0xAD}, std::byte{0xBE}, std::byte{0xEF}};
+    backend->poke_bytes(Address{0x720100}, signature);
+    backend->poke_bytes(Address{0x721100}, signature);
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
+    const Scanner scanner{process};
+    const Pattern pattern = Pattern::from_bytes(signature).value();
+    const AddressRange range{Address{0x720000}, 0x4000};
+
+    std::atomic<int> successful_scans{0};
+    std::array<std::jthread, 4> workers;
+    for (auto& worker : workers) {
+        worker = std::jthread([&] {
+            const auto result = scanner.scan(range, pattern);
+            if (result && result->hits.size() == 2) {
+                successful_scans.fetch_add(1, std::memory_order_relaxed);
+            }
+        });
+    }
+    for (auto& worker : workers) {
+        worker.join();
+    }
+    REQUIRE(successful_scans.load(std::memory_order_relaxed) == 4);
 }
 
 TEST_CASE("Scanner reports query failures and rejects chunk overlap overflow", "[scanner][safety]") {
