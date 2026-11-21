@@ -142,6 +142,13 @@ Result<PeImage> PeImage::from_raw_bytes(std::span<const std::byte> file_bytes, A
             img.sections_.push_back(std::move(sec));
         }
 
+        auto relocations = pe_detail::parse_base_relocations(
+            src, dirs[5].rva, dirs[5].size, img.kind_, img.sections_, img.size_of_image_);
+        if (!relocations) {
+            return std::unexpected(relocations.error());
+        }
+        img.relocations_ = std::move(*relocations);
+
         // Export directory
         const DataDirEntry exp_dir = dirs[0];
         if (exp_dir.rva != 0 && exp_dir.size >= 40u) {
