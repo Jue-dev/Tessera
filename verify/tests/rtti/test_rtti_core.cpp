@@ -297,3 +297,43 @@ TEST_CASE("RTTI parses x86 absolute-VA and x64 RVA layouts and rejects malformed
         REQUIRE_FALSE(RttiCatalog::discover_all(process, overflow_range).has_value());
     }
 }
+
+
+TEST_CASE("RTTI discovery rejects empty, truncated, and unreadable input ranges", "[rtti][negative]") {
+    using namespace tessera;
+    using namespace tessera::rtti;
+    using namespace tessera::testing;
+
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    backend->map_region(Address{0x310000}, 0x100, MemoryProtection::ReadWrite);
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
+
+    REQUIRE_FALSE(BinaryExplorer::scan_all_type_descriptors(
+        process, AddressRange{Address{0x310000}, 0}).has_value());
+    REQUIRE_FALSE(BinaryExplorer::scan_all_type_descriptors(
+        process, AddressRange{Address{0x310000}, 0x1000}).has_value());
+
+    auto unreadable = std::make_shared<FakeMemoryBackend>();
+    unreadable->map_region(Address{0x320000}, 0x100, MemoryProtection::None);
+    Process unreadable_process = FakeMemoryBackend::make_process(unreadable, Architecture::X86);
+    const auto result = BinaryExplorer::scan_all_type_descriptors(
+        unreadable_process, AddressRange{Address{0x320000}, 0x100});
+    REQUIRE_FALSE(result.has_value());
+}
+
+TEST_CASE("RTTI object view rejects out-of-range field layouts", "[rtti][negative]") {
+    using namespace tessera;
+    using namespace tessera::rtti;
+    using namespace tessera::reflection;
+    using namespace tessera::testing;
+
+    struct SmallObject { std::uint32_t value; };
+    auto type = TypeBuilder<SmallObject>("SmallObject")
+        .field("value", TypeId::from_name("uint32"), 0, 4)
+        .build();
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    backend->map_region(Address{0x330000}, 0x100, MemoryProtection::ReadWrite);
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X86);
+    ObjectView view{process, Address{0x3300F0}, type};
+    REQUIRE_FALSE(view.read_field<std::uint32_t>("value").has_value());
+}
