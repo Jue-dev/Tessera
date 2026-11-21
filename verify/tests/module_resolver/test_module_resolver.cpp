@@ -9,6 +9,7 @@
 #include "tessera/module/pe_image.hpp"
 #include "tessera/pattern/pattern.hpp"
 #include "tessera/resolver/resolver.hpp"
+#include "tessera/scanner/xref.hpp"
 
 #if !defined(TESSERA_PORTABLE_VALIDATION)
 TEST_CASE("ModuleCatalog and PeImage parsing on current process", "[module][pe]") {
