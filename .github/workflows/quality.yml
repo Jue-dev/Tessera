@@ -209,9 +209,9 @@ jobs:
 
           native_sets = allowed_sets(".github/scripts/fuzz-native-hook.ps1")
           stages = set(re.findall(r"fuzz-native-hook\.ps1\s+-Stage\s+([A-Za-z-]+)", fuzz_text))
-          arches = set(re.findall(r"fuzz-native-hook\.ps1\s+-Stage\s+[A-Za-z-]+\s+-Arch\s+(x86|x64)", fuzz_text))
-          assert stages <= native_sets[0], f"Unknown stages: {sorted(stages - native_sets[0])}"
-          assert arches == native_sets[1] == {"x86", "x64"}
+          matrix_arches = set(fuzz["jobs"]["native-hook"]["strategy"]["matrix"]["arch"])
+          assert stages == native_sets[0] == {"setup", "build", "run"}
+          assert matrix_arches == native_sets[1] == {"x86", "x64"}
 
           scripts = {p.name for p in Path(".github/scripts").glob("*") if p.is_file()}
           assert scripts == {"ci-build.ps1", "ci-verify.ps1", "ci-sdk.ps1", "ci-windows-mock.sh", "fuzz-native-hook.ps1"}

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstring>
 #include <fstream>
 #include <limits>
@@ -335,9 +336,9 @@ Result<DiskPatchReport> DiskPatchTransaction::apply() {
     }
 
     std::filesystem::path temp = file_;
-    temp += ".tessera.tmp";
+    const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+    temp += ".tessera." + std::to_string(nonce) + ".tmp";
     std::error_code ec;
-    std::filesystem::remove(temp, ec);
     auto write_status = write_file(temp, updated);
     if (!write_status) {
         std::filesystem::remove(temp, ec);
@@ -355,10 +356,12 @@ Result<DiskPatchReport> DiskPatchTransaction::apply() {
         backup = file_;
         *backup += options_.backup_suffix;
         std::filesystem::copy_file(file_, *backup,
-                                   std::filesystem::copy_options::overwrite_existing, ec);
+                                   std::filesystem::copy_options::none, ec);
         if (ec) {
-            std::filesystem::remove(temp, ec);
-            return fail(ErrorCode::IoError, "DiskPatchTransaction::backup", 0, ec.message());
+            const auto message = ec.message();
+            std::error_code cleanup;
+            std::filesystem::remove(temp, cleanup);
+            return fail(ErrorCode::IoError, "DiskPatchTransaction::backup", 0, message);
         }
     }
 
