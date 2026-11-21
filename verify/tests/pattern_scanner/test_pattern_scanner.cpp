@@ -458,6 +458,54 @@ TEST_CASE("Scanner preserves overlapping hits, alignment quotas, and strict no-a
     REQUIRE(strict.error().code == ErrorCode::AccessDenied);
 }
 
+TEST_CASE("Scanner supports concurrent read-only scans with independent workspaces",
+          "[scanner][concurrency]") {
+    using namespace tessera;
+    using namespace tessera::literals;
+    using namespace tessera::testing;
+
+    constexpr std::uint64_t base = 0x770000;
+    auto backend = std::make_shared<FakeMemoryBackend>();
+    backend->map_region(Address{base}, 0x10000, MemoryProtection::ExecuteRead);
+    constexpr Pattern pattern = "DE AD BE EF 48 8B"_sig;
+    const std::array<std::byte, 6> signature{
+        std::byte{0xDE}, std::byte{0xAD}, std::byte{0xBE},
+        std::byte{0xEF}, std::byte{0x48}, std::byte{0x8B}};
+    const std::array<std::size_t, 4> offsets{0x100, 0x2100, 0x5100, 0xE100};
+    for (const std::size_t offset : offsets) {
+        backend->poke_bytes(Address{base + offset}, signature);
+    }
+
+    Process process = FakeMemoryBackend::make_process(backend, Architecture::X64);
+    const AddressRange range{Address{base}, 0x10000};
+    std::atomic<unsigned> failures{0};
+    std::array<std::jthread, 4> workers;
+    for (std::size_t worker = 0; worker < workers.size(); ++worker) {
+        workers[worker] = std::jthread([&, worker] {
+            Scanner scanner{process};
+            ScanWorkspace workspace;
+            workspace.reserve(0x10000);
+            ScanOptions options{};
+            options.chunk_size = 0x4000;
+            options.filter.executable_only = true;
+            for (int iteration = 0; iteration < 8; ++iteration) {
+                auto result = scanner.scan(range, pattern, options, workspace);
+                if (!result || result->hits.size() != offsets.size()) {
+                    failures.fetch_add(1, std::memory_order_relaxed);
+                    continue;
+                }
+                if (result->hits[worker] != Address{base + offsets[worker]}) {
+                    failures.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+        });
+    }
+    for (auto& worker : workers) {
+        worker.join();
+    }
+    REQUIRE(failures.load(std::memory_order_relaxed) == 0);
+}
+
 TEST_CASE("Scanner reports query failures and rejects chunk overlap overflow", "[scanner][safety]") {
     using namespace tessera;
     using namespace tessera::literals;
