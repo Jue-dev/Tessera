@@ -28,8 +28,8 @@ jobs:
       set -euo pipefail
       if [[ -z "$BASE_SHA" || "$BASE_SHA" == "0000000000000000000000000000000000000000" ]]; then BASE_SHA="$(git rev-list --max-parents=0 HEAD)"; fi
       mapfile -t files < <(git diff --name-only --diff-filter=ACMRT "$BASE_SHA" "$HEAD_SHA" -- 'src/*.c' 'src/**/*.c' 'src/*.cc' 'src/**/*.cc' 'src/*.cpp' 'src/**/*.cpp' 'src/*.cxx' 'src/**/*.cxx' 'include/*.h' 'include/**/*.h' 'include/*.hh' 'include/**/*.hh' 'include/*.hpp' 'include/**/*.hpp' 'include/*.hxx' 'include/**/*.hxx' 'examples/*.c' 'examples/**/*.c' 'examples/*.cc' 'examples/**/*.cc' 'examples/*.cpp' 'examples/**/*.cpp' 'examples/*.cxx' 'examples/**/*.cxx' 'examples/*.h' 'examples/**/*.h' 'examples/*.hh' 'examples/**/*.hh' 'examples/*.hpp' 'examples/**/*.hpp' 'examples/*.hxx' 'examples/**/*.hxx')
-      if (("\${#files[@]}" == 0)); then echo "No changed production sources"; exit 0; fi
-      clang-format-18 --dry-run --Werror "\${files[@]}"
+      if ((${#files[@]} == 0)); then echo "No changed production sources"; exit 0; fi
+      clang-format-18 --dry-run --Werror "${files[@]}"
  clang-tidy:
   runs-on: windows-latest
   timeout-minutes: 45
@@ -97,11 +97,11 @@ jobs:
       mkdir -p artifacts/coverage
       shopt -s nullglob
       profiles=(coverage-*.profraw)
-      if (("\${#profiles[@]}" == 0)); then echo "No LLVM profile data" > artifacts/coverage/summary.txt; exit 0; fi
-      llvm-profdata merge -sparse "\${profiles[@]}" -o artifacts/coverage/merged.profdata
+      if ((${#profiles[@]} == 0)); then echo "No LLVM profile data" > artifacts/coverage/summary.txt; exit 0; fi
+      llvm-profdata merge -sparse "${profiles[@]}" -o artifacts/coverage/merged.profdata
       mapfile -t bins < <(find build-coverage/verify/tests -maxdepth 1 -type f -iname 'tessera_test_*.exe' | sort)
-      for b in "\${bins[@]}"; do n="$(basename "$b" .exe)"; llvm-cov export -format=lcov "$b" -instr-profile=artifacts/coverage/merged.profdata > "artifacts/coverage/$n.info"; done
-      if (("\${#bins[@]}" > 0)); then args=("\${bins[0]}" -instr-profile=artifacts/coverage/merged.profdata -show-branch-summary); for b in "\${bins[@]:1}"; do args+=(-object "$b"); done; llvm-cov report "\${args[@]}" > artifacts/coverage/summary.txt; cat artifacts/coverage/summary.txt >> "$GITHUB_STEP_SUMMARY"; fi
+      for b in "${bins[@]}"; do n="$(basename "$b" .exe)"; llvm-cov export -format=lcov "$b" -instr-profile=artifacts/coverage/merged.profdata > "artifacts/coverage/$n.info"; done
+      if ((${#bins[@]} > 0)); then args=("${bins[0]}" -instr-profile=artifacts/coverage/merged.profdata -show-branch-summary); for b in "${bins[@]:1}"; do args+=(-object "$b"); done; llvm-cov report "${args[@]}" > artifacts/coverage/summary.txt; cat artifacts/coverage/summary.txt >> "$GITHUB_STEP_SUMMARY"; fi
    - uses: actions/upload-artifact@v7
      if: always()
      with: {name: tessera-coverage-report, path: artifacts/coverage/, if-no-files-found: ignore}
