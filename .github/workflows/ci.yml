@@ -194,7 +194,7 @@ jobs:
       - name: Build Microsoft Detours for ${{ matrix.arch }}
         shell: pwsh
         working-directory: dependencies/Detours/src
-        run: '& "$env:GITHUB_WORKSPACE\.github\scripts\ci\detours.ps1 -Action Build" -Architecture "${{ matrix.arch }}"'
+        run: '& "$env:GITHUB_WORKSPACE\.github\scripts\ci\detours.ps1" -Action Build -Architecture "${{ matrix.arch }}"'
       - name: Verify architecture-specific Detours outputs
         shell: pwsh
         run:  .\.github\scripts\ci\detours.ps1 -Action Verify -Architecture "${{ matrix.arch }}"
