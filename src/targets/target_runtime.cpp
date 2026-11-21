@@ -546,7 +546,7 @@ ResolutionOutcome AddressResolver::resolve_entry(TargetProfile& profile,
                 outcome.from_session_cache ? "Resolved from verified session cache"
                                            : "Resolution ended at this stage";
         }
-        return finish();
+        return outcome;
     };
     begin_stage("Architecture compatibility");
     const TargetArch proc_arch =
