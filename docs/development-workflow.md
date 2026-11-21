@@ -1,114 +1,42 @@
-# Development and CI workflow
+# Development workflow
 
-## Branch roles
+## Branch and workflow roles
 
-- `main` is the stable integration and release branch.
-- Pull requests targeting `main` run the full Windows CI matrix when build/source/verification/workflow inputs change.
-- Relevant source/build changes pushed to `main` run the same full CI.
-- Feature branches can be manually validated using workflow dispatch.
-- The sustained native-hook fuzz campaign remains manual-only and bounded.
+- main is the stable integration and release branch.
+- Source/build/verification changes targeting or pushed to main run .github/workflows/ci.yml.
+- Quality checks (format, clang-tidy, sanitizers, coverage, CodeQL, and Markdown links) live in .github/workflows/quality.yml.
+- Eight continuous fuzz targets and native-hook x86/x64 campaigns live in .github/workflows/fuzz.yml.
+- Version tags v*.*.* and manual dispatch run .github/workflows/release.yml.
 
-## Validation behavior
+The lifecycle is consolidated to four workflows. Elevated CodeQL security-events: write permission is scoped to the CodeQL job. CI and quality runs on main are not canceled by newer commits; pull-request runs may be superseded. Release runs are never canceled.
 
-| Event | Validation |
+## Shared CI scripts
+
+The former per-action script folders are consolidated into five task-oriented entry points:
+
+| Script | Tasks |
 | --- | --- |
-| Relevant pull request to `main` | Full Windows CI: x86/x64 Debug/Release, CTest, Detours integration, packaging, MSVC analysis, and SDK artifacts |
-| Relevant change pushed to `main` | Full Windows CI |
-| Documentation-only change | No automatic CI run unless workflow/config paths are changed |
-| Push to feature branch | No automatic CI unless it is part of a PR targeting `main` |
-| Manual `Tessera CI & SDK Release` dispatch | Full CI on selected branch; release publication remains tag-push-only |
-| Manual `Continuous Fuzzing` dispatch | Bounded 30/60/120/300-second MSVC fuzzer + ASan campaigns across all eight corpus targets |
+| .github/scripts/ci-build.ps1 | configure, preset, detours, detours-integration |
+| .github/scripts/ci-verify.ps1 | fuzz-bench, decoder-oracle, examples |
+| .github/scripts/ci-sdk.ps1 | package-bundle, package-release, checksum, validate, consumer |
+| .github/scripts/ci-windows-mock.sh | Linux normal and ASan/UBSan Windows-mock runs |
+| .github/scripts/fuzz-native-hook.ps1 | setup, build, run for x64/x86 |
 
-The CI path allowlist covers CMake configuration, `cmake/`, `include/`, `src/`, `verify/`, `examples/`, `scripts/`, dependency manifests, `.clang-tidy`, and GitHub workflow files. Small PowerShell CI helpers are grouped by responsibility: `detours.ps1` handles architecture-specific Detours build/verification, and `configure.ps1` handles no-RTTI/reduced configurations. Prose-only documentation changes do not start CI. A commit containing documentation and an allowlisted input still starts CI.
+The scripts are CI-only helpers and are not included in the core SDK. Workflow invocations and task parameters are maintained with these files.
+
+## Validation matrix
+
+| Workflow/event | Validation |
+| --- | --- |
+| Relevant PR or push to main | MSVC x64/x86 Debug/Release, CTest, Detours x64/x86, reduced/no-RTTI configurations, Linux portable foundation build, windows_mock, decoder oracle, installed SDK consumer, fuzz/benchmark/example smoke |
+| Quality PR/push/manual/schedule | clang-format, clang-tidy, ASan+UBSan, TSan, LLVM coverage, CodeQL, Markdown link check |
+| Fuzz PR/manual/schedule | Eight MSVC fuzz targets and separate native-hook x64 libFuzzer / x86 MSVC Fuzzer campaigns |
+| Release tag or dispatch | x86/x64 Debug/Release SDK export, standalone consumer, archive/checksum validation, GitHub Release assets |
 
 ## Final validation
 
-Run the consolidated validation script on Windows with Visual Studio/MSVC, CMake, Ninja, and Clang available:
+After implementation, run scripts/run-final-validation.ps1 from a Windows PowerShell session with MSVC and Ninja. Include -RunFuzz and -RunDecoderOracle for the extended checks. The optional benchmark preset produces five executables and machine-readable --json metrics. Standalone corpus replay uses the same LLVMFuzzerTestOneInput callbacks as coverage-guided builds but does not replace sustained fuzzing.
 
-```powershell
-.\scripts\run-final-validation.ps1
-```
+## Architecture boundaries
 
-To include Microsoft Detours v4.0.1, pass its source checkout; the script builds architecture-specific libraries:
-
-```powershell
-.\scripts\run-final-validation.ps1 -DetoursRoot .\dependencies\Detours
-```
-
-To include the bounded sustained native-hook fuzz campaign:
-
-```powershell
-.\scripts\run-final-validation.ps1 -RunFuzz -FuzzSeconds 300
-```
-
-Logs and summary are written under `artifacts/final-validation/logs`; fuzz corpus/crash artifacts are under `artifacts/final-validation/native-hook-fuzz`.
-
-## Normal development cycle
-
-1. Make changes on the feature branch.
-2. Run focused local tests while iterating.
-3. Open/update a PR; automatic full CI validates relevant changes.
-4. At the final checkpoint, run the sustained fuzz campaign and inspect artifacts.
-5. Review all logs and artifacts; green tests do not replace real host admission/drain/unload acceptance.
-6. Merge only after review and explicit approval.
-
-## Notes
-
-- Full CI remains manually runnable on any selected branch.
-- The release job is guarded to version-tag pushes.
-- The focused fuzz campaign remains manual because it is intentionally time-bounded and should be run at meaningful checkpoints.
-- Update path filters when adding new build inputs or top-level source folders.
-
-
-## Build presets and optional validation
-
-Use the checked-in presets from a Visual Studio Developer PowerShell/Command Prompt with the matching architecture environment:
-
-```powershell
-cmake --preset x64-debug
-cmake --build --preset x64-debug
-ctest --preset x64-debug --output-on-failure
-```
-
-Optional configure/build/test presets are available without changing the default SDK build:
-
-- `x64-analyze`: MSVC static analysis.
-- `x64-bench`: scanner, instruction-decoder, PE, JSON, and RTTI-discovery benchmarks; CTest runs all tests plus benchmark smoke checks.
-- `x64-fuzz-smoke`: standalone fuzz harnesses; CTest replays all checked-in corpora through the shared `LLVMFuzzerTestOneInput` entry points. The no-RTTI CI configuration also sets `TESSERA_PATTERN_FORCE_SCALAR=ON` to validate the non-SIMD fallback independently of the normal runtime-dispatched builds.
-
-The benchmark executables are `tessera_bench`, `tessera_decoder_bench`, `tessera_pe_bench`, `tessera_json_bench`, and `tessera_rtti_discovery_bench`. The fuzz-smoke preset covers `pattern`, `pe`, `json`, `profile_json`, `python_bridge`, `scanner`, `rtti_discovery`, and (on Windows) `native_hook`.
-
-The independent decoder differential job builds `verify/tests/decoder_oracle/decoder_probe.cpp` and compares instruction boundaries with pinned test-only `iced-x86==1.21.0` using `verify/tests/decoder_oracle/compare_iced.py`. It is enabled by `TESSERA_ENABLE_DECODER_ORACLE=ON` and is not a runtime or SDK dependency. The decoder's supported subset and explicit rejection boundaries are documented in [the native decoder envelope](native-instruction-decoder-envelope.md).
-
-## Technical notes
-
-- [JSON validation and ownership boundaries](json-validation-boundaries.md): profile/target JSON domain ownership and the shared private field readers.
-- [Memory write protection recovery](memory-write-recovery.md): pending protection-restore ownership across `MemoryWriter` and `Patch`.
-- [Native x86/x64 decoder envelope](native-instruction-decoder-envelope.md): bounded decode metadata and stricter relocation constraints.
-
-## Architecture constraints and repository map
-
-- Preserve public API signatures under `include/tessera/**`; implementation-only helpers belong under `src/**`.
-- Keep `core` and `profiling` as compiled targets and keep Python bridge implementation in the `rtti` target.
-- Native inline-hook changes must preserve the safety, unwind, thread-suspension, and lifecycle contract in [ADR 0002](adr/0002-native-inline-hook-safety-contract.md).
-- Component dependencies and source-splitting constraints are recorded in [ADR 0003](adr/0003-core-profiling-and-rtti-boundaries.md).
-- `include/tessera/**`: public SDK headers; `src/**`: private module implementations.
-- `verify/tests/**`: deterministic tests and decoder oracle; `verify/fuzz/**`: fuzz harnesses and seed corpora; `verify/bench/**`: opt-in benchmarks.
-- Reduced SDK variants install the package and compile a separate `find_package(Tessera CONFIG REQUIRED)` consumer; run the full CI matrix before merging.
-
-## Wave 3 validation commands
-
-The fallback test runner supports deterministic randomization and machine-readable results:
-
-```powershell
-ctest --preset x64-debug --output-on-failure
-# The CMake test graph also registers a shuffled suite with seed 20261121.
-.\scripts\run-final-validation.ps1 -RunFuzz -RunDecoderOracle
-```
-
-When Catch2 is unavailable, `test_main.cpp` accepts `--shuffle`, `--seed N`, `--filter substring`, and `--junit path`. When Catch2 is available, CTest uses Catch2's equivalent randomized-order, fixed-seed and JUnit reporter arguments.
-
-All five benchmark executables support `--json`; `verify/bench/validate_bench_json.py` checks their output in CTest when Python is available. LLVM line/branch coverage can be enabled with `TESSERA_ENABLE_COVERAGE=ON` using the Windows clang-cl toolchain. CI runs ASan+UBSan and TSan separately against the portable Windows-backend mock harness; CodeQL uses the supported Windows MSVC build, and all eight continuous fuzz campaigns use the MSVC fuzzer.
-
-Release tags (`v*`) use the SDK packaging job and publish the SDK ZIP with `SHA256SUMS.txt`. See [SECURITY.md](../SECURITY.md) for vulnerability reporting and the native-memory/inline-hook threat model.
-
+Preserve public API signatures under include/tessera/** and compatibility decisions in ADR 0001–0003. Internal helpers belong under src/**; tests and synthetic fixtures belong under verify/**. Native inline-hook lifecycle and implementation limits are defined by ADR 0002. Component boundaries are defined by ADR 0003. See safety-and-boundaries.md for JSON, memory-write, PE parsing, and decoder contracts.
