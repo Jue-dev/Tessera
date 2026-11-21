@@ -94,3 +94,8 @@ Python bridge discovery reports runtime/framework evidence separately from deplo
 - `xref::find_indirect_refs` verifies x86 absolute and x64 RIP-relative indirect CALL/JMP slots by decoding the instruction and dereferencing the pointer operand. `PeImage::relocations()` exposes bounds-checked base relocation entries, and `xref::find_relocated_pointer_refs` resolves HIGHLOW/DIR64 data pointers using the loaded module base.
 - `AddressCursor` exposes bounded instruction stepping, call/RIP-relative instruction discovery, operand-target resolution, and cycle/hop-limited thunk following. These operations use the internal shared decoder and return errors for unsupported or unreadable instructions.
 
+
+
+## Resolution diagnostics
+
+`ResolutionTrace` can be passed to the additive `AddressResolver::resolve_entry` overload to record the resolution stage and terminal status without changing the target-profile JSON schema.
