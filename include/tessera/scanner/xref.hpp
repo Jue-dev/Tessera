@@ -39,12 +39,21 @@ struct XrefScanResult {
     bool cancelled = false;
 };
 
+struct XrefBatchScanResult {
+    std::vector<XrefScanResult> results{};
+};
+
 // Linear sweep from instruction_range.begin; the caller must provide a
 // known instruction boundary. Undecodable or unreadable bytes fail closed.
 [[nodiscard]] Result<XrefScanResult> find_decoded_xrefs(
     const Process& process,
     AddressRange instruction_range,
     Address target,
+    const ScanOptions& options = {});
+[[nodiscard]] Result<XrefBatchScanResult> find_decoded_xrefs_batch(
+    const Process& process,
+    AddressRange instruction_range,
+    std::span<const Address> targets,
     const ScanOptions& options = {});
 
 [[nodiscard]] Result<std::vector<Address>> find_pointer_refs(
