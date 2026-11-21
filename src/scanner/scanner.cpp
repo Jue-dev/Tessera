@@ -771,6 +771,55 @@ Result<std::vector<Address>> find_indirect_refs(
     }
 }
 
+Result<std::vector<Address>> find_relocated_pointer_refs(
+    const Process& process, Address module_base, const PeImage& image, Address target) {
+    if (module_base.is_null() || target.is_null()) {
+        return fail(ErrorCode::NullAddress, "xref::find_relocated_pointer_refs");
+    }
+    const std::size_t pointer_size = image.kind() == PeKind::Pe32Plus ? 8u : 4u;
+    if (process.pointer_size() != pointer_size) {
+        return fail(ErrorCode::UnsupportedArchitecture, "xref::find_relocated_pointer_refs",
+                    0, "Process and PE image architectures do not match");
+    }
+    try {
+        std::vector<Address> references;
+        for (const auto& relocation : image.relocations()) {
+            const bool pointer_relocation =
+                (pointer_size == 4u && relocation.type == 3u) ||
+                (pointer_size == 8u && relocation.type == 10u);
+            if (!pointer_relocation) {
+                continue;
+            }
+            auto location = module_base.add_rva(relocation.location);
+            if (!location) {
+                return std::unexpected(location.error());
+            }
+            std::array<std::byte, sizeof(std::uint64_t)> raw{};
+            auto read = memory_backend(process).read(
+                *location, std::span<std::byte>{raw}.first(pointer_size));
+            if (!read || *read != pointer_size) {
+                continue;
+            }
+            std::uint64_t value = 0;
+            if (pointer_size == 8u) {
+                std::memcpy(&value, raw.data(), sizeof(value));
+            } else {
+                std::uint32_t value32 = 0;
+                std::memcpy(&value32, raw.data(), sizeof(value32));
+                value = value32;
+            }
+            if (value == target.value()) {
+                references.push_back(*location);
+            }
+        }
+        std::sort(references.begin(), references.end());
+        references.erase(std::unique(references.begin(), references.end()), references.end());
+        return references;
+    } catch (const std::bad_alloc&) {
+        return fail(ErrorCode::OutOfMemory, "xref::find_relocated_pointer_refs");
+    }
+}
+
 } // namespace xref
 
 } // namespace tessera
