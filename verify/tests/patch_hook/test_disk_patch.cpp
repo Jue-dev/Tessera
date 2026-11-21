@@ -4,6 +4,7 @@
 #include <string_view>
 #include <chrono>
 #include <cstring>
+#include <string>
 #include <filesystem>
 #include <fstream>
 #include "tessera/filesystem/filesystem.hpp"
@@ -41,7 +42,15 @@ TEST_CASE("PeFileBackend exposes bounded offline PE sections to existing readers
  MemoryReader reader{*process};
  std::array<std::byte,8> bytes{};auto read=reader.read_exact(*va,bytes);REQUIRE(read);
  REQUIRE(std::equal(bytes.begin(),bytes.end(),raw->begin()+*off));
- auto pattern=Pattern::from_bytes(std::span<const std::byte>{bytes.data(),4});REQUIRE(pattern);
+ std::string signature;
+ constexpr char digits[] = "0123456789ABCDEF";
+ for (std::size_t i = 0; i < 4; ++i) {
+  const auto value = std::to_integer<unsigned int>(bytes[i]);
+  signature.push_back(digits[value >> 4u]);
+  signature.push_back(digits[value & 0x0fu]);
+  signature.push_back(' ');
+ }
+ auto pattern = Pattern::parse(signature);REQUIRE(pattern);
  Scanner scanner{*process};
  const auto range=AddressRange{*va,std::min<std::uint64_t>(text->raw_size,0x2000)};
  auto found=scanner.scan(range,*pattern);REQUIRE(found);
